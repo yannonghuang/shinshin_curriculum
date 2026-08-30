@@ -1,0 +1,89 @@
+# Default: dev mode (hot reload, source bind-mounted).
+# Use docker-compose.prod.yml on top of this for production.
+#
+# Usage:
+#   cp .env.example .env   # fill in real values first
+#   docker compose up --build              # backend + frontend + db
+#   docker compose --profile dev up --build  # + adminer (DB browser UI)
+
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${DB_NAME:-shinshin_curriculum}
+      MYSQL_USER: ${DB_USER:-shinshin}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-shinshin}
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      # Official mysql image auto-runs *.sql files here against MYSQL_DATABASE,
+      # but ONLY on first init (empty volume) — see deploy.md for re-applying
+      # schema changes against an existing volume.
+      - ./backend/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-rootpass}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      DB_HOST: db
+      DB_USER: ${DB_USER:-shinshin}
+      DB_PASSWORD: ${DB_PASSWORD:-shinshin}
+      DB_NAME: ${DB_NAME:-shinshin_curriculum}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      JWT_VALIDITY: ${JWT_VALIDITY:-86400}
+      LLM_PROVIDER: ${LLM_PROVIDER:-dashscope}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      AI_REVIEW_MODEL: ${AI_REVIEW_MODEL:-qwen3.8-max}
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+      - backend_upload:/app/upload
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./react-app
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      API_PROXY_TARGET: http://backend:8080
+      # Bind-mounted volumes often don't emit inotify events (esp. on
+      # macOS/Windows Docker Desktop) — polling picks up file changes anyway.
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./react-app:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+
+  # DB browser UI. Opt-in only: `docker compose --profile dev up`.
+  adminer:
+    image: adminer:4
+    profiles: ["dev"]
+    ports:
+      - "8081:8080"
+    depends_on:
+      - db
+
+volumes:
+  db_data:
+  backend_node_modules:
+  backend_upload:
+  frontend_node_modules:

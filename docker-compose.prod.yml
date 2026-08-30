@@ -1,0 +1,31 @@
+# Prod overrides: no source bind-mounts, production Dockerfiles, nginx serves
+# the built frontend, DB not exposed to the host.
+#
+# Usage:
+#   cp .env.example .env   # fill in real production values first
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+
+services:
+  db:
+    # !override: Compose merges list fields (volumes/ports) across -f files by
+    # default instead of replacing them — !override forces a full replace so
+    # the dev host-port mapping is actually dropped, not appended to.
+    ports: !override []   # only reachable from other containers on the compose network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes: !override
+      - backend_upload:/app/upload   # keep upload persistence; drop the dev source bind-mount
+    command: node server.js
+
+  frontend:
+    build:
+      context: ./react-app
+      dockerfile: Dockerfile
+    ports: !override
+      - "80:80"
+    volumes: !override []   # static build is baked into the image; nothing to mount
+    depends_on:
+      - backend

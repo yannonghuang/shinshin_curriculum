@@ -1,0 +1,15 @@
+# Dev image: install deps only; app code is bind-mounted at runtime by
+# docker-compose.yml so edits hot-reload without a rebuild.
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
+EXPOSE 3000
+ENV NODE_OPTIONS=--openssl-legacy-provider
+# CHOKIDAR_USEPOLLING is set in docker-compose.yml: bind-mounted volumes
+# (especially on macOS/Windows) often don't emit inotify events, so the
+# CRA dev server needs polling to pick up file changes.
+CMD ["npm", "start"]

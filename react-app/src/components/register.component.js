@@ -1,0 +1,328 @@
+import React, { Component } from "react";
+import Form from "react-validation/build/form";
+import Input from "react-validation/build/input";
+import CheckButton from "react-validation/build/button";
+import { isEmail } from "validator";
+import { Link } from "react-router-dom";
+
+import emailjs, { init } from "emailjs-com";
+
+import AuthService from "../services/auth.service";
+import emailjsConfig from "../config/emailjs.config";
+import "../curriculum.css";
+
+const jwt = require("jsonwebtoken");
+
+init(emailjsConfig.userId);
+
+const required = (value) => {
+  if (!value) {
+    return (
+      <div className="alert alert-danger" role="alert">
+        请填写!
+      </div>
+    );
+  }
+};
+
+const email = (value) => {
+  if (!isEmail(value)) {
+    return (
+      <div className="alert alert-danger" role="alert">
+        邮件地址不正确
+      </div>
+    );
+  }
+};
+
+const vusername = (value) => {
+  if (value.length < 3 || value.length > 20) {
+    return (
+      <div className="alert alert-danger" role="alert">
+        用户名应含3至20个字节
+      </div>
+    );
+  }
+};
+
+const vpassword = (value) => {
+  if (value && value.length > 0 && (value.length < 6 || value.length > 40)) {
+    return (
+      <div className="alert alert-danger" role="alert">
+        密码应含6至40个字节
+      </div>
+    );
+  }
+};
+
+// Simplified from shinshin's register.component.js -- this app only has three roles
+// (teacher/expert/admin) and no school/donor domain, so the dozens of school-scoped fields
+// (schoolId, title, wechat, contactOnly, ...) are dropped. Role checkboxes are populated
+// dynamically from GET /api/auth/roles, matching shinshin's dynamic-role pattern. On success
+// this triggers the verification email (same client-signed-JWT + emailjs-com flow as
+// login.component.js) and shows a "请查收邮件完成验证" landing state instead of routing
+// straight to /login.
+export default class Register extends Component {
+  constructor(props) {
+    super(props);
+    this.handleRegister = this.handleRegister.bind(this);
+    this.onChangeUsername = this.onChangeUsername.bind(this);
+    this.onChangeChineseName = this.onChangeChineseName.bind(this);
+    this.onChangeEmail = this.onChangeEmail.bind(this);
+    this.onChangePassword = this.onChangePassword.bind(this);
+    this.onToggleRole = this.onToggleRole.bind(this);
+
+    this.state = {
+      username: "",
+      chineseName: "",
+      email: "",
+      password: "",
+      roles: [],
+      rolesFull: [],
+      successful: false,
+      message: "",
+    };
+  }
+
+  componentDidMount() {
+    this.getRoles();
+  }
+
+  getRoles() {
+    AuthService.getRoles()
+      .then((response) => {
+        this.setState({ rolesFull: response.data || [] });
+      })
+      .catch((e) => {
+        console.log(e);
+      });
+  }
+
+  onChangeUsername(e) {
+    this.setState({ username: e.target.value });
+  }
+
+  onChangeChineseName(e) {
+    this.setState({ chineseName: e.target.value });
+  }
+
+  onChangeEmail(e) {
+    this.setState({ email: e.target.value });
+  }
+
+  onChangePassword(e) {
+    this.setState({ password: e.target.value });
+  }
+
+  onToggleRole(roleName) {
+    this.setState((prev) => {
+      const has = prev.roles.includes(roleName);
+      return {
+        roles: has ? prev.roles.filter((r) => r !== roleName) : [...prev.roles, roleName],
+      };
+    });
+  }
+
+  emailVerification() {
+    if (!this.state.email) return;
+
+    const token = jwt.sign({ email: this.state.email }, emailjsConfig.jwtSecret, {
+      expiresIn: 60 * 120, // 2小时
+    });
+
+    const url = window.location.origin;
+    const templateParams = {
+      to: this.state.email,
+      username: (this.state.chineseName ? this.state.chineseName : this.state.username) + "(登录名: " + this.state.username + ")",
+      link: url + "/login?token=" + token,
+      validity: "2小时",
+    };
+
+    emailjs.send(emailjsConfig.serviceId, emailjsConfig.templateIdEmailVerification, templateParams).then(
+      () => {
+        this.setState({
+          message: "成功创建用户账号，验证邮件已发至您的注册邮箱，请查收邮件完成验证。",
+          successful: true,
+        });
+      },
+      (error) => {
+        this.setState({
+          message: "账号已创建，但验证邮件发送失败：" + (error.text || "请稍后重试或联系管理员。"),
+          successful: true,
+        });
+      }
+    );
+  }
+
+  handleRegister(e) {
+    e.preventDefault();
+
+    this.setState({ message: "", successful: false });
+
+    if (this.state.roles.length === 0) {
+      this.setState({ message: "请至少选择一个角色。" });
+      return;
+    }
+
+    this.form.validateAll();
+
+    if (this.checkBtn.context._errors.length === 0) {
+      AuthService.signup(this.state.username, this.state.email, this.state.password, this.state.roles, this.state.chineseName).then(
+        () => {
+          this.emailVerification();
+        },
+        (error) => {
+          const resMessage =
+            (error.response && error.response.data && error.response.data.message) || error.message || error.toString();
+
+          this.setState({ successful: false, message: resMessage });
+        }
+      );
+    }
+  }
+
+  render() {
+    // Public signup can never create an admin account (the backend rejects it
+    // regardless -- see verifySignUp.checkNotAdminRole) -- so admin is never
+    // offered as a choice here. Admin accounts are created by an existing
+    // admin via POST /api/auth/admin/users instead.
+    const signupRoles = this.state.rolesFull.filter((role) => role.name !== "admin");
+
+    return (
+      <div className="auth-page">
+        {this.state.successful ? (
+          <div className="auth-card">
+            <div className="auth-badge">
+              <i className="fas fa-envelope-open-text"></i>
+            </div>
+            <h2 className="auth-title">请查收邮件</h2>
+            <p className="auth-subtitle">{this.state.message}</p>
+            <Link to="/login">
+              <button className="auth-btn-primary">前往登录</button>
+            </Link>
+          </div>
+        ) : (
+          <div className="auth-card">
+            <div className="auth-badge">
+              <i className="fas fa-user-plus"></i>
+            </div>
+            <h2 className="auth-title">创建账号</h2>
+            <p className="auth-subtitle">加入乡土课程项目实施与案例分享系统</p>
+
+            <Form
+              onSubmit={this.handleRegister}
+              ref={(c) => {
+                this.form = c;
+              }}
+            >
+              <div className="form-group">
+                <label htmlFor="username">
+                  用户名<span className="required">*</span>
+                </label>
+                <Input
+                  type="text"
+                  className="form-control"
+                  name="username"
+                  value={this.state.username}
+                  onChange={this.onChangeUsername}
+                  validations={[required, vusername]}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="chineseName">
+                  姓名<span className="required">*</span>
+                </label>
+                <Input
+                  type="text"
+                  className="form-control"
+                  name="chineseName"
+                  value={this.state.chineseName}
+                  onChange={this.onChangeChineseName}
+                  validations={[required]}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="email">
+                  电子邮箱<span className="required">*</span>
+                </label>
+                <Input
+                  type="text"
+                  className="form-control"
+                  name="email"
+                  value={this.state.email}
+                  onChange={this.onChangeEmail}
+                  validations={[required, email]}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="password">
+                  密码<span className="required">*</span>
+                </label>
+                <Input
+                  type="password"
+                  className="form-control"
+                  name="password"
+                  value={this.state.password}
+                  onChange={this.onChangePassword}
+                  validations={[required, vpassword]}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  角色<span className="required">*</span>
+                </label>
+                <div className="auth-roles-grid">
+                  {signupRoles.map((role) => {
+                    const checked = this.state.roles.includes(role.name);
+                    return (
+                      <label
+                        key={role.name}
+                        htmlFor={`role-${role.name}`}
+                        className={`auth-role-chip${checked ? " is-checked" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          id={`role-${role.name}`}
+                          checked={checked}
+                          onChange={() => this.onToggleRole(role.name)}
+                        />
+                        {role.label || role.name}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="form-group">
+                <button className="auth-btn-primary">注册</button>
+              </div>
+
+              {this.state.message && (
+                <div className="form-group">
+                  <div className="auth-alert" role="alert">
+                    {this.state.message}
+                  </div>
+                </div>
+              )}
+
+              <CheckButton
+                style={{ display: "none" }}
+                ref={(c) => {
+                  this.checkBtn = c;
+                }}
+              />
+            </Form>
+
+            <p className="auth-footnote">
+              已有账号？ <Link to="/login">立即登录</Link>
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+}

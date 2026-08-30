@@ -1,0 +1,11 @@
+# Dev image: install deps (incl. nodemon) only; app code is bind-mounted at
+# runtime by docker-compose.yml so edits hot-reload without a rebuild.
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
+EXPOSE 8080
+CMD ["npm", "run", "dev"]
