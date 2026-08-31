@@ -1,4 +1,11 @@
-.pl-page {
+/* Global, not scoped to .pl-page: lots of components (.pl-tag, .pl-card,
+   .pl-drawer-*, .pl-material-toggle, ...) reference these var(--pl-*) tokens
+   even when their page isn't wrapped in .pl-page (e.g. any non-stylishPublic
+   view) -- scoping them to .pl-page left every var() reference silently
+   undefined/falling back to browser defaults on those pages (confirmed: an
+   admin's plain /plans view rendered the mine/all toggle in Bootstrap's
+   default gray instead of the app's green, since that view isn't stylishPublic). */
+:root {
   --pl-bg: #f7f8f4;
   --pl-panel: #ffffff;
   --pl-line: #e3e6dc;
@@ -8,6 +15,9 @@
   --pl-accent-soft: #e7f5ee;
   --pl-warn: #7f5d2d;
   --pl-warn-soft: #fff5e7;
+}
+
+.pl-page {
   background: radial-gradient(circle at 5% 0%, #eef6f0 0%, var(--pl-bg) 45%, #f5f5ef 100%);
   min-height: calc(100vh - 140px);
   padding: 16px;
@@ -353,6 +363,22 @@
   display: flex;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+/* Resting state override -- without this, Bootstrap's .btn-outline-primary
+   renders in Bootstrap's default blue instead of the app's green palette,
+   only .is-active picking up --pl-accent below. */
+.pl-material-toggle button.btn-outline-primary {
+  color: var(--pl-accent);
+  border-color: var(--pl-accent);
+}
+
+.pl-material-toggle button.btn-outline-primary:hover,
+.pl-material-toggle button.btn-outline-primary:focus {
+  color: var(--pl-accent);
+  border-color: var(--pl-accent);
+  background: var(--pl-accent-soft);
+  box-shadow: none;
 }
 
 .pl-material-toggle button.is-active {
