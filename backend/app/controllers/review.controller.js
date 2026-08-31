@@ -16,7 +16,7 @@ exports.create = async (req, res) => {
   try {
     const planId = Number(req.params.planId);
     if (!Number.isInteger(planId) || planId <= 0) {
-      return res.status(422).send({ message: "乡土课程计划 ID 无效。" });
+      return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
 
     const { content, score, sectionKey } = req.body;
@@ -26,7 +26,7 @@ exports.create = async (req, res) => {
 
     const plan = await Plan.findByPk(planId);
     if (!plan) {
-      return res.status(404).send({ message: "乡土课程计划不存在。" });
+      return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
     const data = await Review.create({
@@ -90,12 +90,12 @@ exports.createAiReview = async (req, res) => {
   try {
     const planId = Number(req.params.planId);
     if (!Number.isInteger(planId) || planId <= 0) {
-      return res.status(422).send({ message: "乡土课程计划 ID 无效。" });
+      return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
 
     const plan = await Plan.findByPk(planId);
     if (!plan) {
-      return res.status(404).send({ message: "乡土课程计划不存在。" });
+      return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
     const lessonIndex = normalizeLessonIndex(req.body.lessonIndex);
@@ -144,7 +144,7 @@ exports.findByPlan = async (req, res) => {
   try {
     const planId = Number(req.params.planId);
     if (!Number.isInteger(planId) || planId <= 0) {
-      return res.status(422).send({ message: "乡土课程计划 ID 无效。" });
+      return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
 
     const where = { planId };

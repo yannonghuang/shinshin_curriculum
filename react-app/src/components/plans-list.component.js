@@ -85,7 +85,7 @@ const PlansList = (props) => {
       setTotalItems(resp.data.totalItems || 0);
     } catch (e) {
       console.log(e);
-      setMessage("加载课程计划数据失败。");
+      setMessage("加载课程设计数据失败。");
     }
   }, [page, pageSize, keyword, searchYear, searchTheme, searchGrade, effectiveMineOnly, statusFilter, excellentOnly]);
 
@@ -112,10 +112,10 @@ const PlansList = (props) => {
       };
       if (editingId) {
         await PlanDataService.update(editingId, payload);
-        setMessage("课程计划更新成功。");
+        setMessage("课程设计更新成功。");
       } else {
         await PlanDataService.create(payload);
-        setMessage("课程计划创建成功。");
+        setMessage("课程设计创建成功。");
       }
       setEditingId(null);
       setForm(emptyForm);
@@ -152,11 +152,11 @@ const PlansList = (props) => {
   };
 
   const onDelete = async (item) => {
-    const ok = window.confirm("此操作将永久删除该课程计划及其所有附件与点评，且无法撤销。确定继续吗？");
+    const ok = window.confirm("此操作将永久删除该课程设计及其所有附件与点评，且无法撤销。确定继续吗？");
     if (!ok) return;
     try {
       await PlanDataService.delete(item.id, true);
-      setMessage("课程计划删除成功。");
+      setMessage("课程设计删除成功。");
       retrieveAll();
     } catch (err) {
       setMessage(err?.response?.data?.message || "删除失败。");
@@ -183,14 +183,14 @@ const PlansList = (props) => {
     ? "我的乡土课程"
     : statusFilter === "submitted"
     ? "待点评案例"
-    : "乡土课程计划";
+    : "乡土课程设计";
 
   return (
     <div className={`container ${stylishPublic ? "pl-page" : ""}`}>
       {stylishPublic ? (
         <div className="pl-hero">
           <h4 className="pl-title">{heading}</h4>
-          <p className="pl-subtitle">按乡土主题与年级筛选浏览乡土课程计划。</p>
+          <p className="pl-subtitle">按乡土主题与年级筛选浏览乡土课程设计。</p>
           <div className="pl-kpis">
             <span className="pl-kpi">总数：{totalItems}</span>
             <span className="pl-kpi">
@@ -294,7 +294,7 @@ const PlansList = (props) => {
       {canCreate && (
         <div className={stylishPublic ? "pl-card" : "mb-3"}>
           <button className="btn btn-primary" type="button" onClick={openCreateEditor}>
-            新增乡土课程计划
+            新增乡土课程设计
           </button>
         </div>
       )}
@@ -391,7 +391,7 @@ const PlansList = (props) => {
           <button className="pl-drawer-mask" type="button" onClick={closeEditor} aria-label="close editor" />
           <div className="pl-drawer-panel">
             <div className="pl-drawer-head">
-              <h5 className="mb-0">{editingId ? "编辑乡土课程计划" : "新增乡土课程计划"}</h5>
+              <h5 className="mb-0">{editingId ? "编辑乡土课程设计" : "新增乡土课程设计"}</h5>
               <button className="btn btn-link p-0" type="button" onClick={closeEditor}>
                 关闭
               </button>

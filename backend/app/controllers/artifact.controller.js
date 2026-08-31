@@ -164,7 +164,7 @@ exports.create = async (req, res) => {
     const lessonIndex = normalizeLessonIndex(req.body.lessonIndex);
 
     if (!Number.isInteger(planId) || planId <= 0) {
-      return res.status(422).send({ message: "乡土课程计划 ID 无效。" });
+      return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
     if (!ARTIFACT_CATEGORIES.includes(category)) {
       return res.status(422).send({
@@ -185,7 +185,7 @@ exports.create = async (req, res) => {
       for (const f of multiFiles) {
         if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
       }
-      return res.status(404).send({ message: "乡土课程计划不存在。" });
+      return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
     const createOne = async (file) => {
@@ -258,7 +258,7 @@ exports.bulkCreateFromZip = async (req, res) => {
     const planId = Number(req.params.planId);
     if (!Number.isInteger(planId) || planId <= 0) {
       if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-      return res.status(422).send({ message: "乡土课程计划 ID 无效。" });
+      return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
     if (!req.file) {
       return res.status(422).send({ message: "请上传 zip 文件。" });
@@ -273,7 +273,7 @@ exports.bulkCreateFromZip = async (req, res) => {
     const plan = await Plan.findByPk(planId);
     if (!plan) {
       if (fs.existsSync(uploadedZipPath)) fs.unlinkSync(uploadedZipPath);
-      return res.status(404).send({ message: "乡土课程计划不存在。" });
+      return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
     extractDir = fs.mkdtempSync(path.join(getPlanDirectory(planId), "bulkzip-"));
@@ -447,7 +447,7 @@ exports.findByPlan = async (req, res) => {
   try {
     const planId = Number(req.params.planId);
     if (!Number.isInteger(planId) || planId <= 0) {
-      return res.status(422).send({ message: "乡土课程计划 ID 无效。" });
+      return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
 
     const where = { planId };
@@ -515,12 +515,12 @@ exports.downloadByPlan = async (req, res) => {
   try {
     const planId = Number(req.params.planId);
     if (!Number.isInteger(planId) || planId <= 0) {
-      return res.status(422).send({ message: "乡土课程计划 ID 无效。" });
+      return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
 
     const plan = await Plan.findByPk(planId);
     if (!plan) {
-      return res.status(404).send({ message: "乡土课程计划不存在。" });
+      return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
     const artifacts = await Artifact.findAll({
@@ -530,7 +530,7 @@ exports.downloadByPlan = async (req, res) => {
     });
 
     if (!artifacts || artifacts.length === 0) {
-      return res.status(404).send({ message: "该乡土课程计划暂无可下载附件。" });
+      return res.status(404).send({ message: "该乡土课程设计暂无可下载附件。" });
     }
 
     tmpRootDir = fs.mkdtempSync(path.join(os.tmpdir(), `plan-${planId}-artifacts-`));
