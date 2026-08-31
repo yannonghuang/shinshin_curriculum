@@ -1,10 +1,16 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, Redirect } from "react-router-dom";
 import AuthService from "../services/auth.service";
 import "../curriculum.css";
 
 const Home = () => {
   const user = AuthService.getCurrentUser();
+
+  // 教师 lands on their own plans directly, skipping this generic dashboard
+  // (covers direct visits to "/", not just the post-login redirect).
+  if (AuthService.isTeacher()) {
+    return <Redirect to="/plans?mine=true" />;
+  }
 
   return (
     <div className="container pl-page">

@@ -174,7 +174,9 @@ export default class Login extends Component {
         if (response.data && response.data.accessToken) {
           localStorage.setItem("user", JSON.stringify(response.data));
           this.setState({ loading: false });
-          this.props.history.push("/");
+          // 教师 lands on their own plans directly, skipping the generic home dashboard.
+          const isTeacher = (response.data.roles || []).includes("ROLE_TEACHER");
+          this.props.history.push(isTeacher ? "/plans?mine=true" : "/");
           window.location.reload();
         } else {
           this.setState({ loading: false, message: "服务器异常，登录失败。" });
@@ -201,7 +203,7 @@ export default class Login extends Component {
 
   render() {
     if (AuthService.isValid()) {
-      this.props.history.push("/");
+      this.props.history.push(AuthService.isTeacher() ? "/plans?mine=true" : "/");
       return null;
     }
 
