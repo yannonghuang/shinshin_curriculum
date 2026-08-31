@@ -2,15 +2,16 @@
 # the built frontend, DB not exposed to the host.
 #
 # Two ways this gets used:
-#   1. Build-and-run locally/in CI:
+#   1. Build-and-run locally:
 #        cp .env.example .env   # fill in real production values first
 #        docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 #   2. Deploy pre-built images (Aliyun ECS target -- see ALIYUN_DEPLOY.md and
-#      .github/workflows/deploy-aliyun.yml): the `image:` fields below let the
-#      exact same file also just *pull* images a CI job already built and
-#      pushed to Alibaba Cloud Container Registry, with no build context
-#      needed on disk (verified: `docker compose pull`/`up` without `--build`
-#      never touch `build.context`, only `docker compose build`/`up --build` do):
+#      scripts/deploy-aliyun.sh, run by hand from your own machine, never by
+#      GitHub): the `image:` fields below let the exact same file also just
+#      *pull* images that script already built and pushed to Alibaba Cloud
+#      Container Registry, with no build context needed on disk (verified:
+#      `docker compose pull`/`up` without `--build` never touch
+#      `build.context`, only `docker compose build`/`up --build` do):
 #        IMAGE_TAG=<git-sha> docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 #        IMAGE_TAG=<git-sha> docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 

@@ -1,29 +1,38 @@
-# 部署到阿里云 / CI/CD to Alibaba Cloud
+# 部署到阿里云 / Deploy to Alibaba Cloud
 
-How to provision the target Alibaba Cloud resources and wire up
-`.github/workflows/deploy-aliyun.yml` so pushing to `main` automatically
-builds, pushes, and deploys this app to a single ECS VM running the existing
-`docker-compose.prod.yml` stack (see `deploy.md` for what that stack is —
-this document is only about the *cloud* target and the CI/CD pipeline that
-reaches it; local Docker Compose usage is unchanged).
+How to provision the target Alibaba Cloud resources and use
+`scripts/deploy-aliyun.sh` to build, push, and deploy this app to a single
+ECS VM running the existing `docker-compose.prod.yml` stack (see `deploy.md`
+for what that stack is — this document is only about the *cloud* target and
+the deploy script that reaches it; local Docker Compose usage is unchanged).
+
+**By design, GitHub never talks to Alibaba Cloud.** GitHub only ever holds
+source (`git push` as usual). Building the Docker images, pushing them to
+Alibaba Cloud Container Registry (ACR), and deploying to the ECS VM all
+happen by running `scripts/deploy-aliyun.sh` on your own machine — so the
+only place that ever holds ACR/ECS credentials is your local
+`scripts/deploy-aliyun.env` (gitignored, never committed, never sent to
+GitHub in any form).
 
 **I can't provision real Alibaba Cloud resources for you** — this is a guide
-to run yourself (Console or `aliyun` CLI), with the exact values the pipeline
-needs at the end.
+to run yourself (Console or `aliyun` CLI), ending with the exact values
+`scripts/deploy-aliyun.env` needs.
 
 ## Architecture
 
 ```
-GitHub push to main
-  -> build-and-push job: docker build backend + frontend, push to ACR
-  -> deploy job: scp compose files + schema.sql to the ECS VM,
-                 ssh in, `docker compose pull && up -d`
+your machine, running scripts/deploy-aliyun.sh:
+  1. docker build backend + frontend (from your current local checkout)
+  2. docker push both, tagged :<git-short-sha> and :latest, to ACR
+  3. scp docker-compose.yml + docker-compose.prod.yml + backend/schema.sql to the ECS VM
+  4. ssh into the VM: docker compose pull && up -d --remove-orphans
 ```
 
 One VM, three containers (`db`, `backend`, `frontend`/nginx), same shape as
 local `docker-compose.prod.yml` — just running pre-built images pulled from
 ACR instead of building on the VM. The VM never needs the full source tree,
-Node, or a Docker build toolchain — only Docker itself.
+Node, or a Docker build toolchain — only Docker itself. GitHub is not in this
+loop at all; it's source control, not a build/deploy orchestrator here.
 
 ## 1. Create an ACR (Container Registry) instance + namespace
 
@@ -40,19 +49,19 @@ first `docker push` creates them automatically inside the namespace.
 aliyun cr20181201 CreateNamespace --NamespaceName shinshin --region cn-hangzhou
 ```
 
-## 2. Create a RAM user scoped to ACR only
+## 2. Get ACR docker-login credentials
 
-Don't use your root/primary account credentials in CI. RAM 访问控制 → 用户 →
-create a user (e.g. `github-actions-deploy`) with **编程访问 (programmatic
-access)**, and attach a policy scoped to ACR push/pull only —
-`AliyunContainerRegistryFullAccess` is the simplest built-in policy if you
-want to keep this to one step; for tighter scope, write a custom policy
-limited to the `shinshin` namespace's repos. Generate an **AccessKey** for
-this user — but note ACR docker-login typically uses a **separate registry
-login password**, not the AccessKey directly: 容器镜像服务 ACR → 访问凭证 →
-set a fixed password for `docker login`, and use your Alibaba Cloud account
-name (or the RAM user's login name, format `<AccountID>@<ram-username>`) as
-the username.
+You can push as your main account, but a RAM user scoped to just ACR is
+better practice even for a solo/local workflow (limits the blast radius if
+your laptop's `deploy-aliyun.env` ever leaks). RAM 访问控制 → 用户 → create a
+user (e.g. `local-deploy`) with **编程访问 (programmatic access)**, and
+attach `AliyunContainerRegistryFullAccess` (or a custom policy scoped to just
+the `shinshin` namespace's repos for tighter scope).
+
+Note ACR docker-login uses a **separate registry login password**, not this
+user's AccessKey: 容器镜像服务 ACR → 访问凭证 → set a fixed password for
+`docker login`, and use your Alibaba Cloud account name (or the RAM user's
+login name, format `<AccountID>@<ram-username>`) as the username.
 
 You'll end up with three values: `ACR_REGISTRY` (e.g.
 `registry.cn-hangzhou.aliyuncs.com`), `ACR_USERNAME`, `ACR_PASSWORD`.
@@ -66,9 +75,8 @@ You'll end up with three values: `ACR_REGISTRY` (e.g.
 - **Image**: Ubuntu 22.04 (or Alibaba Cloud Linux 3 — commands below cover
   both).
 - **Security group**: open **80** (HTTP, and 443 once you add TLS — see §7)
-  to `0.0.0.0/0`; open **22** (SSH) ideally restricted to your own IP /
-  office IP range, not the whole internet, since this VM will also hold a
-  deploy SSH key.
+  to `0.0.0.0/0`; open **22** (SSH) ideally restricted to your own IP, since
+  you'll be deploying directly from your machine over SSH.
 - **Login**: create it with an SSH key pair (recommended) or set a password
   and switch to key-only auth afterward.
 
@@ -95,16 +103,16 @@ Verify: `docker compose version`.
 ## 4. Prepare the deploy directory on the VM
 
 This is the one manual, one-time setup step — everything after this is
-automated by the pipeline.
+handled by `scripts/deploy-aliyun.sh`.
 
 ```bash
 mkdir -p /opt/shinshin_curriculum/backend
 cd /opt/shinshin_curriculum
 ```
 
-Create `.env` here **by hand** (never committed, never touched by CI —
-matches the root `.env` shape from `.env.example` in the repo, plus the ACR
-coordinates so a plain `docker compose up -d` run later without the CI
+Create `.env` here **by hand** (never committed, never touched by the deploy
+script — matches the root `.env` shape from `.env.example` in the repo, plus
+the ACR coordinates so a plain `docker compose up -d` run later without the
 script's exported vars still resolves the right image):
 
 ```
@@ -130,22 +138,26 @@ roles + the `manager`/`manager` admin account — **change that password
 immediately after the first deploy**) on its first boot, exactly like local
 dev.
 
-### SSH access for the pipeline
+### SSH access
 
-Generate a **dedicated** key pair for GitHub Actions (don't reuse your
-personal key):
+Use an existing SSH key you already deploy with, or generate one dedicated
+to this:
 ```
-ssh-keygen -t ed25519 -f deploy_key -C "github-actions-deploy" -N ""
+ssh-keygen -t ed25519 -f ~/.ssh/shinshin_deploy -C "shinshin-curriculum-deploy" -N ""
 ```
-Append `deploy_key.pub` to `~/.ssh/authorized_keys` on the ECS VM for the
-user you'll deploy as. Keep `deploy_key` (the private half) for the GitHub
-secret in §5 — never commit it.
+Append the `.pub` half to `~/.ssh/authorized_keys` on the ECS VM for the user
+you'll deploy as. The private half's path is what `ECS_SSH_KEY_PATH` in
+`scripts/deploy-aliyun.env` points to (§5) — it stays on your machine only.
 
-## 5. GitHub repository secrets
+## 5. Local deploy config
 
-Settings → Secrets and variables → Actions → New repository secret:
+```
+cp scripts/deploy-aliyun.env.example scripts/deploy-aliyun.env
+```
+Fill in every value (all required, the script checks and refuses to run with
+anything missing):
 
-| Secret | Value |
+| Variable | Value |
 |---|---|
 | `ACR_REGISTRY` | e.g. `registry.cn-hangzhou.aliyuncs.com` |
 | `ACR_NAMESPACE` | e.g. `shinshin` |
@@ -153,33 +165,41 @@ Settings → Secrets and variables → Actions → New repository secret:
 | `ACR_PASSWORD` | your ACR docker-login password (§2) |
 | `ECS_HOST` | the VM's public IP or domain |
 | `ECS_USER` | the SSH login user (e.g. `root` or a deploy user) |
-| `ECS_SSH_KEY` | contents of the **private** key from §4 (`deploy_key`) |
+| `ECS_SSH_KEY_PATH` | path to the private key from §4 (`~` is expanded) |
 | `ECS_DEPLOY_PATH` | `/opt/shinshin_curriculum` |
 
-## 6. How the pipeline runs
+This file is gitignored (`scripts/deploy-aliyun.env` specifically, not the
+`.example` template) — it never gets committed, never gets pushed, GitHub
+never sees it.
 
-`.github/workflows/deploy-aliyun.yml` triggers on every push to `main`
-(or manually via the Actions tab → "Deploy to Aliyun ECS" → Run workflow):
+## 6. Deploying
 
-1. **build-and-push**: builds `backend/Dockerfile` and `react-app/Dockerfile`
-   (the same production Dockerfiles `docker-compose.prod.yml` uses locally),
-   tags each image both `:${{ github.sha }}` and `:latest`, pushes both tags
-   to ACR.
-2. **deploy**: copies `docker-compose.yml` + `docker-compose.prod.yml` +
-   `backend/schema.sql` to the VM (`appleboy/scp-action`), then SSHes in
-   (`appleboy/ssh-action`) and runs, with `IMAGE_TAG` pinned to the commit SHA
-   just built:
-   ```
-   docker login <ACR_REGISTRY> ...
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
-   docker image prune -f
-   ```
+```
+scripts/deploy-aliyun.sh
+```
+Builds `backend/Dockerfile` and `react-app/Dockerfile` (the same production
+Dockerfiles `docker-compose.prod.yml` uses locally) from your **current local
+checkout**, tags both images `:<current-commit-short-sha>` and `:latest`,
+pushes both tags to ACR, copies the three deploy files to the VM, then SSHes
+in and runs:
+```
+docker login <ACR_REGISTRY> ...
+docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+docker image prune -f
+```
+Optionally pin an explicit tag instead of the commit SHA, e.g. for a release:
+```
+scripts/deploy-aliyun.sh v1.2.0
+```
 
-Because every deploy is pinned to the exact commit SHA (not just `:latest`),
-you always know precisely what's running, and rollback is simple (§8).
+Since the script builds from whatever's currently checked out locally
+(committed or not), `git push` before or after deploying to keep GitHub's
+`main` in sync with what's actually running — the script itself doesn't
+require a clean working tree or a prior push, but you'll want one for the
+image tag (the commit SHA) to mean anything later.
 
-## 7. HTTPS (not automated by this pipeline)
+## 7. HTTPS (not automated by this script)
 
 The stack as deployed serves plain HTTP on port 80. For production HTTPS,
 put one of these in front of the `frontend` container rather than modifying
@@ -193,31 +213,40 @@ put one of these in front of the `frontend` container rather than modifying
 
 ## 8. Rollback
 
-Every image is tagged with its commit SHA, so rolling back doesn't require
-rebuilding anything:
+Every image is tagged with the commit SHA it was built from, so rolling back
+doesn't require rebuilding anything — just re-run the script with an older
+tag:
+```
+scripts/deploy-aliyun.sh <previous-good-sha-or-tag>
+```
+That still rebuilds+pushes from your *current* checkout under that tag name,
+which isn't quite a true rollback unless you also `git checkout` that commit
+first. For a real rollback without touching your working tree, SSH in
+directly:
 ```bash
-ssh <ECS_USER>@<ECS_HOST>
+ssh -i <ECS_SSH_KEY_PATH> <ECS_USER>@<ECS_HOST>
 cd /opt/shinshin_curriculum
 IMAGE_TAG=<previous-good-sha> docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 IMAGE_TAG=<previous-good-sha> docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
-Or just re-run the GitHub Actions workflow from an older commit (Actions tab
-→ that run → Re-run jobs) to go through the full pipeline again.
+(works as long as that older tag hasn't been deleted from ACR).
 
 ## 9. Troubleshooting
 
-- **`deploy` job fails at `docker login`**: double check `ACR_USERNAME`/`ACR_PASSWORD`
-  are the ACR *docker-login* credentials from §2, not your Alibaba Cloud
-  account password or an AccessKey pair — those are different credentials.
-- **`scp`/`ssh` steps fail to connect**: confirm the security group actually
-  allows inbound 22 from GitHub Actions' runner IPs (GitHub's hosted runners
-  don't have static IPs — if you've locked down 22 to specific IPs, you'll
-  need a self-hosted runner or a bastion instead of GitHub-hosted runners).
+- **Script exits immediately with "Missing ... in scripts/deploy-aliyun.env"**:
+  fill in every variable in that file — none are optional, the script checks
+  all of them upfront before doing anything.
+- **Fails at `docker login`**: double check `ACR_USERNAME`/`ACR_PASSWORD` are
+  the ACR *docker-login* credentials from §2, not your Alibaba Cloud account
+  password or an AccessKey pair — those are different credentials.
+- **`scp`/`ssh` steps fail to connect**: confirm the security group allows
+  inbound 22 from your current IP, and that `ECS_SSH_KEY_PATH` points at the
+  private key whose public half is in the VM's `~/.ssh/authorized_keys`.
 - **`db` container has no data after first deploy**: `backend/schema.sql`
   only auto-applies via `docker-entrypoint-initdb.d` on a truly empty
   `db_data` volume — if you'd previously started the stack once without it
-  present, wipe the volume once (`docker compose down -v`, matches the same
-  caveat documented in `deploy.md` for local dev) and redeploy.
+  present, wipe the volume once (`docker compose down -v` on the VM, matches
+  the same caveat documented in `deploy.md` for local dev) and redeploy.
 - **Images pull but the app 500s on AI review**: `.env` on the VM needs a
-  real `DASHSCOPE_API_KEY` — this is never set by CI, only by the one-time
-  manual `.env` in §4.
+  real `DASHSCOPE_API_KEY` — the deploy script never sets this, only the
+  one-time manual `.env` in §4 does.
