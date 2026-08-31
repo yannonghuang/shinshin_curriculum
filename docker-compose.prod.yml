@@ -1,18 +1,38 @@
 # Prod overrides: no source bind-mounts, production Dockerfiles, nginx serves
 # the built frontend, DB not exposed to the host.
 #
-# Usage:
-#   cp .env.example .env   # fill in real production values first
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+# Two ways this gets used:
+#   1. Build-and-run locally:
+#        cp .env.example .env   # fill in real production values first
+#        docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+#   2. Deploy pre-built images (Aliyun ECS target -- see ALIYUN_DEPLOY.md and
+#      scripts/deploy-aliyun.sh, run by hand from your own machine, never by
+#      GitHub): the `image:` fields below let the exact same file also just
+#      *pull* images that script already built and pushed to Alibaba Cloud
+#      Container Registry, with no build context needed on disk (verified:
+#      `docker compose pull`/`up` without `--build` never touch
+#      `build.context`, only `docker compose build`/`up --build` do):
+#        IMAGE_TAG=<git-sha> docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+#        IMAGE_TAG=<git-sha> docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 services:
   db:
+    # Pull mysql:8.0 from ACR instead of Docker Hub directly -- confirmed on
+    # the real Aliyun ECS deploy target that Docker Hub connectivity times
+    # out entirely (common for mainland-China-region VMs), while ACR pulls
+    # work fine. scripts/deploy-aliyun.sh mirrors mysql:8.0 into the same ACR
+    # namespace as the app images before every deploy (cheap/idempotent after
+    # the first push -- ACR already has the layers). Harmless for a
+    # non-Aliyun deploy target too: just don't set ACR_REGISTRY/ACR_NAMESPACE
+    # and this falls back to the same defaults backend/frontend use below.
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/mysql:8.0
     # !override: Compose merges list fields (volumes/ports) across -f files by
     # default instead of replacing them — !override forces a full replace so
     # the dev host-port mapping is actually dropped, not appended to.
     ports: !override []   # only reachable from other containers on the compose network
 
   backend:
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -21,6 +41,7 @@ services:
     command: node server.js
 
   frontend:
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./react-app
       dockerfile: Dockerfile

@@ -4,6 +4,13 @@
 --   mysql -u root -p -e "CREATE DATABASE shinshin_curriculum CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
 --   mysql -u root -p shinshin_curriculum < schema.sql
 
+-- Without this, the session charset used to run this script (whether by
+-- docker-entrypoint-initdb.d or a manual `mysql < schema.sql`) falls back to
+-- the client's default, which isn't guaranteed to be utf8mb4 -- confirmed on
+-- a real deploy: the seed 管理员 chinese_name below landed corrupted
+-- (mojibake) without this, even though the target column is utf8mb4.
+SET NAMES utf8mb4;
+
 CREATE TABLE roles (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(32) NOT NULL UNIQUE  -- 'admin' | 'teacher' | 'expert'
