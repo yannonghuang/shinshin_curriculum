@@ -6,6 +6,8 @@ import Pagination from "@material-ui/lab/Pagination";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_MODES } from "../constants/plan-options";
 import "../curriculum.css";
 
+const STATUS_LABELS = { draft: "草稿", submitted: "已提交", reviewed: "已点评" };
+
 const emptyForm = {
   title: "",
   theme: "",
@@ -47,6 +49,10 @@ const PlansList = (props) => {
 
   const canCreate = !excellentOnly && (AuthService.isTeacher() || AuthService.isAdmin());
   const stylishPublic = excellentOnly || !AuthService.isLogin();
+  // 我的乡土课程 and 优秀案例展示 present as a card grid with no theme-folder
+  // filter row; other /plans views (admin's full list, expert's 待点评) keep
+  // the existing table + folder-filter layout.
+  const cardView = mineOnly || excellentOnly;
 
   const canEditItem = (item) =>
     AuthService.isAdmin() || (AuthService.isTeacher() && String(item.teacherId) === String(currentUserId()));
@@ -187,20 +193,22 @@ const PlansList = (props) => {
         </h4>
       )}
 
-      <div className={stylishPublic ? "pl-card" : "mb-3"}>
-        <div className="pl-folder-row">
-          {PLAN_THEMES.map((theme) => (
-            <button
-              key={theme}
-              type="button"
-              className={`pl-folder-btn ${searchTheme === theme ? "is-active" : ""}`}
-              onClick={() => onFolderClick(theme)}
-            >
-              {theme}
-            </button>
-          ))}
+      {!cardView && (
+        <div className={stylishPublic ? "pl-card" : "mb-3"}>
+          <div className="pl-folder-row">
+            {PLAN_THEMES.map((theme) => (
+              <button
+                key={theme}
+                type="button"
+                className={`pl-folder-btn ${searchTheme === theme ? "is-active" : ""}`}
+                onClick={() => onFolderClick(theme)}
+              >
+                {theme}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className={stylishPublic ? "pl-card" : "mb-3"}>
         <div className="input-group">
@@ -243,6 +251,26 @@ const PlansList = (props) => {
               ))}
             </select>
           </div>
+          {cardView && (
+            <div className="form-group col-md-4">
+              <label>主题筛选</label>
+              <select
+                className="form-control"
+                value={searchTheme}
+                onChange={(e) => {
+                  setSearchTheme(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">全部主题</option>
+                {PLAN_THEMES.map((theme) => (
+                  <option key={theme} value={theme}>
+                    {theme}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -256,64 +284,126 @@ const PlansList = (props) => {
 
       {message && <div className="alert alert-info py-2">{message}</div>}
 
-      <div className={stylishPublic ? "pl-table-wrap" : ""}>
-        <table className="table table-sm table-bordered">
-          <thead>
-            <tr>
-              <th>年份</th>
-              <th>标题</th>
-              <th>主题</th>
-              <th>年级</th>
-              <th>预计课时</th>
-              <th>状态</th>
-              {AuthService.isAdmin() && <th>优秀案例</th>}
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
+      {cardView ? (
+        plans.length === 0 ? (
+          <div className="pl-empty">暂无数据</div>
+        ) : (
+          <div className="pl-plan-grid">
             {plans.map((item) => (
-              <tr key={item.id}>
-                <td>{item.year || "-"}</td>
-                <td>{item.title}</td>
-                <td>{stylishPublic ? <span className="pl-tag">{item.theme || "-"}</span> : item.theme || "-"}</td>
-                <td>{item.grade || "-"}</td>
-                <td>{item.plannedLessonCount || "-"}</td>
-                <td>{item.status || "draft"}</td>
-                {AuthService.isAdmin() && (
-                  <td>
-                    {item.isExcellentCase ? <span className="pl-tag">已设为优秀案例</span> : <span className="text-muted">-</span>}
-                    <button className="btn btn-link p-0 ml-2" onClick={() => toggleExcellent(item)}>
-                      {item.isExcellentCase ? "取消" : "设为优秀案例"}
-                    </button>
-                  </td>
-                )}
-                <td>
-                  <Link className="btn btn-link p-0 mr-2" to={`/plans/${item.id}`}>
-                    详情
+              <div className="pl-plan-card" key={item.id}>
+                {item.isExcellentCase && <span className="pl-plan-card-excellent">优秀案例</span>}
+                <div className="pl-plan-card-head">
+                  <div className="pl-plan-card-badge">
+                    <i className="fas fa-seedling"></i>
+                  </div>
+                  <div>
+                    <h6 className="pl-plan-card-title">{item.title}</h6>
+                    <div className="pl-plan-card-year">{item.year || "-"} 年</div>
+                  </div>
+                </div>
+
+                <div className="pl-plan-card-tags">
+                  {item.theme && <span className="pl-tag">{item.theme}</span>}
+                  <span className={`pl-plan-card-status status-${item.status || "draft"}`}>
+                    {STATUS_LABELS[item.status] || STATUS_LABELS.draft}
+                  </span>
+                </div>
+
+                <div className="pl-plan-card-meta">
+                  <span>
+                    <i className="fas fa-graduation-cap"></i> {item.grade || "年级未定"}
+                  </span>
+                  <span>
+                    <i className="fas fa-clock"></i> {item.plannedLessonCount ? `${item.plannedLessonCount} 课时` : "课时未定"}
+                  </span>
+                </div>
+
+                <div className="pl-plan-card-footer">
+                  <Link className="btn btn-link p-0" to={`/plans/${item.id}`}>
+                    查看详情
                   </Link>
-                  {canEditItem(item) && (
-                    <>
-                      <button className="btn btn-link p-0 mr-2" onClick={() => onEdit(item)}>
-                        编辑
+                  <div>
+                    {AuthService.isAdmin() && (
+                      <button className="btn btn-link p-0 mr-2" onClick={() => toggleExcellent(item)}>
+                        {item.isExcellentCase ? "取消优秀案例" : "设为优秀案例"}
                       </button>
-                      <button className="btn btn-link p-0 text-danger" onClick={() => onDelete(item)}>
-                        删除
-                      </button>
-                    </>
-                  )}
-                </td>
-              </tr>
+                    )}
+                    {canEditItem(item) && (
+                      <>
+                        <button className="btn btn-link p-0 mr-2" onClick={() => onEdit(item)}>
+                          编辑
+                        </button>
+                        <button className="btn btn-link p-0 text-danger" onClick={() => onDelete(item)}>
+                          删除
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
             ))}
-            {plans.length === 0 && (
+          </div>
+        )
+      ) : (
+        <div className={stylishPublic ? "pl-table-wrap" : ""}>
+          <table className="table table-sm table-bordered">
+            <thead>
               <tr>
-                <td colSpan="8" className={stylishPublic ? "pl-empty" : ""}>
-                  暂无数据
-                </td>
+                <th>年份</th>
+                <th>标题</th>
+                <th>主题</th>
+                <th>年级</th>
+                <th>预计课时</th>
+                <th>状态</th>
+                {AuthService.isAdmin() && <th>优秀案例</th>}
+                <th>操作</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {plans.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.year || "-"}</td>
+                  <td>{item.title}</td>
+                  <td>{stylishPublic ? <span className="pl-tag">{item.theme || "-"}</span> : item.theme || "-"}</td>
+                  <td>{item.grade || "-"}</td>
+                  <td>{item.plannedLessonCount || "-"}</td>
+                  <td>{item.status || "draft"}</td>
+                  {AuthService.isAdmin() && (
+                    <td>
+                      {item.isExcellentCase ? <span className="pl-tag">已设为优秀案例</span> : <span className="text-muted">-</span>}
+                      <button className="btn btn-link p-0 ml-2" onClick={() => toggleExcellent(item)}>
+                        {item.isExcellentCase ? "取消" : "设为优秀案例"}
+                      </button>
+                    </td>
+                  )}
+                  <td>
+                    <Link className="btn btn-link p-0 mr-2" to={`/plans/${item.id}`}>
+                      详情
+                    </Link>
+                    {canEditItem(item) && (
+                      <>
+                        <button className="btn btn-link p-0 mr-2" onClick={() => onEdit(item)}>
+                          编辑
+                        </button>
+                        <button className="btn btn-link p-0 text-danger" onClick={() => onDelete(item)}>
+                          删除
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {plans.length === 0 && (
+                <tr>
+                  <td colSpan="8" className={stylishPublic ? "pl-empty" : ""}>
+                    暂无数据
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="mt-2 d-flex align-items-center">
         <label className="mr-2 mb-0">每页条数</label>

@@ -570,3 +570,142 @@
 .auth-role-chip input {
   margin: 0;
 }
+
+/* ---- Plan cards (card-grid view for /plans?mine=true and /gallery) ---- */
+
+.pl-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.pl-plan-card {
+  background: var(--pl-panel);
+  border: 1px solid var(--pl-line);
+  border-radius: 16px;
+  box-shadow: 0 6px 16px rgba(36, 46, 37, 0.06);
+  padding: 20px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pl-plan-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 30px rgba(29, 111, 83, 0.16);
+}
+
+.pl-plan-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #1d6f53, #2d8868, #4ea27f);
+}
+
+.pl-plan-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.pl-plan-card-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1d6f53 0%, #2d8868 45%, #4ea27f 100%);
+  color: #f5fff9;
+  font-size: 16px;
+  box-shadow: 0 6px 14px rgba(29, 111, 83, 0.24);
+}
+
+.pl-plan-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--pl-text);
+  margin: 0;
+  line-height: 1.35;
+}
+
+.pl-plan-card-year {
+  font-size: 12px;
+  color: var(--pl-muted);
+  margin-top: 2px;
+}
+
+.pl-plan-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pl-plan-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--pl-muted);
+}
+
+.pl-plan-card-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pl-plan-card-status {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pl-plan-card-status.status-draft {
+  background: #eef1ea;
+  color: #5b6b58;
+}
+
+.pl-plan-card-status.status-submitted {
+  background: var(--pl-warn-soft);
+  color: var(--pl-warn);
+}
+
+.pl-plan-card-status.status-reviewed {
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+}
+
+.pl-plan-card-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--pl-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.pl-plan-card-excellent {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: linear-gradient(135deg, #e0a527, #f0c04a);
+  color: #4a3200;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  box-shadow: 0 4px 10px rgba(180, 130, 20, 0.32);
+}
