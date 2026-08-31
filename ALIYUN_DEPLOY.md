@@ -250,3 +250,52 @@ IMAGE_TAG=<previous-good-sha> docker compose -f docker-compose.yml -f docker-com
 - **Images pull but the app 500s on AI review**: `.env` on the VM needs a
   real `DASHSCOPE_API_KEY` — the deploy script never sets this, only the
   one-time manual `.env` in §4 does.
+- **Backend build fails at `npm ci --omit=dev` with "can only install packages
+  when your package.json and package-lock.json ... are in sync"**: the lock
+  file is stale relative to `package.json` (e.g. a dependency was added
+  without regenerating it). `Dockerfile.dev`'s `npm install` is forgiving
+  about this and won't catch it in local dev — only the production
+  Dockerfile's strict `npm ci` does. Fix: `cd backend && npm install --package-lock-only`,
+  commit the updated `package-lock.json`.
+- **Push fails with `error from registry: unknown manifest class for
+  application/vnd.oci.empty.v1+json`**: recent Docker/BuildKit attaches an
+  OCI attestation manifest by default that this ACR instance rejects.
+  `scripts/deploy-aliyun.sh` already builds with `--provenance=false --sbom=false`
+  to avoid this — if you're building manually outside the script, add those
+  flags too.
+- **`db` container exits immediately (255) after a successful pull, with a
+  Docker warning about the image's platform not matching the host**: you
+  built on an Apple Silicon Mac (or any arm64 machine) without
+  `TARGET_PLATFORM` set, producing arm64 images that an x86_64 ECS VM refuses
+  to run outright (not just slowly under emulation — it just fails). Almost
+  all ECS instance types are x86_64; the script now defaults to
+  `TARGET_PLATFORM=linux/amd64`, only override this in `deploy-aliyun.env` if
+  your instance is genuinely one of Aliyun's arm64 families.
+- **App works when tested from inside the VM (`curl localhost`) but the
+  public IP times out from outside, even though `ss -tlnp` shows Docker
+  correctly listening on `0.0.0.0:80` and the ECS security group's inbound
+  rules already allow port 80 from `0.0.0.0/0`**: this happened on a real
+  deploy and turned out to be a network layer *above* the security group.
+  Before escalating, the checks that ruled things out one by one (all via
+  SSH into the VM unless noted):
+  - `ping <ECS_HOST>` from outside — reachable at the IP layer (rules out a
+    totally dead route/instance).
+  - `systemctl is-active firewalld` / `ufw status` / `iptables -L INPUT -n` —
+    no OS-level firewall on the VM blocking it.
+  - `ss -tlnp | grep :80` — `docker-proxy` correctly bound to `0.0.0.0:80`
+    (not just `127.0.0.1`).
+  - `curl http://neverssl.com/` from the same outside machine — outbound port
+    80 works fine in general, ruling out a client-side/local-network block.
+  - The ECS security group inbound rules, confirmed in the console, already
+    allow TCP 80 from `0.0.0.0/0`.
+  With all of those clean, the remaining suspects are layers Aliyun manages
+  separately from the plain ECS security group:
+  - **网络ACL (Network ACL)** — bound at the VPC/vSwitch level, evaluated
+    *in addition to* the security group; check whether one is attached to
+    this instance's vSwitch and what its inbound rule for port 80 says.
+  - **云防火墙 (Cloud Firewall)** — a distinct top-level product (not the
+    ECS security group panel); if enabled on the account, it has its own
+    inbound policy that can default to blocking.
+  If both of those are also clean/not in play, this is an Aliyun-infra-side
+  issue beyond what's visible from the console — open a support case with
+  Aliyun and hand them the checklist above as repro evidence.

@@ -17,6 +17,15 @@
 
 services:
   db:
+    # Pull mysql:8.0 from ACR instead of Docker Hub directly -- confirmed on
+    # the real Aliyun ECS deploy target that Docker Hub connectivity times
+    # out entirely (common for mainland-China-region VMs), while ACR pulls
+    # work fine. scripts/deploy-aliyun.sh mirrors mysql:8.0 into the same ACR
+    # namespace as the app images before every deploy (cheap/idempotent after
+    # the first push -- ACR already has the layers). Harmless for a
+    # non-Aliyun deploy target too: just don't set ACR_REGISTRY/ACR_NAMESPACE
+    # and this falls back to the same defaults backend/frontend use below.
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/mysql:8.0
     # !override: Compose merges list fields (volumes/ports) across -f files by
     # default instead of replacing them — !override forces a full replace so
     # the dev host-port mapping is actually dropped, not appended to.

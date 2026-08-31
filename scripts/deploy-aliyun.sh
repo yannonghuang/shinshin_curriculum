@@ -32,17 +32,39 @@ IMAGE_TAG="${1:-$(git rev-parse --short HEAD)}"
 SSH_KEY="${ECS_SSH_KEY_PATH/#\~/$HOME}"
 BACKEND_IMAGE="$ACR_REGISTRY/$ACR_NAMESPACE/shinshin-curriculum-backend"
 FRONTEND_IMAGE="$ACR_REGISTRY/$ACR_NAMESPACE/shinshin-curriculum-frontend"
+MYSQL_IMAGE="$ACR_REGISTRY/$ACR_NAMESPACE/mysql:8.0"
+# Almost every ECS instance type is x86_64 -- override in deploy-aliyun.env
+# (TARGET_PLATFORM=linux/arm64) only if the VM is one of Aliyun's arm64
+# instance families (e.g. ecs.g8y/c8y). Confirmed necessary: building on an
+# Apple Silicon Mac without this produces linux/arm64 images that the (amd64)
+# ECS VM refuses to run at all ("container ... exited (255)"), not just slowly.
+TARGET_PLATFORM="${TARGET_PLATFORM:-linux/amd64}"
 
-echo "==> Deploying commit $(git rev-parse --short HEAD) as image tag '$IMAGE_TAG' to $ECS_HOST"
+echo "==> Deploying commit $(git rev-parse --short HEAD) as image tag '$IMAGE_TAG' to $ECS_HOST (platform: $TARGET_PLATFORM)"
 
 echo "==> Logging in to $ACR_REGISTRY"
 echo "$ACR_PASSWORD" | docker login "$ACR_REGISTRY" -u "$ACR_USERNAME" --password-stdin
 
+# Mirror mysql:8.0 into ACR so the ECS VM never needs to reach Docker Hub
+# directly -- confirmed on the real deploy target that Docker Hub connectivity
+# times out entirely (common for mainland-China-region ECS), while ACR pulls
+# work fine. Idempotent/cheap after the first run: ACR already has the layers.
+echo "==> Mirroring mysql:8.0 into ACR"
+docker pull --platform "$TARGET_PLATFORM" mysql:8.0
+docker tag mysql:8.0 "$MYSQL_IMAGE"
+docker push "$MYSQL_IMAGE"
+
+# --provenance=false --sbom=false: recent Docker/BuildKit attaches an OCI
+# attestation manifest by default, which this ACR instance rejects on push
+# with "unknown manifest class for application/vnd.oci.empty.v1+json"
+# (confirmed by testing both with and without these flags against the real
+# registry). Harmless to disable -- these are supply-chain metadata, not
+# something the deploy or the running app needs.
 echo "==> Building backend image"
-docker build -t "$BACKEND_IMAGE:$IMAGE_TAG" -t "$BACKEND_IMAGE:latest" -f backend/Dockerfile backend
+docker build --platform "$TARGET_PLATFORM" --provenance=false --sbom=false -t "$BACKEND_IMAGE:$IMAGE_TAG" -t "$BACKEND_IMAGE:latest" -f backend/Dockerfile backend
 
 echo "==> Building frontend image"
-docker build -t "$FRONTEND_IMAGE:$IMAGE_TAG" -t "$FRONTEND_IMAGE:latest" -f react-app/Dockerfile react-app
+docker build --platform "$TARGET_PLATFORM" --provenance=false --sbom=false -t "$FRONTEND_IMAGE:$IMAGE_TAG" -t "$FRONTEND_IMAGE:latest" -f react-app/Dockerfile react-app
 
 echo "==> Pushing images to ACR"
 docker push "$BACKEND_IMAGE:$IMAGE_TAG"
