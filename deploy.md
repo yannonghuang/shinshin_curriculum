@@ -106,6 +106,12 @@ no-op once `schema.sql` has already created everything.
 
 ## Production
 
+This section covers running the prod compose stack yourself, on any host.
+For automated CI/CD to a specific cloud target (build on push, push images to
+a registry, deploy to a VM), see `ALIYUN_DEPLOY.md` — it targets Alibaba
+Cloud (ACR + ECS) via `.github/workflows/deploy-aliyun.yml`, building on the
+same `docker-compose.prod.yml` described here.
+
 ```
 cp .env.example .env   # if you haven't already — use real production values this time
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d

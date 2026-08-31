@@ -1,0 +1,88 @@
+name: Deploy to Aliyun ECS
+
+# Build backend + frontend Docker images, push them to Alibaba Cloud Container
+# Registry (ACR), then deploy to a single ECS VM running the existing
+# docker-compose.prod.yml stack. See ALIYUN_DEPLOY.md for the one-time
+# provisioning steps (ACR namespace, ECS instance, GitHub secrets) this
+# workflow assumes are already done.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to Alibaba Cloud Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/shinshin-curriculum-backend:${{ github.sha }}
+            ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/shinshin-curriculum-backend:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./react-app
+          file: ./react-app/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/shinshin-curriculum-frontend:${{ github.sha }}
+            ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/shinshin-curriculum-frontend:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The ECS VM only ever needs the compose files + schema.sql -- not the
+      # full source tree. `docker compose pull`/`up` (without --build) never
+      # touch build.context, only `build`/`up --build` do (verified locally),
+      # so a missing ./backend, ./react-app source dir on the VM is harmless.
+      - name: Copy deploy files to ECS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USER }}
+          key: ${{ secrets.ECS_SSH_KEY }}
+          source: "docker-compose.yml,docker-compose.prod.yml,backend/schema.sql"
+          target: ${{ secrets.ECS_DEPLOY_PATH }}
+
+      - name: Pull new images and restart the stack
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USER }}
+          key: ${{ secrets.ECS_SSH_KEY }}
+          script: |
+            set -e
+            cd "${{ secrets.ECS_DEPLOY_PATH }}"
+            echo "${{ secrets.ACR_PASSWORD }}" | docker login "${{ secrets.ACR_REGISTRY }}" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+            export IMAGE_TAG="${{ github.sha }}"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
