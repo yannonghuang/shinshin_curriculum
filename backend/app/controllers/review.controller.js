@@ -98,6 +98,13 @@ exports.createAiReview = async (req, res) => {
       return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
+    // Owner-only, no admin bypass -- matches plan.controller.js#update and
+    // #generateDoc's content-authoring rule: requesting an AI review is part
+    // of working on one's own case, not a management action.
+    if (plan.teacherId !== req.userId) {
+      return res.status(403).send({ message: "只能为本人创建的乡土课程设计请求 AI 点评。" });
+    }
+
     const lessonIndex = normalizeLessonIndex(req.body.lessonIndex);
 
     let artifacts = [];
