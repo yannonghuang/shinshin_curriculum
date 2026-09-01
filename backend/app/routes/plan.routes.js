@@ -7,7 +7,9 @@ module.exports = function (app) {
     next();
   });
 
-  app.post("/api/plans", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.create);
+  // Only teachers author a new plan -- managers/experts manage existing
+  // cases (suspend/delete/promote/review) but don't create their own.
+  app.post("/api/plans", [authJwt.verifyToken, authJwt.isTeacher], plans.create);
   // attachUserIfPresent: stays publicly readable (the gallery browses this
   // unauthenticated), but resolves req.userId when a token is present so
   // ?mine=true can be scoped server-side to the actual caller (see findAll).
