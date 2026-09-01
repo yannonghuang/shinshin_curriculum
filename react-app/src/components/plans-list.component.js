@@ -372,9 +372,12 @@ const PlansList = (props) => {
 
       {canCreate && (
         <div className={stylishPublic ? "pl-card" : "mb-3"}>
-          <button className="btn btn-primary" type="button" onClick={openCreateEditor}>
+          <button className="btn btn-primary mr-3" type="button" onClick={openCreateEditor}>
             新增乡土课程设计
           </button>
+          <a href="/templates/乡土课程设计方案模版.docx" download>
+            下载乡土课程设计方案模版
+          </a>
         </div>
       )}
 

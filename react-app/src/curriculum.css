@@ -416,6 +416,20 @@
   padding-left: 22px;
 }
 
+.pl-explorer-subgroup {
+  margin-bottom: 2px;
+}
+
+.pl-explorer-subfolder {
+  font-weight: 600;
+  font-size: 14px;
+  padding: 6px;
+}
+
+.pl-explorer-children-nested {
+  padding-left: 14px;
+}
+
 .pl-explorer-leaf {
   display: block;
   width: 100%;

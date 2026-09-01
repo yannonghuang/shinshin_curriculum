@@ -43,26 +43,23 @@ const mergeFormData = (data) => ({
   how: { ...emptyWhyWhatHow.how, ...(data && data.how) },
 });
 
-// Embedded artifact upload/list panel, reused for both the plan-level "课程设计文件" upload
-// (lessonIndex=null) and each per-课时 "实施记录文件/课件PPT/图片/视频" tab. Migrated from
-// shinshin's case-detail.component.js: single-file upload w/ progress bar, category-folder
-// drag/drop multi-upload, bulk-zip upload, and docx(mammoth)/pdf/image/video/audio preview.
+// Embedded artifact upload/list panel, scoped to exactly one category -- the
+// nav leaf that renders it IS the category selector now (see PlanDetail's 计划
+// and 实施 trees), so upload is a single drag-drop zone taking multiple files
+// at once, all tagged with that implied category. Replaces the old panel that
+// covered several categories at once behind a zip-bulk-upload form, a single-
+// file form with a category dropdown, and a row of per-category drop targets
+// -- collapsed into one zone per the "flat and clean" nav-driven redesign.
 // planUpdatedAt (optional): when provided, any 课程设计文件 artifact generated/uploaded
 // before the plan's last edit is flagged "内容已更新，文档可能已过时" -- the doc's content
 // is derived from planFormData at generation time and doesn't auto-regenerate on later edits.
-const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit, planUpdatedAt }) => {
+const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }) => {
   const [artifacts, setArtifacts] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState(categories[0]);
-  const [singleForm, setSingleForm] = useState({ description: "", category: categories[0], file: null });
-  const [bulkZipFile, setBulkZipFile] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(null);
-  const [bulkUploadProgress, setBulkUploadProgress] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [isUploadingBulk, setIsUploadingBulk] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [message, setMessage] = useState("");
-  const [dragUploadCategory, setDragUploadCategory] = useState("");
-  const [pendingCategoryFiles, setPendingCategoryFiles] = useState([]);
-  const categoryFileInputRef = useRef(null);
+  const fileInputRef = useRef(null);
   const previewRef = useRef(null);
   const [previewArtifact, setPreviewArtifact] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -74,12 +71,12 @@ const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit, pl
     try {
       const resp = await ArtifactDataService.getByPlan(planId, lessonIndex);
       const list = Array.isArray(resp.data) ? resp.data : resp.data.rows || resp.data.artifacts || [];
-      setArtifacts(list);
+      setArtifacts(list.filter((a) => a.category === category));
     } catch (e) {
       console.log(e);
       setMessage("加载附件列表失败。");
     }
-  }, [planId, lessonIndex]);
+  }, [planId, lessonIndex, category]);
 
   useEffect(() => {
     retrieveArtifacts();
@@ -91,41 +88,9 @@ const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit, pl
     };
   }, [previewUrl]);
 
-  const uploadSingle = async (e) => {
-    e.preventDefault();
-    setMessage("");
-    if (!singleForm.file) {
-      setMessage("请先选择文件。");
-      return;
-    }
-    const formData = new FormData();
-    formData.append("description", singleForm.description || "");
-    formData.append("category", singleForm.category || categories[0]);
-    if (lessonIndex !== undefined && lessonIndex !== null) formData.append("lessonIndex", lessonIndex);
-    formData.append("file", singleForm.file);
-    try {
-      setIsUploading(true);
-      setUploadProgress(0);
-      await ArtifactDataService.create(planId, formData, (event) => {
-        if (!event || !event.total) return;
-        setUploadProgress(Math.min(100, Math.round((event.loaded * 100) / event.total)));
-      });
-      setSingleForm({ description: "", category: categories[0], file: null });
-      setMessage("附件上传成功。");
-      retrieveArtifacts();
-    } catch (err) {
-      setMessage(err?.response?.data?.message || "上传失败。");
-    } finally {
-      setIsUploading(false);
-      setTimeout(() => setUploadProgress(null), 600);
-    }
-  };
-
-  const uploadCategoryFiles = async (files, category) => {
-    if (!files || files.length === 0) {
-      setMessage("请先选择或拖入文件。");
-      return;
-    }
+  const uploadFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
     setMessage("");
     setIsUploading(true);
     setUploadProgress(0);
@@ -139,53 +104,14 @@ const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit, pl
         await ArtifactDataService.create(planId, formData);
         setUploadProgress(Math.round(((index + 1) * 100) / files.length));
       }
-      setPendingCategoryFiles([]);
-      if (categoryFileInputRef.current) categoryFileInputRef.current.value = "";
-      setMessage(`已上传 ${files.length} 个文件到 ${category}。`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setMessage(`已上传 ${files.length} 个文件。`);
       retrieveArtifacts();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "分类上传失败。");
+      setMessage(err?.response?.data?.message || "上传失败。");
     } finally {
       setIsUploading(false);
-      setDragUploadCategory("");
       setTimeout(() => setUploadProgress(null), 600);
-    }
-  };
-
-  const onCategoryFilesPicked = (e) => {
-    const files = Array.from(e.target.files || []);
-    setPendingCategoryFiles(files);
-    if (files.length > 0) setMessage(`已选择 ${files.length} 个文件，请点击下面的分类文件夹上传。`);
-  };
-
-  const uploadBulkZip = async (e) => {
-    e.preventDefault();
-    setMessage("");
-    if (!bulkZipFile) {
-      setMessage("请先选择 zip 文件。");
-      return;
-    }
-    const formData = new FormData();
-    formData.append("file", bulkZipFile);
-    if (lessonIndex !== undefined && lessonIndex !== null) formData.append("lessonIndex", lessonIndex);
-    try {
-      setIsUploadingBulk(true);
-      setBulkUploadProgress(0);
-      const resp = await ArtifactDataService.bulkCreate(planId, formData, (event) => {
-        if (!event || !event.total) return;
-        setBulkUploadProgress(Math.min(100, Math.round((event.loaded * 100) / event.total)));
-      });
-      const created = resp?.data?.createdCount || 0;
-      const skipped = resp?.data?.skippedCount || 0;
-      setBulkUploadProgress(100);
-      setMessage(`批量上传完成：成功 ${created}，跳过 ${skipped}。`);
-      setBulkZipFile(null);
-      retrieveArtifacts();
-    } catch (err) {
-      setMessage(err?.response?.data?.message || "批量上传失败。");
-    } finally {
-      setIsUploadingBulk(false);
-      setTimeout(() => setBulkUploadProgress(null), 800);
     }
   };
 
@@ -253,126 +179,31 @@ const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit, pl
     }
   };
 
-  const filtered = artifacts.filter((a) => categories.includes(a.category) && (categories.length === 1 || a.category === selectedCategory));
-
   return (
     <div>
       {canEdit && (
-        <div className="pl-card">
-          {allowBulk && (
-            <>
-              <h6>批量上传 zip</h6>
-              <p className="text-muted mb-2">zip 内子目录名对应分类：{categories.join("、")}。</p>
-              <form onSubmit={uploadBulkZip}>
-                <div className="form-row">
-                  <div className="form-group col-md-9">
-                    <input className="form-control" type="file" accept=".zip,application/zip" onChange={(e) => setBulkZipFile(e.target.files[0] || null)} disabled={isUploadingBulk} />
-                  </div>
-                  <div className="form-group col-md-3">
-                    <button className="btn btn-primary btn-block" type="submit" disabled={isUploadingBulk}>
-                      {isUploadingBulk ? "上传中..." : "批量上传"}
-                    </button>
-                  </div>
-                </div>
-                {bulkUploadProgress !== null && (
-                  <div className="pl-progress-wrap">
-                    <div className="progress">
-                      <div className="progress-bar progress-bar-striped progress-bar-animated bg-info" style={{ width: `${bulkUploadProgress}%` }}>
-                        {bulkUploadProgress}%
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </form>
-              <hr />
-            </>
-          )}
-
-          <h6>单个文件上传</h6>
-          <form onSubmit={uploadSingle}>
-            <div className="form-row">
-              <div className="form-group col-md-3">
-                <label>分类</label>
-                <select className="form-control" value={singleForm.category} onChange={(e) => setSingleForm((prev) => ({ ...prev, category: e.target.value }))}>
-                  {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group col-md-3">
-                <label>描述</label>
-                <input className="form-control" value={singleForm.description} onChange={(e) => setSingleForm((prev) => ({ ...prev, description: e.target.value }))} />
-              </div>
-              <div className="form-group col-md-3">
-                <label>文件</label>
-                <input className="form-control" type="file" onChange={(e) => setSingleForm((prev) => ({ ...prev, file: e.target.files[0] || null }))} disabled={isUploading} />
-              </div>
-            </div>
-            <button className="btn btn-primary" type="submit" disabled={isUploading}>
-              {isUploading ? "上传中..." : "上传"}
-            </button>
-            {uploadProgress !== null && (
-              <div className="pl-progress-wrap mt-2">
-                <div className="progress">
-                  <div className="progress-bar progress-bar-striped progress-bar-animated" style={{ width: `${uploadProgress}%` }}>
-                    {uploadProgress}%
-                  </div>
-                </div>
-              </div>
-            )}
-          </form>
-
-          {categories.length > 1 && (
-            <>
-              <hr />
-              <h6>按类别多文件上传（可拖拽）</h6>
-              <input ref={categoryFileInputRef} type="file" multiple className="d-none" onChange={onCategoryFilesPicked} disabled={isUploading} />
-              <div className="pl-upload-toolbar">
-                <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => categoryFileInputRef.current && categoryFileInputRef.current.click()} disabled={isUploading}>
-                  选择文件
-                </button>
-                <span className="text-muted">{pendingCategoryFiles.length > 0 ? `已选 ${pendingCategoryFiles.length} 个文件` : "未选择文件"}</span>
-              </div>
-              <div className="pl-folder-row">
-                {categories.map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    className={`pl-folder-btn pl-drop-folder ${dragUploadCategory === category ? "is-dragover" : ""}`}
-                    onClick={() => uploadCategoryFiles(pendingCategoryFiles, category)}
-                    onDragOver={(e) => { e.preventDefault(); if (!isUploading) setDragUploadCategory(category); }}
-                    onDragLeave={() => setDragUploadCategory((prev) => (prev === category ? "" : prev))}
-                    onDrop={async (e) => {
-                      e.preventDefault();
-                      setDragUploadCategory("");
-                      if (isUploading) return;
-                      await uploadCategoryFiles(Array.from(e.dataTransfer?.files || []), category);
-                    }}
-                    disabled={isUploading}
-                  >
-                    {category}
-                    <span className="pl-folder-hint">拖拽到这里，或点击上传已选文件</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <>
+          <div
+            className={`pl-file-drop-zone mb-3 ${isDragOver ? "is-dragover" : ""}`}
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!isUploading) setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              if (!isUploading) uploadFiles(e.dataTransfer?.files);
+            }}
+          >
+            {isUploading ? `上传中...${uploadProgress !== null ? uploadProgress + "%" : ""}` : "拖拽文件到这里，或点击选择文件（支持多选）"}
+          </div>
+          <input ref={fileInputRef} type="file" multiple className="d-none" onChange={(e) => uploadFiles(e.target.files)} disabled={isUploading} />
+        </>
       )}
 
       {message && <div className="alert alert-info py-2">{message}</div>}
-
-      {categories.length > 1 && (
-        <div className="pl-folder-row mb-2">
-          {categories.map((category) => (
-            <button key={category} type="button" className={`pl-folder-btn ${selectedCategory === category ? "is-active" : ""}`} onClick={() => setSelectedCategory(category)}>
-              {category}
-            </button>
-          ))}
-        </div>
-      )}
 
       <div className="pl-table-wrap">
         <table className="table table-sm table-bordered">
@@ -386,9 +217,9 @@ const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit, pl
             </tr>
           </thead>
           <tbody>
-            {filtered.map((artifact) => {
+            {artifacts.map((artifact) => {
               const isStaleDoc =
-                artifact.category === "课程设计文件" &&
+                category === "课程设计文件" &&
                 planUpdatedAt &&
                 artifact.createdAt &&
                 new Date(planUpdatedAt) > new Date(artifact.createdAt);
@@ -417,7 +248,7 @@ const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit, pl
               </tr>
               );
             })}
-            {filtered.length === 0 && (
+            {artifacts.length === 0 && (
               <tr>
                 <td colSpan="5" className="pl-empty">
                   暂无附件
@@ -464,7 +295,7 @@ const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit, pl
 
 // Migrated from shinshin's case-detail.component.js, with the online-fill WHY/WHAT/HOW form
 // (matching curriculum_template/乡土课程设计方案模版.docx's structure). Layout: a file-explorer
-// style split -- a collapsible left nav tree (计划/its sections, 执行/its 课时 segments, and an
+// style split -- a collapsible left nav tree (计划/its sections, 实施/its 课时 segments each
 // admin-only 管理 leaf) drives a single-section content pane on the right, replacing the old
 // waterfall of every card stacked vertically (and the react-tabs 课时 block) with one section
 // visible at a time.
@@ -482,6 +313,10 @@ const PLAN_SECTIONS_UPLOAD = [
   { key: "reviews", label: "整体点评" },
 ];
 
+// Each 课时 under 实施 splits into these leaves -- one per artifact category
+// (each its own ArtifactPanel, scoped to that single category) plus 点评.
+const LESSON_SECTIONS = [...ARTIFACT_CATEGORIES_LESSON_LEVEL, "点评"];
+
 const PlanDetail = (props) => {
   const planId = props.match.params.id;
   const [plan, setPlan] = useState(null);
@@ -494,9 +329,14 @@ const PlanDetail = (props) => {
   const [curatorNote, setCuratorNote] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({ plan: true, execution: true });
+  // Each 课时 under 实施 is its own nested sub-folder (实施记录文件/课件PPT/图片/视频/点评)
+  // -- collapsed by default so the tree doesn't open with every lesson's every
+  // file type already expanded.
+  const [expandedLessons, setExpandedLessons] = useState({});
   const [selected, setSelected] = useState({ type: "plan", key: "basic" });
 
   const toggleGroup = (name) => setExpandedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
+  const toggleLesson = (n) => setExpandedLessons((prev) => ({ ...prev, [n]: !prev[n] }));
   const select = (type, key) => setSelected({ type, key });
 
   const retrievePlan = useCallback(async () => {
@@ -857,8 +697,7 @@ const PlanDetail = (props) => {
           <ArtifactPanel
             planId={planId}
             lessonIndex={null}
-            categories={["课程设计文件"]}
-            allowBulk={false}
+            category="课程设计文件"
             canEdit={canEditPlan}
             planUpdatedAt={plan.updatedAt}
           />
@@ -876,13 +715,21 @@ const PlanDetail = (props) => {
     }
 
     if (selected.type === "execution") {
-      const n = selected.key;
+      const { lesson, section } = selected.key;
+      if (section === "点评") {
+        return (
+          <div className="pl-card">
+            <h6>点评（课时 {lesson}）</h6>
+            <ReviewList planId={planId} lessonIndex={lesson} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
+          </div>
+        );
+      }
       return (
         <div className="pl-card">
-          <h6>课时 {n}</h6>
-          <ArtifactPanel planId={planId} lessonIndex={n} categories={ARTIFACT_CATEGORIES_LESSON_LEVEL} allowBulk canEdit={canEditPlan} />
-          <hr />
-          <ReviewList planId={planId} lessonIndex={n} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
+          <h6>
+            {section}（课时 {lesson}）
+          </h6>
+          <ArtifactPanel planId={planId} lessonIndex={lesson} category={section} canEdit={canEditPlan} />
         </div>
       );
     }
@@ -943,7 +790,7 @@ const PlanDetail = (props) => {
       </div>
 
       <div className="pl-explorer">
-        {/* Hide/show the whole nav panel -- distinct from each 计划/执行 group's own
+        {/* Hide/show the whole nav panel -- distinct from each 计划/实施 group's own
             expand/collapse chevron below. When hidden, the nav is removed entirely
             (not just shrunk) and this handle is the only remaining trace of it. */}
         <button
@@ -981,19 +828,33 @@ const PlanDetail = (props) => {
             <div className="pl-explorer-group">
               <button type="button" className="pl-explorer-folder" onClick={() => toggleGroup("execution")}>
                 <i className={`fas fa-chevron-${expandedGroups.execution ? "down" : "right"} pl-explorer-chevron`}></i>
-                <i className="fas fa-folder-open mr-1"></i> 执行
+                <i className="fas fa-folder-open mr-1"></i> 实施
               </button>
               {expandedGroups.execution && (
                 <div className="pl-explorer-children">
                   {lessons.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      className={`pl-explorer-leaf ${selected.type === "execution" && selected.key === n ? "is-active" : ""}`}
-                      onClick={() => select("execution", n)}
-                    >
-                      课时 {n}
-                    </button>
+                    <div key={n} className="pl-explorer-subgroup">
+                      <button type="button" className="pl-explorer-folder pl-explorer-subfolder" onClick={() => toggleLesson(n)}>
+                        <i className={`fas fa-chevron-${expandedLessons[n] ? "down" : "right"} pl-explorer-chevron`}></i>
+                        <i className="fas fa-folder-open mr-1"></i> 课时 {n}
+                      </button>
+                      {expandedLessons[n] && (
+                        <div className="pl-explorer-children pl-explorer-children-nested">
+                          {LESSON_SECTIONS.map((section) => (
+                            <button
+                              key={section}
+                              type="button"
+                              className={`pl-explorer-leaf ${
+                                selected.type === "execution" && selected.key.lesson === n && selected.key.section === section ? "is-active" : ""
+                              }`}
+                              onClick={() => select("execution", { lesson: n, section })}
+                            >
+                              {section}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                   {lessons.length === 0 && <div className="pl-explorer-empty">尚未设置预计课时</div>}
                 </div>
