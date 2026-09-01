@@ -307,6 +307,10 @@ exports.update = async (req, res) => {
     }
 
     const payload = {};
+    // Bumping this (rather than relying on the plain updated_at column,
+    // which MySQL bumps for every write regardless of which fields changed)
+    // is what defines a new review "thread boundary" -- see review.model.js.
+    if (editingContent) payload.contentVersionAt = new Date();
 
     if (title !== undefined) {
       const normalizedTitle = normalizeInput(title);

@@ -64,6 +64,7 @@ CREATE TABLE plans (   -- 乡土课程计划
   is_excellent_case TINYINT(1) NOT NULL DEFAULT 0,
   curator_note VARCHAR(1024) NULL,
   suspended TINYINT(1) NOT NULL DEFAULT 0,  -- admin-only stop; hidden from public/other-teacher views, still visible read-only to the owning teacher and fully to admin
+  content_version_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- bumped only by actual content edits, not curatorNote/isExcellentCase/suspend -- see plan.model.js
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_plans_teacher FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE
@@ -95,6 +96,7 @@ CREATE TABLE reviews (   -- 评价乡土课程计划 + 评价乡土课程实施�
   score DECIMAL(4,1) NULL,
   content TEXT NOT NULL,
   ai_model VARCHAR(128) NULL,          -- 'qwen3.8-max' when reviewer_type='ai'
+  plan_version_at DATETIME NULL,       -- snapshot of plans.content_version_at at creation -- see review.model.js
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_reviews_plan FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
