@@ -170,12 +170,26 @@ exports.create = async (req, res) => {
 
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, theme, grade, year, teacherId, isExcellentCase, status } = req.query;
+    const { page, size, keyword, theme, grade, year, teacherId, isExcellentCase, status, mine } = req.query;
     const { limit, offset } = getPagination(page, size);
 
     const parsedYear = parseYear(year);
     if (year !== undefined && year !== null && year !== "" && !parsedYear) {
       return res.status(422).send({ message: "年份筛选无效，必须是 1900-2100 的整数。" });
+    }
+
+    // ?mine=true is always resolved from the authenticated caller (req.userId,
+    // set by authJwt.attachUserIfPresent on this route) -- never trust a
+    // client-supplied teacherId for "mine", or any logged-in user could see
+    // another teacher's plans just by requesting mine=true while impersonating
+    // nothing (teacherId is otherwise a legitimate admin-facing filter, e.g.
+    // the admin UI's own "只看我的" toggle also goes through this same param).
+    let effectiveTeacherId = teacherId;
+    if (mine === "true" || mine === true) {
+      if (!req.userId) {
+        return res.status(401).send({ message: "查看“我的”课程设计需要先登录。" });
+      }
+      effectiveTeacherId = req.userId;
     }
 
     const condition = {
@@ -191,7 +205,7 @@ exports.findAll = async (req, res) => {
         theme ? { theme: { [Op.eq]: `${theme}` } } : null,
         grade ? { grade: { [Op.eq]: `${grade}` } } : null,
         parsedYear ? { year: { [Op.eq]: parsedYear } } : null,
-        teacherId ? { teacherId: { [Op.eq]: `${teacherId}` } } : null,
+        effectiveTeacherId ? { teacherId: { [Op.eq]: `${effectiveTeacherId}` } } : null,
         status ? { status: { [Op.eq]: `${status}` } } : null,
         isExcellentCase !== undefined
           ? { isExcellentCase: { [Op.eq]: isExcellentCase === "true" || isExcellentCase === "1" } }

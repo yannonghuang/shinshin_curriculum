@@ -8,7 +8,10 @@ module.exports = function (app) {
   });
 
   app.post("/api/plans", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.create);
-  app.get("/api/plans", plans.findAll);
+  // attachUserIfPresent: stays publicly readable (the gallery browses this
+  // unauthenticated), but resolves req.userId when a token is present so
+  // ?mine=true can be scoped server-side to the actual caller (see findAll).
+  app.get("/api/plans", [authJwt.attachUserIfPresent], plans.findAll);
   app.get("/api/plans/options", plans.getOptions);
   app.get("/api/plans/:id", plans.findOne);
   app.put("/api/plans/:id", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.update);
