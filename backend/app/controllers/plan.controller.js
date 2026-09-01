@@ -317,17 +317,24 @@ exports.update = async (req, res) => {
 
     // Route-level gating is only isTeacherOrAdmin (any teacher), so ownership
     // must be enforced here -- otherwise any teacher could edit any other
-    // teacher's plan.
+    // teacher's plan. Content fields (title..status) are owner-only, with NO
+    // admin bypass -- managers can suspend/delete/promote/leave notes, but
+    // may not edit a plan's actual case content, even one they don't own.
     const requesterIsAdmin = await isAdminRequester(req.userId, t);
+    const isOwner = data.teacherId === req.userId;
+    const editingContent = [title, theme, grade, year, plannedLessonCount, planMode, planFormData, status].some(
+      (v) => v !== undefined
+    );
 
-    if (data.teacherId !== req.userId && !requesterIsAdmin) {
-      await t.rollback();
-      return res.status(403).send({ message: "只能修改本人创建的乡土课程设计。" });
-    }
-
-    if (data.suspended && !requesterIsAdmin) {
-      await t.rollback();
-      return res.status(403).send({ message: "该乡土课程设计已被管理员停用，如需修改请联系管理员。" });
+    if (editingContent) {
+      if (!isOwner) {
+        await t.rollback();
+        return res.status(403).send({ message: "只能修改本人创建的乡土课程设计。" });
+      }
+      if (data.suspended) {
+        await t.rollback();
+        return res.status(403).send({ message: "该乡土课程设计已被管理员停用，如需修改请联系管理员。" });
+      }
     }
 
     const payload = {};
@@ -511,6 +518,13 @@ exports.generateDoc = async (req, res) => {
     const plan = await Plan.findByPk(req.params.id);
     if (!plan) {
       return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
+    }
+
+    // Owner-only, like update's content fields -- generating the doc renders
+    // the plan's own WHY/WHAT/HOW content, so it's an authoring action, not
+    // a management one; no admin bypass.
+    if (plan.teacherId !== req.userId) {
+      return res.status(403).send({ message: "只能为本人创建的乡土课程设计生成文件。" });
     }
 
     const planDocGenerator = require("../services/planDocGenerator");

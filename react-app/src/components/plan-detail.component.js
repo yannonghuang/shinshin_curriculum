@@ -507,10 +507,13 @@ const PlanDetail = (props) => {
   // "draft", which made it read-only the moment a teacher clicked 提交待点评.
   // Staleness of the generated doc / existing reviews relative to later edits
   // is now surfaced as an "out of sync" badge instead (see planUpdatedAt below).
-  // A suspended plan is locked against edits for everyone except admin (see
-  // plan.controller.js#update's mirrored check) -- the owner can still view
-  // it, just read-only, until an admin unsuspends it.
-  const canEditPlan = isAdmin || (isOwner && !(plan && plan.suspended));
+  // Editing a plan's content is owner-only, no admin bypass -- managers can
+  // suspend/promote/leave notes (see the 管理员操作 card below) but not edit
+  // case content, even one they don't own (matches plan.controller.js#update
+  // and #generateDoc, which enforce the same rule server-side). A suspended
+  // plan is additionally locked against edits even for its owner, until an
+  // admin unsuspends it.
+  const canEditPlan = isOwner && !(plan && plan.suspended);
 
   const goBack = () => props.history.push("/plans");
 

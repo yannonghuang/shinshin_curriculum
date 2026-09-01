@@ -64,9 +64,11 @@ const PlansList = (props) => {
   const canToggleMineAll = !excellentOnly && !statusFilter && AuthService.isAdmin();
   const effectiveMineOnly = canToggleMineAll ? showMineOnly : mineOnly;
 
-  const canEditItem = (item) =>
-    AuthService.isAdmin() ||
-    (!item.suspended && AuthService.isTeacher() && String(item.teacherId) === String(currentUserId()));
+  const isOwnerOf = (item) => AuthService.isTeacher() && String(item.teacherId) === String(currentUserId());
+  // Editing a plan's content is owner-only, no admin bypass -- managers can
+  // suspend/delete/promote/leave notes (see below), but not edit case content.
+  const canEditItem = (item) => !item.suspended && isOwnerOf(item);
+  const canDeleteItem = (item) => AuthService.isAdmin() || isOwnerOf(item);
 
   const retrieveAll = useCallback(async () => {
     try {
@@ -369,14 +371,14 @@ const PlansList = (props) => {
                     </button>
                   )}
                   {canEditItem(item) && (
-                    <>
-                      <button className="btn btn-link p-0 mr-2" onClick={() => onEdit(item)}>
-                        编辑
-                      </button>
-                      <button className="btn btn-link p-0 text-danger" onClick={() => onDelete(item)}>
-                        删除
-                      </button>
-                    </>
+                    <button className="btn btn-link p-0 mr-2" onClick={() => onEdit(item)}>
+                      编辑
+                    </button>
+                  )}
+                  {canDeleteItem(item) && (
+                    <button className="btn btn-link p-0 text-danger" onClick={() => onDelete(item)}>
+                      删除
+                    </button>
                   )}
                 </div>
               </div>
