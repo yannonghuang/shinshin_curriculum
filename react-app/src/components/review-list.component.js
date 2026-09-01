@@ -11,14 +11,34 @@ import { REVIEW_SECTIONS } from "../constants/plan-options";
 //    passed down from plan-detail.component.js's canEditPlan) that calls the AI-review endpoint
 //    -- matches review.controller.js#createAiReview's owner-only check, no admin bypass,
 //  - AI-authored rows visually tagged distinctly (.pl-tag-ai) from expert rows (.pl-tag-expert).
-//  - an "out of sync" badge on any review written before the plan's last edit (planUpdatedAt
-//    prop) -- the plan stays editable after review/submission (no read-only lock), so a review
-//    can silently no longer reflect the current content; this flags that instead of hiding it.
+//  - threading: reviews are grouped by the exact plan.contentVersionAt snapshot they were
+//    created against (review.planVersionAt, set server-side -- see review.controller.js and
+//    plan.model.js's contentVersionAt comment). Two reviews land in the same group iff no
+//    content edit happened between them, i.e. they're both replies "on the same spot". Only
+//    the newest group (matching the plan's current planContentVersionAt prop) is "current";
+//    older groups are read-only history once the plan moves on -- matches
+//    review.controller.js#delete's server-side lock on superseded reviews.
 // Review lists are scoped to a single plan (and, per-lesson, to a single lessonIndex), so
-// unlike comments-list.component.js this renders a plain client-sorted table instead of a
-// server-paginated react-table -- the plan's REST contract does not paginate this endpoint.
+// unlike comments-list.component.js this renders plain client-sorted/grouped tables instead of
+// a server-paginated react-table -- the plan's REST contract does not paginate this endpoint.
+const groupByVersion = (sortedReviews) => {
+  const groups = [];
+  const byKey = new Map();
+  for (const review of sortedReviews) {
+    const key = review.planVersionAt || "unknown";
+    let group = byKey.get(key);
+    if (!group) {
+      group = { key, items: [] };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    group.items.push(review);
+  }
+  return groups;
+};
+
 const ReviewList = (props) => {
-  const { planId, lessonIndex, embedded, planUpdatedAt, canTriggerAi } = props;
+  const { planId, lessonIndex, embedded, planContentVersionAt, canTriggerAi } = props;
   const [reviews, setReviews] = useState([]);
   const [text, setText] = useState("");
   const [sectionKey, setSectionKey] = useState("WHY");
@@ -87,9 +107,17 @@ const ReviewList = (props) => {
     }
   };
 
+  // Mirrors review.controller.js#delete's two server-side rules: must be the
+  // review's own author (or admin) AND the review must still belong to the
+  // plan's current content version -- once superseded by a later edit, it's
+  // locked as history for everyone, admin included.
+  const isCurrentVersion = (review) => review.planVersionAt === planContentVersionAt;
+  const canDelete = (review) =>
+    isCurrentVersion(review) &&
+    (AuthService.isAdmin() || (review.reviewerId && currentUser && String(review.reviewerId) === String(currentUser.id)));
+
   const deleteReview = async (review) => {
-    const canDelete = AuthService.isAdmin() || (review.reviewerId && currentUser && String(review.reviewerId) === String(currentUser.id));
-    if (!canDelete) return;
+    if (!canDelete(review)) return;
     if (!window.confirm("确定要删除该点评吗？")) return;
     try {
       await ReviewDataService.delete(review.id);
@@ -154,56 +182,60 @@ const ReviewList = (props) => {
 
       {message && <div className="alert alert-info py-2">{message}</div>}
 
-      <table className="table table-sm table-bordered">
-        <thead>
-          <tr>
-            <th>类型</th>
-            <th>模块</th>
-            <th>评分</th>
-            <th>内容</th>
-            <th>点评人</th>
-            <th>时间</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {reviews.map((review) => {
-            const isStale =
-              planUpdatedAt && review.createdAt && new Date(planUpdatedAt) > new Date(review.createdAt);
-            return (
-            <tr key={review.id}>
-              <td>
-                {review.reviewerType === "ai" ? (
-                  <span className="pl-tag-ai">AI点评{review.aiModel ? `（${review.aiModel}）` : ""}</span>
-                ) : (
-                  <span className="pl-tag-expert">专家点评</span>
-                )}
-                {isStale && <span className="pl-tag pl-tag-warn d-block mt-1">内容已更新，点评可能已过时</span>}
-              </td>
-              <td>{review.sectionKey || "-"}</td>
-              <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>
-              <td style={{ whiteSpace: "pre-wrap" }}>{review.content}</td>
-              <td>{review.reviewerType === "ai" ? "AI智能体" : review.reviewer ? review.reviewer.chineseName || review.reviewer.username : "-"}</td>
-              <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
-              <td>
-                {(AuthService.isAdmin() || (review.reviewerId && currentUser && String(review.reviewerId) === String(currentUser.id))) && (
-                  <button className="btn btn-link p-0 text-danger" onClick={() => deleteReview(review)}>
-                    删除
-                  </button>
-                )}
-              </td>
-            </tr>
-            );
-          })}
-          {reviews.length === 0 && (
-            <tr>
-              <td colSpan="7" className="pl-empty">
-                暂无点评
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      {reviews.length === 0 && <div className="pl-empty">暂无点评</div>}
+
+      {groupByVersion(reviews).map((group, idx) => {
+        const isCurrent = group.key === planContentVersionAt;
+        return (
+          <div key={group.key} className={idx > 0 ? "mt-3" : ""}>
+            <div className="d-flex align-items-center mb-1">
+              {isCurrent ? (
+                <span className="pl-tag mr-2">当前版本</span>
+              ) : (
+                <span className="pl-tag pl-tag-warn mr-2">历史版本（课程内容已被后续修改）</span>
+              )}
+            </div>
+            <table className="table table-sm table-bordered mb-0">
+              <thead>
+                <tr>
+                  <th>类型</th>
+                  <th>模块</th>
+                  <th>评分</th>
+                  <th>内容</th>
+                  <th>点评人</th>
+                  <th>时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.items.map((review) => (
+                  <tr key={review.id}>
+                    <td>
+                      {review.reviewerType === "ai" ? (
+                        <span className="pl-tag-ai">AI点评{review.aiModel ? `（${review.aiModel}）` : ""}</span>
+                      ) : (
+                        <span className="pl-tag-expert">专家点评</span>
+                      )}
+                    </td>
+                    <td>{review.sectionKey || "-"}</td>
+                    <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>
+                    <td style={{ whiteSpace: "pre-wrap" }}>{review.content}</td>
+                    <td>{review.reviewerType === "ai" ? "AI智能体" : review.reviewer ? review.reviewer.chineseName || review.reviewer.username : "-"}</td>
+                    <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
+                    <td>
+                      {canDelete(review) && (
+                        <button className="btn btn-link p-0 text-danger" onClick={() => deleteReview(review)}>
+                          删除
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
     </div>
   );
 };

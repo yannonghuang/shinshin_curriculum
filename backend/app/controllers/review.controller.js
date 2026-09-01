@@ -38,6 +38,7 @@ exports.create = async (req, res) => {
       score: score !== undefined && score !== null && score !== "" ? Number(score) : null,
       content,
       aiModel: null,
+      planVersionAt: plan.contentVersionAt,
     });
 
     return res.send(data);
@@ -132,6 +133,7 @@ exports.createAiReview = async (req, res) => {
       score: null,
       content: result.text,
       aiModel: result.model,
+      planVersionAt: plan.contentVersionAt,
     });
 
     return res.send(data);
@@ -181,20 +183,56 @@ exports.findByPlan = async (req, res) => {
   }
 };
 
+const isAdminRequester = async (userId) => {
+  const user = await User.findByPk(userId);
+  if (!user) return false;
+  const roles = await user.getRoles();
+  return roles.some((r) => r.name === "admin");
+};
+
+// DELETE /api/reviews/:id (authJwt.verifyToken-gated at the route -- ownership
+// and the not-superseded rule are enforced here, not just hidden in the UI).
 exports.delete = async (req, res) => {
   const id = req.params.id;
 
-  Review.destroy({ where: { id } })
-    .then((num) => {
-      if (num == 1) {
-        res.send({ message: "点评删除成功。" });
-      } else {
-        res.send({ message: `未找到点评 id=${id}，或点评已被删除。` });
-      }
-    })
-    .catch((err) => {
-      res.status(500).send({
-        message: err.message || `删除点评 id=${id} 时发生错误。`,
+  try {
+    const review = await Review.findByPk(id);
+    if (!review) {
+      return res.status(404).send({ message: `未找到点评 id=${id}。` });
+    }
+
+    // Only the review's own author may delete it (AI reviews have no
+    // reviewerId, so only admin can remove those) -- previously the route had
+    // no ownership check at all, only the frontend hid the button.
+    const isAuthor = review.reviewerId !== null && review.reviewerId === req.userId;
+    if (!isAuthor && !(await isAdminRequester(req.userId))) {
+      return res.status(403).send({ message: "只能删除本人撰写的点评。" });
+    }
+
+    // Once the plan's content has moved on (a later edit bumped
+    // contentVersionAt past this review's snapshot), the review is part of
+    // the historical record for a superseded version -- lock it against
+    // deletion, even for its own author or admin, so that history stays
+    // intact. See plan.model.js/review.model.js.
+    const plan = await Plan.findByPk(review.planId);
+    if (
+      plan &&
+      review.planVersionAt &&
+      new Date(review.planVersionAt).getTime() !== new Date(plan.contentVersionAt).getTime()
+    ) {
+      return res.status(403).send({
+        message: "课程内容已被后续修改，该点评对应的版本已成为历史记录，不能删除。",
       });
+    }
+
+    const num = await Review.destroy({ where: { id } });
+    if (num === 1) {
+      return res.send({ message: "点评删除成功。" });
+    }
+    return res.status(404).send({ message: `未找到点评 id=${id}，或点评已被删除。` });
+  } catch (err) {
+    return res.status(500).send({
+      message: err.message || `删除点评 id=${id} 时发生错误。`,
     });
+  }
 };
