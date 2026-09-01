@@ -860,7 +860,7 @@ const PlanDetail = (props) => {
 
       <div className="pl-card">
         <h5>整体点评</h5>
-        <ReviewList planId={planId} lessonIndex={null} embedded planUpdatedAt={plan.updatedAt} />
+        <ReviewList planId={planId} lessonIndex={null} embedded planUpdatedAt={plan.updatedAt} canTriggerAi={canEditPlan} />
       </div>
 
       {lessonCount > 0 && (
@@ -875,7 +875,7 @@ const PlanDetail = (props) => {
             {lessons.map((n) => (
               <TabPanel key={n}>
                 <ArtifactPanel planId={planId} lessonIndex={n} categories={ARTIFACT_CATEGORIES_LESSON_LEVEL} allowBulk canEdit={canEditPlan} />
-                <ReviewList planId={planId} lessonIndex={n} embedded planUpdatedAt={plan.updatedAt} />
+                <ReviewList planId={planId} lessonIndex={n} embedded planUpdatedAt={plan.updatedAt} canTriggerAi={canEditPlan} />
               </TabPanel>
             ))}
           </Tabs>

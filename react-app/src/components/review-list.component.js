@@ -7,7 +7,9 @@ import { REVIEW_SECTIONS } from "../constants/plan-options";
 // pattern), extended with:
 //  - a reviewer-role-aware section picker (WHY/WHAT/HOW/自由文本 + score) shown only to
 //    expert/admin reviewers,
-//  - a "请AI点评" trigger button shown to teacher/admin that calls the AI-review endpoint,
+//  - a "请AI点评" trigger button shown only to the plan's owning teacher (canTriggerAi prop,
+//    passed down from plan-detail.component.js's canEditPlan) that calls the AI-review endpoint
+//    -- matches review.controller.js#createAiReview's owner-only check, no admin bypass,
 //  - AI-authored rows visually tagged distinctly (.pl-tag-ai) from expert rows (.pl-tag-expert).
 //  - an "out of sync" badge on any review written before the plan's last edit (planUpdatedAt
 //    prop) -- the plan stays editable after review/submission (no read-only lock), so a review
@@ -16,7 +18,7 @@ import { REVIEW_SECTIONS } from "../constants/plan-options";
 // unlike comments-list.component.js this renders a plain client-sorted table instead of a
 // server-paginated react-table -- the plan's REST contract does not paginate this endpoint.
 const ReviewList = (props) => {
-  const { planId, lessonIndex, embedded, planUpdatedAt } = props;
+  const { planId, lessonIndex, embedded, planUpdatedAt, canTriggerAi } = props;
   const [reviews, setReviews] = useState([]);
   const [text, setText] = useState("");
   const [sectionKey, setSectionKey] = useState("WHY");
@@ -25,7 +27,6 @@ const ReviewList = (props) => {
   const [aiLoading, setAiLoading] = useState(false);
 
   const isExpertReviewer = AuthService.isExpert() || AuthService.isAdmin();
-  const canTriggerAi = AuthService.isTeacher() || AuthService.isAdmin();
   const currentUser = AuthService.getCurrentUser();
 
   const retrieveReviews = useCallback(async () => {
