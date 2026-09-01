@@ -24,6 +24,22 @@ verifyToken = (req, res, next) => {
   });
 };
 
+// Soft auth for endpoints that must stay publicly readable (e.g. GET /api/plans,
+// used unauthenticated by the public 优秀案例展示 gallery) but still need to know
+// who's asking when a token IS present (e.g. to resolve ?mine=true to the caller's
+// own id server-side, rather than trusting a client-supplied teacherId). Unlike
+// verifyToken, a missing or invalid token is not an error -- req.userId is just left
+// unset and the route decides what that means.
+attachUserIfPresent = (req, res, next) => {
+  const token = req.headers["x-access-token"];
+  if (!token) return next();
+
+  jwt.verify(token, config.secret, (err, decoded) => {
+    if (!err) req.userId = decoded.id;
+    next();
+  });
+};
+
 const hasRole = async (req, roleName) => {
   const user = await User.findByPk(req.userId);
   if (!user) return false;
@@ -124,6 +140,7 @@ hasAdminRole = async (req) => {
 
 const authJwt = {
   verifyToken: verifyToken,
+  attachUserIfPresent: attachUserIfPresent,
   isAdmin: isAdmin,
   isTeacher: isTeacher,
   isExpert: isExpert,
