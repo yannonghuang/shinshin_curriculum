@@ -1,7 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import mammoth from "mammoth/mammoth.browser";
-import { Tab, TabList, TabPanel, Tabs } from "react-tabs";
-import "react-tabs/style/react-tabs.css";
 
 import PlanDataService from "../services/plan.service";
 import ArtifactDataService from "../services/artifact.service";
@@ -465,9 +463,25 @@ const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit, pl
 };
 
 // Migrated from shinshin's case-detail.component.js, with the online-fill WHY/WHAT/HOW form
-// (matching curriculum_template/乡土课程设计方案模版.docx's structure), a react-tabs 课时
-// 1..N block (pattern migrated from school.component.js's "embed child list per tab" usage),
-// each lesson tab embedding its own ArtifactPanel + ReviewList.
+// (matching curriculum_template/乡土课程设计方案模版.docx's structure). Layout: a file-explorer
+// style split -- a collapsible left nav tree (计划/its sections, 执行/its 课时 segments, and an
+// admin-only 管理 leaf) drives a single-section content pane on the right, replacing the old
+// waterfall of every card stacked vertically (and the react-tabs 课时 block) with one section
+// visible at a time.
+const PLAN_SECTIONS_ONLINE = [
+  { key: "basic", label: "基本信息" },
+  { key: "why", label: "WHY · 学习目标" },
+  { key: "what", label: "WHAT · 项目简介" },
+  { key: "how", label: "HOW · 活动设计" },
+  { key: "files", label: "课程设计文件" },
+  { key: "reviews", label: "整体点评" },
+];
+const PLAN_SECTIONS_UPLOAD = [
+  { key: "basic", label: "基本信息" },
+  { key: "files", label: "课程设计文件" },
+  { key: "reviews", label: "整体点评" },
+];
+
 const PlanDetail = (props) => {
   const planId = props.match.params.id;
   const [plan, setPlan] = useState(null);
@@ -478,6 +492,12 @@ const PlanDetail = (props) => {
   const [formData, setFormData] = useState(emptyWhyWhatHow);
   const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
   const [curatorNote, setCuratorNote] = useState("");
+  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState({ plan: true, execution: true });
+  const [selected, setSelected] = useState({ type: "plan", key: "basic" });
+
+  const toggleGroup = (name) => setExpandedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
+  const select = (type, key) => setSelected({ type, key });
 
   const retrievePlan = useCallback(async () => {
     setIsLoadingPlan(true);
@@ -630,101 +650,245 @@ const PlanDetail = (props) => {
 
   const lessonCount = plan.plannedLessonCount || 0;
   const lessons = Array.from({ length: lessonCount }, (_, i) => i + 1);
+  const planSections = plan.planMode === "online" ? PLAN_SECTIONS_ONLINE : PLAN_SECTIONS_UPLOAD;
 
-  return (
-    <div className="container pl-page">
-      <div className="pl-hero">
-        <div className="mb-2">
-          <button type="button" className="btn btn-primary" onClick={goBack}>
-            返回
-          </button>
-        </div>
-        <h4 className="pl-title">
-          {plan.title}
-          {plan.suspended && <span className="pl-tag pl-tag-warn ml-2">已停用</span>}
-        </h4>
-        <p className="pl-subtitle">
-          {plan.theme || "-"} · {plan.grade || "-"} · {plan.year} · 状态：{plan.status}
-          {plan.isExcellentCase ? " · 优秀案例" : ""}
-        </p>
-        {plan.suspended && !isAdmin && (
-          <div className="alert alert-warning py-2 mb-0">该课程设计已被管理员停用，如需修改请联系管理员。</div>
-        )}
-      </div>
-
-      <div className="pl-card">
-        {isEditingMeta ? (
-          <form onSubmit={saveMeta}>
-            <div className="form-row">
-              <div className="form-group col-md-4">
-                <label>标题</label>
-                <input className="form-control" value={metaForm.title} onChange={(e) => setMetaForm((p) => ({ ...p, title: e.target.value }))} required />
+  const renderContent = () => {
+    if (selected.type === "plan" && selected.key === "basic") {
+      return (
+        <div className="pl-card">
+          <h6>基本信息</h6>
+          {isEditingMeta ? (
+            <form onSubmit={saveMeta}>
+              <div className="form-row">
+                <div className="form-group col-md-4">
+                  <label>标题</label>
+                  <input className="form-control" value={metaForm.title} onChange={(e) => setMetaForm((p) => ({ ...p, title: e.target.value }))} required />
+                </div>
+                <div className="form-group col-md-2">
+                  <label>年份</label>
+                  <input className="form-control" type="number" value={metaForm.year} onChange={(e) => setMetaForm((p) => ({ ...p, year: e.target.value }))} required />
+                </div>
+                <div className="form-group col-md-3">
+                  <label>乡土主题</label>
+                  <select className="form-control" value={metaForm.theme} onChange={(e) => setMetaForm((p) => ({ ...p, theme: e.target.value }))}>
+                    <option value="">不限</option>
+                    {PLAN_THEMES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group col-md-3">
+                  <label>年级</label>
+                  <select className="form-control" value={metaForm.grade} onChange={(e) => setMetaForm((p) => ({ ...p, grade: e.target.value }))}>
+                    <option value="">不限</option>
+                    {PLAN_GRADES.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div className="form-group col-md-2">
-                <label>年份</label>
-                <input className="form-control" type="number" value={metaForm.year} onChange={(e) => setMetaForm((p) => ({ ...p, year: e.target.value }))} required />
+              <div className="form-group">
+                <label>预计课时</label>
+                <input
+                  className="form-control"
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={metaForm.plannedLessonCount}
+                  onChange={(e) => setMetaForm((p) => ({ ...p, plannedLessonCount: e.target.value }))}
+                />
               </div>
-              <div className="form-group col-md-3">
-                <label>乡土主题</label>
-                <select className="form-control" value={metaForm.theme} onChange={(e) => setMetaForm((p) => ({ ...p, theme: e.target.value }))}>
-                  <option value="">不限</option>
-                  {PLAN_THEMES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
+              <button className="btn btn-primary mr-2" type="submit">
+                保存
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={() => setIsEditingMeta(false)}>
+                取消
+              </button>
+            </form>
+          ) : (
+            <div>
+              <div>
+                <b>填写方式：</b>
+                {plan.planMode === "online" ? "在线填写" : "上传文件"}
               </div>
-              <div className="form-group col-md-3">
-                <label>年级</label>
-                <select className="form-control" value={metaForm.grade} onChange={(e) => setMetaForm((p) => ({ ...p, grade: e.target.value }))}>
-                  <option value="">不限</option>
-                  {PLAN_GRADES.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                </select>
+              <div>
+                <b>预计课时：</b>
+                {plan.plannedLessonCount || "-"}
               </div>
+              {canEditPlan && (
+                <button className="btn btn-link p-0 mt-2" onClick={startEditMeta}>
+                  编辑课程基本信息
+                </button>
+              )}
             </div>
-            <div className="form-group">
-              <label>预计课时</label>
-              <input
+          )}
+        </div>
+      );
+    }
+
+    if (selected.type === "plan" && selected.key === "why") {
+      return (
+        <div className="pl-card pl-why-what-how">
+          <h6>WHY · 学习目标</h6>
+          {[
+            ["cognitiveGoals", "认知思维目标"],
+            ["practicalGoals", "实践技能目标"],
+            ["socialEmotionalGoals", "社会情感目标"],
+            ["otherGoals", "其他目标"],
+          ].map(([field, label]) => (
+            <div className="form-group" key={field}>
+              <label>{label}</label>
+              <textarea
                 className="form-control"
-                type="number"
-                min="1"
-                max="60"
-                value={metaForm.plannedLessonCount}
-                onChange={(e) => setMetaForm((p) => ({ ...p, plannedLessonCount: e.target.value }))}
+                rows="2"
+                value={formData.why[field]}
+                disabled={!canEditPlan}
+                onChange={(e) => onFormFieldChange("why", field, e.target.value)}
               />
             </div>
-            <button className="btn btn-primary mr-2" type="submit">
-              保存
-            </button>
-            <button className="btn btn-secondary" type="button" onClick={() => setIsEditingMeta(false)}>
-              取消
-            </button>
-          </form>
-        ) : (
-          <div>
-            <div>
-              <b>填写方式：</b>
-              {plan.planMode === "online" ? "在线填写" : "上传文件"}
+          ))}
+          {canEditPlan && (
+            <div className="d-flex mt-2">
+              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveFormData()}>
+                保存草稿
+              </button>
+              <button className="btn btn-primary" type="button" onClick={() => saveFormData("submitted")}>
+                提交待点评
+              </button>
             </div>
-            <div>
-              <b>预计课时：</b>
-              {plan.plannedLessonCount || "-"}
+          )}
+        </div>
+      );
+    }
+
+    if (selected.type === "plan" && selected.key === "what") {
+      return (
+        <div className="pl-card pl-why-what-how">
+          <h6>WHAT · 项目简介</h6>
+          {[
+            ["projectIntro", "项目介绍（为什么做这个乡土主题？）"],
+            ["drivingQuestion", "驱动问题（儿童视角）"],
+            ["finalOutcomePersonal", "最终成果 · 个人成果"],
+            ["finalOutcomeTeam", "最终成果 · 团队成果"],
+            ["publicDisplayMethod", "公开展示方式"],
+          ].map(([field, label]) => (
+            <div className="form-group" key={field}>
+              <label>{label}</label>
+              <textarea
+                className="form-control"
+                rows="2"
+                value={formData.what[field]}
+                disabled={!canEditPlan}
+                onChange={(e) => onFormFieldChange("what", field, e.target.value)}
+              />
             </div>
-            {canEditPlan && (
-              <button className="btn btn-link p-0 mt-2" onClick={startEditMeta}>
-                编辑课程基本信息
+          ))}
+          {canEditPlan && (
+            <div className="d-flex mt-2">
+              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveFormData()}>
+                保存草稿
+              </button>
+              <button className="btn btn-primary" type="button" onClick={() => saveFormData("submitted")}>
+                提交待点评
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (selected.type === "plan" && selected.key === "how") {
+      return (
+        <div className="pl-card pl-why-what-how">
+          <h6>HOW · 活动设计</h6>
+          {[
+            ["entryActivity", "入项活动（1-2课时）"],
+            ["teacherStudentDiscussion", "师生共议驱动问题"],
+            ["outcomeDisplayDiscussion", "讨论最终成果及展示"],
+            ["requirementsChecklist", "讨论须知清单"],
+            ["knowledgeExploration", "探究与制作 · 知识探究（课时安排）"],
+            ["productMaking", "探究与制作 · 产品制作（课时安排）"],
+            ["reflectionIteration", "探究与制作 · 反思与迭代（课时安排）"],
+            ["finalOutcomeDisplay", "出项 · 最终成果展示"],
+            ["reflectionSummary", "出项 · 复盘反思"],
+            ["materialsNeeded", "需要的材料"],
+            ["resourcesNeeded", "需要链接的资源"],
+          ].map(([field, label]) => (
+            <div className="form-group" key={field}>
+              <label>{label}</label>
+              <textarea
+                className="form-control"
+                rows="2"
+                value={formData.how[field]}
+                disabled={!canEditPlan}
+                onChange={(e) => onFormFieldChange("how", field, e.target.value)}
+              />
+            </div>
+          ))}
+          {canEditPlan && (
+            <div className="d-flex mt-2">
+              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveFormData()}>
+                保存草稿
+              </button>
+              <button className="btn btn-primary" type="button" onClick={() => saveFormData("submitted")}>
+                提交待点评
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (selected.type === "plan" && selected.key === "files") {
+      return (
+        <div className="pl-card">
+          <div className="d-flex justify-content-between align-items-center mb-2">
+            <h6 className="mb-0">课程设计文件{plan.planMode !== "online" ? "（上传）" : ""}</h6>
+            {plan.planMode === "online" && (
+              <button className="btn btn-outline-primary btn-sm" type="button" onClick={generateDoc} disabled={isGeneratingDoc}>
+                {isGeneratingDoc ? "生成中..." : "生成课程设计文件"}
               </button>
             )}
           </div>
-        )}
-      </div>
+          <ArtifactPanel
+            planId={planId}
+            lessonIndex={null}
+            categories={["课程设计文件"]}
+            allowBulk={false}
+            canEdit={canEditPlan}
+            planUpdatedAt={plan.updatedAt}
+          />
+        </div>
+      );
+    }
 
-      {isAdmin && (
+    if (selected.type === "plan" && selected.key === "reviews") {
+      return (
+        <div className="pl-card">
+          <h6>整体点评</h6>
+          <ReviewList planId={planId} lessonIndex={null} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
+        </div>
+      );
+    }
+
+    if (selected.type === "execution") {
+      const n = selected.key;
+      return (
+        <div className="pl-card">
+          <h6>课时 {n}</h6>
+          <ArtifactPanel planId={planId} lessonIndex={n} categories={ARTIFACT_CATEGORIES_LESSON_LEVEL} allowBulk canEdit={canEditPlan} />
+          <hr />
+          <ReviewList planId={planId} lessonIndex={n} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
+        </div>
+      );
+    }
+
+    if (selected.type === "admin") {
+      return (
         <div className="pl-card">
           <h6>管理员操作</h6>
           <div className="form-group">
@@ -751,136 +915,108 @@ const PlanDetail = (props) => {
             保存备注
           </button>
         </div>
-      )}
+      );
+    }
 
-      {message && <div className="alert alert-info py-2">{message}</div>}
+    return null;
+  };
 
-      {plan.planMode === "online" ? (
-        <div className="pl-card pl-why-what-how">
-          <div className="d-flex justify-content-between align-items-center">
-            <h5 className="mb-0">课程设计方案（WHY / WHAT / HOW）</h5>
-            <button className="btn btn-outline-primary btn-sm" type="button" onClick={generateDoc} disabled={isGeneratingDoc}>
-              {isGeneratingDoc ? "生成中..." : "生成课程设计文件"}
-            </button>
-          </div>
-
-          <h6>WHY · 学习目标</h6>
-          {[
-            ["cognitiveGoals", "认知思维目标"],
-            ["practicalGoals", "实践技能目标"],
-            ["socialEmotionalGoals", "社会情感目标"],
-            ["otherGoals", "其他目标"],
-          ].map(([field, label]) => (
-            <div className="form-group" key={field}>
-              <label>{label}</label>
-              <textarea
-                className="form-control"
-                rows="2"
-                value={formData.why[field]}
-                disabled={!canEditPlan}
-                onChange={(e) => onFormFieldChange("why", field, e.target.value)}
-              />
-            </div>
-          ))}
-
-          <h6>WHAT · 项目简介</h6>
-          {[
-            ["projectIntro", "项目介绍（为什么做这个乡土主题？）"],
-            ["drivingQuestion", "驱动问题（儿童视角）"],
-            ["finalOutcomePersonal", "最终成果 · 个人成果"],
-            ["finalOutcomeTeam", "最终成果 · 团队成果"],
-            ["publicDisplayMethod", "公开展示方式"],
-          ].map(([field, label]) => (
-            <div className="form-group" key={field}>
-              <label>{label}</label>
-              <textarea
-                className="form-control"
-                rows="2"
-                value={formData.what[field]}
-                disabled={!canEditPlan}
-                onChange={(e) => onFormFieldChange("what", field, e.target.value)}
-              />
-            </div>
-          ))}
-
-          <h6>HOW · 活动设计</h6>
-          {[
-            ["entryActivity", "入项活动（1-2课时）"],
-            ["teacherStudentDiscussion", "师生共议驱动问题"],
-            ["outcomeDisplayDiscussion", "讨论最终成果及展示"],
-            ["requirementsChecklist", "讨论须知清单"],
-            ["knowledgeExploration", "探究与制作 · 知识探究（课时安排）"],
-            ["productMaking", "探究与制作 · 产品制作（课时安排）"],
-            ["reflectionIteration", "探究与制作 · 反思与迭代（课时安排）"],
-            ["finalOutcomeDisplay", "出项 · 最终成果展示"],
-            ["reflectionSummary", "出项 · 复盘反思"],
-            ["materialsNeeded", "需要的材料"],
-            ["resourcesNeeded", "需要链接的资源"],
-          ].map(([field, label]) => (
-            <div className="form-group" key={field}>
-              <label>{label}</label>
-              <textarea
-                className="form-control"
-                rows="2"
-                value={formData.how[field]}
-                disabled={!canEditPlan}
-                onChange={(e) => onFormFieldChange("how", field, e.target.value)}
-              />
-            </div>
-          ))}
-
-          {canEditPlan && (
-            <div className="d-flex mt-2">
-              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveFormData()}>
-                保存草稿
-              </button>
-              <button className="btn btn-primary" type="button" onClick={() => saveFormData("submitted")}>
-                提交待点评
-              </button>
-            </div>
-          )}
-
-          <hr />
-          <h6>课程设计文件</h6>
-          <ArtifactPanel
-            planId={planId}
-            lessonIndex={null}
-            categories={["课程设计文件"]}
-            allowBulk={false}
-            canEdit={canEditPlan}
-            planUpdatedAt={plan.updatedAt}
-          />
+  return (
+    <div className="container pl-page">
+      <div className="pl-hero">
+        <div className="mb-2">
+          <button type="button" className="btn btn-primary" onClick={goBack}>
+            返回
+          </button>
         </div>
-      ) : (
-        <div className="pl-card">
-          <h5>课程设计文件（上传）</h5>
-          <ArtifactPanel planId={planId} lessonIndex={null} categories={["课程设计文件"]} allowBulk={false} canEdit={canEditPlan} />
-        </div>
-      )}
-
-      <div className="pl-card">
-        <h5>整体点评</h5>
-        <ReviewList planId={planId} lessonIndex={null} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
+        <h4 className="pl-title">
+          {plan.title}
+          {plan.suspended && <span className="pl-tag pl-tag-warn ml-2">已停用</span>}
+        </h4>
+        <p className="pl-subtitle">
+          {plan.theme || "-"} · {plan.grade || "-"} · {plan.year} · 状态：{plan.status}
+          {plan.isExcellentCase ? " · 优秀案例" : ""}
+        </p>
+        {plan.suspended && !isAdmin && (
+          <div className="alert alert-warning py-2 mb-0">该课程设计已被管理员停用，如需修改请联系管理员。</div>
+        )}
       </div>
 
-      {lessonCount > 0 && (
-        <div className="pl-card">
-          <h5>分课时实施记录</h5>
-          <Tabs className="pl-lesson-tabs mt-2">
-            <TabList>
-              {lessons.map((n) => (
-                <Tab key={n}>课时 {n}</Tab>
-              ))}
-            </TabList>
-            {lessons.map((n) => (
-              <TabPanel key={n}>
-                <ArtifactPanel planId={planId} lessonIndex={n} categories={ARTIFACT_CATEGORIES_LESSON_LEVEL} allowBulk canEdit={canEditPlan} />
-                <ReviewList planId={planId} lessonIndex={n} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
-              </TabPanel>
-            ))}
-          </Tabs>
+      <div className="pl-explorer">
+        {/* Hide/show the whole nav panel -- distinct from each 计划/执行 group's own
+            expand/collapse chevron below. When hidden, the nav is removed entirely
+            (not just shrunk) and this handle is the only remaining trace of it. */}
+        <button
+          type="button"
+          className="pl-explorer-hide-toggle"
+          onClick={() => setNavCollapsed((prev) => !prev)}
+          title={navCollapsed ? "显示导航" : "隐藏导航"}
+        >
+          <i className={`fas fa-${navCollapsed ? "angle-double-right" : "angle-double-left"}`}></i>
+        </button>
+
+        {!navCollapsed && (
+          <div className="pl-explorer-nav">
+            <div className="pl-explorer-group">
+              <button type="button" className="pl-explorer-folder" onClick={() => toggleGroup("plan")}>
+                <i className={`fas fa-chevron-${expandedGroups.plan ? "down" : "right"} pl-explorer-chevron`}></i>
+                <i className="fas fa-folder-open mr-1"></i> 计划
+              </button>
+              {expandedGroups.plan && (
+                <div className="pl-explorer-children">
+                  {planSections.map((s) => (
+                    <button
+                      key={s.key}
+                      type="button"
+                      className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === s.key ? "is-active" : ""}`}
+                      onClick={() => select("plan", s.key)}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="pl-explorer-group">
+              <button type="button" className="pl-explorer-folder" onClick={() => toggleGroup("execution")}>
+                <i className={`fas fa-chevron-${expandedGroups.execution ? "down" : "right"} pl-explorer-chevron`}></i>
+                <i className="fas fa-folder-open mr-1"></i> 执行
+              </button>
+              {expandedGroups.execution && (
+                <div className="pl-explorer-children">
+                  {lessons.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`pl-explorer-leaf ${selected.type === "execution" && selected.key === n ? "is-active" : ""}`}
+                      onClick={() => select("execution", n)}
+                    >
+                      课时 {n}
+                    </button>
+                  ))}
+                  {lessons.length === 0 && <div className="pl-explorer-empty">尚未设置预计课时</div>}
+                </div>
+              )}
+            </div>
+
+            {isAdmin && (
+              <button
+                type="button"
+                className={`pl-explorer-leaf pl-explorer-top-leaf ${selected.type === "admin" ? "is-active" : ""}`}
+                onClick={() => select("admin")}
+              >
+                <i className="fas fa-cog mr-1"></i> 管理
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="pl-explorer-content">
+          {message && <div className="alert alert-info py-2">{message}</div>}
+          {renderContent()}
         </div>
-      )}
+      </div>
     </div>
   );
 };
