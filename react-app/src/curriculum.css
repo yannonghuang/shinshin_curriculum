@@ -325,30 +325,134 @@
   border: 1px solid #ccebdd;
 }
 
-.pl-lesson-tabs .react-tabs__tab-list {
-  border-bottom: 1px solid var(--pl-line);
-  margin-bottom: 12px;
+/* plan-detail.component.js's file-explorer layout: a collapsible/hide-able left
+   nav tree (.pl-explorer-nav, entirely removed from the DOM when hidden -- see
+   .pl-explorer-hide-toggle) driving a single-section content pane on the right
+   (.pl-explorer-content), replacing the old vertical waterfall of every card. */
+.pl-explorer {
   display: flex;
-  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
 }
 
-.pl-lesson-tabs .react-tabs__tab {
-  border: 1px solid transparent;
-  border-bottom: none;
-  bottom: -1px;
-  position: relative;
-  list-style: none;
-  padding: 8px 14px;
-  cursor: pointer;
-  color: var(--pl-muted);
-  font-weight: 600;
-}
-
-.pl-lesson-tabs .react-tabs__tab--selected {
+.pl-explorer-hide-toggle {
+  flex: 0 0 28px;
+  align-self: stretch;
+  min-height: 200px;
+  border: 1px solid var(--pl-line);
+  border-radius: 10px;
   background: var(--pl-panel);
-  border-color: var(--pl-line);
-  border-radius: 8px 8px 0 0;
+  color: var(--pl-muted);
+  cursor: pointer;
+}
+
+.pl-explorer-hide-toggle:hover {
+  background: var(--pl-accent-soft);
   color: var(--pl-accent);
+}
+
+.pl-explorer-nav {
+  flex: 0 0 240px;
+  width: 240px;
+  background: var(--pl-panel);
+  border: 1px solid var(--pl-line);
+  border-radius: 12px;
+  padding: 10px;
+  position: sticky;
+  top: 12px;
+}
+
+.pl-explorer-group {
+  margin-bottom: 4px;
+}
+
+.pl-explorer-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 6px;
+  border: none;
+  background: transparent;
+  font-weight: 700;
+  color: var(--pl-text);
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.pl-explorer-folder:hover {
+  background: var(--pl-accent-soft);
+}
+
+.pl-explorer-chevron {
+  width: 12px;
+  font-size: 11px;
+  color: var(--pl-muted);
+}
+
+.pl-explorer-children {
+  padding-left: 22px;
+}
+
+.pl-explorer-leaf {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: var(--pl-muted);
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.pl-explorer-leaf:hover {
+  background: var(--pl-accent-soft);
+  color: var(--pl-text);
+}
+
+.pl-explorer-leaf.is-active {
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+  font-weight: 700;
+}
+
+.pl-explorer-top-leaf {
+  margin-top: 6px;
+  padding-left: 6px;
+  font-weight: 700;
+  color: var(--pl-text);
+}
+
+.pl-explorer-empty {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--pl-muted);
+}
+
+.pl-explorer-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .pl-explorer {
+    flex-direction: column;
+  }
+
+  .pl-explorer-hide-toggle {
+    align-self: flex-start;
+    min-height: 0;
+    width: 100%;
+    padding: 6px;
+  }
+
+  .pl-explorer-nav {
+    width: 100%;
+    position: static;
+  }
 }
 
 .pl-why-what-how h6 {
