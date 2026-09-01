@@ -46,6 +46,15 @@ module.exports = (sequelize, Sequelize) => {
         allowNull: false,
         defaultValue: false,
       },
+      // Only meaningful for 教师 -- enforced in auth.controller.js
+      // (validateSchoolFields), not here; a role is a many-to-many relation,
+      // not something a Sequelize column validator can see.
+      schoolCode: {
+        type: Sequelize.INTEGER,
+      },
+      schoolName: {
+        type: Sequelize.STRING(255),
+      },
     },
     {
       tableName: "users",

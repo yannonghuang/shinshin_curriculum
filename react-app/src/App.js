@@ -8,6 +8,7 @@ import "@fortawesome/fontawesome-free/js/all.js";
 import "./App.css";
 
 import Home from "./components/home.component";
+import Profile from "./components/profile.component";
 import Login from "./components/login.component";
 import Register from "./components/register.component";
 import Reset from "./components/reset.component";
@@ -107,7 +108,9 @@ class App extends Component {
               {AuthService.isLogin() ? (
                 <ul className="navbar-nav ml-auto">
                   <li className="nav-item">
-                    <span className="nav-link">{user.chineseName || user.username}</span>
+                    <Link to="/profile" className="nav-link">
+                      {user.chineseName || user.username}
+                    </Link>
                   </li>
                   <li className="nav-item">
                     <a href="#!" className="nav-link" onClick={this.logOut}>
@@ -139,6 +142,7 @@ class App extends Component {
             <Route exact path="/login" component={Login} />
             <Route exact path="/register" component={Register} />
             <Route exact path={["/", "/home"]} component={Home} />
+            <Route exact path="/profile" component={Profile} />
             <Route exact path="/gallery" render={(routeProps) => <PlansList {...routeProps} excellentOnly />} />
             <Route exact path="/materials" component={LearningMaterialsList} />
             <Route exact path="/admin/users" component={AdminUsersList} />

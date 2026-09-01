@@ -2,6 +2,7 @@ import React, { Component } from "react";
 import Form from "react-validation/build/form";
 import Input from "react-validation/build/input";
 import CheckButton from "react-validation/build/button";
+import Select from "react-select";
 import { isEmail } from "validator";
 import { Link } from "react-router-dom";
 
@@ -9,7 +10,10 @@ import emailjs, { init } from "emailjs-com";
 
 import AuthService from "../services/auth.service";
 import emailjsConfig from "../config/emailjs.config";
+import { SCHOOLS } from "../constants/school-options";
 import "../curriculum.css";
+
+const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name }));
 
 const jwt = require("jsonwebtoken");
 
@@ -57,9 +61,11 @@ const vpassword = (value) => {
 
 // Simplified from shinshin's register.component.js -- this app only has three roles
 // (teacher/expert/admin) and no school/donor domain, so the dozens of school-scoped fields
-// (schoolId, title, wechat, contactOnly, ...) are dropped. Role checkboxes are populated
-// dynamically from GET /api/auth/roles, matching shinshin's dynamic-role pattern. On success
-// this triggers the verification email (same client-signed-JWT + emailjs-com flow as
+// (schoolId, title, wechat, contactOnly, ...) are dropped. Self-signup is teacher-only
+// (enforced server-side too, see verifySignUp.checkOnlyTeacherRole) -- 专家/管理员 accounts
+// are created for someone by an existing admin instead -- so there's no role picker here,
+// just a school dropdown (migrated from shinshin's `schools` table). On success this
+// triggers the verification email (same client-signed-JWT + emailjs-com flow as
 // login.component.js) and shows a "请查收邮件完成验证" landing state instead of routing
 // straight to /login.
 export default class Register extends Component {
@@ -70,32 +76,17 @@ export default class Register extends Component {
     this.onChangeChineseName = this.onChangeChineseName.bind(this);
     this.onChangeEmail = this.onChangeEmail.bind(this);
     this.onChangePassword = this.onChangePassword.bind(this);
-    this.onToggleRole = this.onToggleRole.bind(this);
+    this.onChangeSchool = this.onChangeSchool.bind(this);
 
     this.state = {
       username: "",
       chineseName: "",
       email: "",
       password: "",
-      roles: [],
-      rolesFull: [],
+      school: null,
       successful: false,
       message: "",
     };
-  }
-
-  componentDidMount() {
-    this.getRoles();
-  }
-
-  getRoles() {
-    AuthService.getRoles()
-      .then((response) => {
-        this.setState({ rolesFull: response.data || [] });
-      })
-      .catch((e) => {
-        console.log(e);
-      });
   }
 
   onChangeUsername(e) {
@@ -114,13 +105,8 @@ export default class Register extends Component {
     this.setState({ password: e.target.value });
   }
 
-  onToggleRole(roleName) {
-    this.setState((prev) => {
-      const has = prev.roles.includes(roleName);
-      return {
-        roles: has ? prev.roles.filter((r) => r !== roleName) : [...prev.roles, roleName],
-      };
-    });
+  onChangeSchool(option) {
+    this.setState({ school: option });
   }
 
   emailVerification() {
@@ -159,15 +145,18 @@ export default class Register extends Component {
 
     this.setState({ message: "", successful: false });
 
-    if (this.state.roles.length === 0) {
-      this.setState({ message: "请至少选择一个角色。" });
-      return;
-    }
-
     this.form.validateAll();
 
     if (this.checkBtn.context._errors.length === 0) {
-      AuthService.signup(this.state.username, this.state.email, this.state.password, this.state.roles, this.state.chineseName).then(
+      AuthService.signup({
+        username: this.state.username,
+        email: this.state.email,
+        password: this.state.password,
+        roles: ["teacher"],
+        chineseName: this.state.chineseName,
+        schoolCode: this.state.school ? this.state.school.value : undefined,
+        schoolName: this.state.school ? this.state.school.label : undefined,
+      }).then(
         () => {
           this.emailVerification();
         },
@@ -182,12 +171,6 @@ export default class Register extends Component {
   }
 
   render() {
-    // Public signup can never create an admin account (the backend rejects it
-    // regardless -- see verifySignUp.checkNotAdminRole) -- so admin is never
-    // offered as a choice here. Admin accounts are created by an existing
-    // admin via POST /api/auth/admin/users instead.
-    const signupRoles = this.state.rolesFull.filter((role) => role.name !== "admin");
-
     return (
       <div className="auth-page">
         {this.state.successful ? (
@@ -272,29 +255,15 @@ export default class Register extends Component {
               </div>
 
               <div className="form-group">
-                <label>
-                  角色<span className="required">*</span>
-                </label>
-                <div className="auth-roles-grid">
-                  {signupRoles.map((role) => {
-                    const checked = this.state.roles.includes(role.name);
-                    return (
-                      <label
-                        key={role.name}
-                        htmlFor={`role-${role.name}`}
-                        className={`auth-role-chip${checked ? " is-checked" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          id={`role-${role.name}`}
-                          checked={checked}
-                          onChange={() => this.onToggleRole(role.name)}
-                        />
-                        {role.label || role.name}
-                      </label>
-                    );
-                  })}
-                </div>
+                <label htmlFor="school">所在学校（可选）</label>
+                <Select
+                  inputId="school"
+                  options={schoolOptions}
+                  value={this.state.school}
+                  onChange={this.onChangeSchool}
+                  isClearable
+                  placeholder="搜索并选择学校..."
+                />
               </div>
 
               <div className="form-group">
