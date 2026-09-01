@@ -269,6 +269,27 @@
   background: #edf3ee;
 }
 
+/* Single-file drop target inside the plan create/edit drawer (planMode='upload')
+   -- a plainer dashed-border zone rather than the yellow folder-icon buttons
+   above, which are for category-based bulk upload, not this one-file case. */
+.pl-file-drop-zone {
+  border: 2px dashed var(--pl-line);
+  border-radius: 10px;
+  padding: 18px;
+  text-align: center;
+  color: var(--pl-muted);
+  cursor: pointer;
+  background: var(--pl-bg);
+  transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+
+.pl-file-drop-zone:hover,
+.pl-file-drop-zone.is-dragover {
+  border-color: var(--pl-accent);
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+}
+
 .pl-docx-preview {
   max-height: 70vh;
   overflow-y: auto;
