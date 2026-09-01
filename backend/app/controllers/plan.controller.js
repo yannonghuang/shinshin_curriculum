@@ -185,15 +185,23 @@ exports.findAll = async (req, res) => {
     // nothing (teacherId is otherwise a legitimate admin-facing filter, e.g.
     // the admin UI's own "只看我的" toggle also goes through this same param).
     let effectiveTeacherId = teacherId;
-    if (mine === "true" || mine === true) {
+    const viewingMine = mine === "true" || mine === true;
+    if (viewingMine) {
       if (!req.userId) {
         return res.status(401).send({ message: "查看“我的”课程设计需要先登录。" });
       }
       effectiveTeacherId = req.userId;
     }
 
+    // Suspended plans are hidden from the public gallery and from other
+    // teachers' lists, but stay visible to admin (always) and to the owning
+    // teacher via ?mine=true (read-only there -- see update's suspended check).
+    const requesterIsAdmin = req.userId ? await isAdminRequester(req.userId) : false;
+    const hideSuspended = !requesterIsAdmin && !viewingMine;
+
     const condition = {
       [Op.and]: [
+        hideSuspended ? { suspended: false } : null,
         keyword
           ? {
               [Op.or]: [
@@ -307,6 +315,21 @@ exports.update = async (req, res) => {
       return res.status(404).send({ message: `未找到乡土课程设计 id=${id}。` });
     }
 
+    // Route-level gating is only isTeacherOrAdmin (any teacher), so ownership
+    // must be enforced here -- otherwise any teacher could edit any other
+    // teacher's plan.
+    const requesterIsAdmin = await isAdminRequester(req.userId, t);
+
+    if (data.teacherId !== req.userId && !requesterIsAdmin) {
+      await t.rollback();
+      return res.status(403).send({ message: "只能修改本人创建的乡土课程设计。" });
+    }
+
+    if (data.suspended && !requesterIsAdmin) {
+      await t.rollback();
+      return res.status(403).send({ message: "该乡土课程设计已被管理员停用，如需修改请联系管理员。" });
+    }
+
     const payload = {};
 
     if (title !== undefined) {
@@ -375,7 +398,6 @@ exports.update = async (req, res) => {
     // 优秀案例 flagging + curator note are admin-only, even though writes to
     // a plan are otherwise gated at the route level as isTeacherOrAdmin.
     if (isExcellentCase !== undefined || curatorNote !== undefined) {
-      const requesterIsAdmin = await isAdminRequester(req.userId, t);
       if (!requesterIsAdmin) {
         await t.rollback();
         return res.status(403).send({ message: "只有管理员可以设置优秀案例标记或点评备注。" });
@@ -402,6 +424,33 @@ exports.update = async (req, res) => {
   }
 };
 
+// Suspend / unsuspend a plan (PUT /api/plans/:id/suspend|unsuspend, authJwt.isAdmin-gated).
+// Mirrors auth.controller.js's user suspend/unsuspend: a suspended plan isn't
+// deleted, just hidden from the public gallery and other teachers' lists
+// (see findAll) and locked against edits (see update) until an admin
+// unsuspends it. The owning teacher can still view it read-only.
+exports.suspend = async (req, res) => {
+  const id = req.params.id;
+  try {
+    const [num] = await Plan.update({ suspended: true }, { where: { id } });
+    if (num === 1) res.send({ message: "乡土课程设计已停用。" });
+    else res.status(404).send({ message: `未找到乡土课程设计 id=${id}。` });
+  } catch (err) {
+    res.status(500).send({ message: err.message });
+  }
+};
+
+exports.unsuspend = async (req, res) => {
+  const id = req.params.id;
+  try {
+    const [num] = await Plan.update({ suspended: false }, { where: { id } });
+    if (num === 1) res.send({ message: "乡土课程设计已恢复启用。" });
+    else res.status(404).send({ message: `未找到乡土课程设计 id=${id}。` });
+  } catch (err) {
+    res.status(500).send({ message: err.message });
+  }
+};
+
 exports.delete = async (req, res) => {
   const id = req.params.id;
   if (!mustConfirm(req.query.confirmCascade)) {
@@ -416,6 +465,11 @@ exports.delete = async (req, res) => {
     if (!data) {
       await t.rollback();
       return res.status(404).send({ message: `未找到乡土课程设计 id=${id}。` });
+    }
+
+    if (data.teacherId !== req.userId && !(await isAdminRequester(req.userId, t))) {
+      await t.rollback();
+      return res.status(403).send({ message: "只能删除本人创建的乡土课程设计。" });
     }
 
     const artifacts = await Artifact.findAll({

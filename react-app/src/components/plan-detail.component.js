@@ -507,7 +507,10 @@ const PlanDetail = (props) => {
   // "draft", which made it read-only the moment a teacher clicked 提交待点评.
   // Staleness of the generated doc / existing reviews relative to later edits
   // is now surfaced as an "out of sync" badge instead (see planUpdatedAt below).
-  const canEditPlan = isAdmin || isOwner;
+  // A suspended plan is locked against edits for everyone except admin (see
+  // plan.controller.js#update's mirrored check) -- the owner can still view
+  // it, just read-only, until an admin unsuspends it.
+  const canEditPlan = isAdmin || (isOwner && !(plan && plan.suspended));
 
   const goBack = () => props.history.push("/plans");
 
@@ -589,6 +592,23 @@ const PlanDetail = (props) => {
     }
   };
 
+  const toggleSuspend = async () => {
+    if (!plan.suspended) {
+      const ok = window.confirm(`确定停用「${plan.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。`);
+      if (!ok) return;
+    }
+    try {
+      if (plan.suspended) {
+        await PlanDataService.unsuspend(planId);
+      } else {
+        await PlanDataService.suspend(planId);
+      }
+      retrievePlan();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "操作失败。");
+    }
+  };
+
   if (isLoadingPlan) {
     return (
       <div className="container pl-page">
@@ -616,11 +636,17 @@ const PlanDetail = (props) => {
             返回
           </button>
         </div>
-        <h4 className="pl-title">{plan.title}</h4>
+        <h4 className="pl-title">
+          {plan.title}
+          {plan.suspended && <span className="pl-tag pl-tag-warn ml-2">已停用</span>}
+        </h4>
         <p className="pl-subtitle">
           {plan.theme || "-"} · {plan.grade || "-"} · {plan.year} · 状态：{plan.status}
           {plan.isExcellentCase ? " · 优秀案例" : ""}
         </p>
+        {plan.suspended && !isAdmin && (
+          <div className="alert alert-warning py-2 mb-0">该课程设计已被管理员停用，如需修改请联系管理员。</div>
+        )}
       </div>
 
       <div className="pl-card">
@@ -703,6 +729,14 @@ const PlanDetail = (props) => {
             <div>
               <button className="btn btn-outline-primary btn-sm" type="button" onClick={toggleExcellent}>
                 {plan.isExcellentCase ? "取消优秀案例标记" : "设为优秀案例"}
+              </button>
+            </div>
+          </div>
+          <div className="form-group">
+            <label>停用状态</label>
+            <div>
+              <button className="btn btn-outline-secondary btn-sm" type="button" onClick={toggleSuspend}>
+                {plan.suspended ? "启用" : "停用"}
               </button>
             </div>
           </div>
