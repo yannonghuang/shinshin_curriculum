@@ -14,6 +14,17 @@ const jwt = require("jsonwebtoken");
 
 init(emailjsConfig.userId);
 
+// 教师 lands on their own plans, 专家 lands on the 待点评 queue, 管理员 lands
+// on the full plans list -- each role's day-to-day work is managing existing
+// cases, not a generic home dashboard.
+const landingPathForRoles = (roles) => {
+  const r = roles || [];
+  if (r.includes("ROLE_TEACHER")) return "/plans?mine=true";
+  if (r.includes("ROLE_EXPERT")) return "/plans?status=submitted";
+  if (r.includes("ROLE_ADMIN")) return "/plans";
+  return "/";
+};
+
 const required = (value) => {
   if (!value) {
     return (
@@ -174,9 +185,7 @@ export default class Login extends Component {
         if (response.data && response.data.accessToken) {
           localStorage.setItem("user", JSON.stringify(response.data));
           this.setState({ loading: false });
-          // 教师 lands on their own plans directly, skipping the generic home dashboard.
-          const isTeacher = (response.data.roles || []).includes("ROLE_TEACHER");
-          this.props.history.push(isTeacher ? "/plans?mine=true" : "/");
+          this.props.history.push(landingPathForRoles(response.data.roles));
           window.location.reload();
         } else {
           this.setState({ loading: false, message: "服务器异常，登录失败。" });
@@ -203,7 +212,8 @@ export default class Login extends Component {
 
   render() {
     if (AuthService.isValid()) {
-      this.props.history.push(AuthService.isTeacher() ? "/plans?mine=true" : "/");
+      const currentUser = AuthService.getCurrentUser();
+      this.props.history.push(landingPathForRoles(currentUser ? currentUser.roles : []));
       return null;
     }
 

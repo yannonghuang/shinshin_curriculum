@@ -188,6 +188,16 @@ exports.create = async (req, res) => {
       return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
+    // Owner-only, matching plan.controller.js#update's content-editing rule --
+    // uploading an artifact edits the case's content, so no admin bypass.
+    if (plan.teacherId !== req.userId) {
+      if (singleFile && fs.existsSync(singleFile.path)) fs.unlinkSync(singleFile.path);
+      for (const f of multiFiles) {
+        if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+      }
+      return res.status(403).send({ message: "只能为本人创建的乡土课程设计上传附件。" });
+    }
+
     const createOne = async (file) => {
       const attachmentPath = moveIntoArtifactDirectory(planId, category, lessonIndex, file);
       return Artifact.create({
@@ -274,6 +284,11 @@ exports.bulkCreateFromZip = async (req, res) => {
     if (!plan) {
       if (fs.existsSync(uploadedZipPath)) fs.unlinkSync(uploadedZipPath);
       return res.status(404).send({ message: "乡土课程设计不存在。" });
+    }
+
+    if (plan.teacherId !== req.userId) {
+      if (fs.existsSync(uploadedZipPath)) fs.unlinkSync(uploadedZipPath);
+      return res.status(403).send({ message: "只能为本人创建的乡土课程设计上传附件。" });
     }
 
     extractDir = fs.mkdtempSync(path.join(getPlanDirectory(planId), "bulkzip-"));
@@ -603,6 +618,12 @@ exports.update = async (req, res) => {
       return res.status(404).send({ message: `未找到附件 id=${id}。` });
     }
 
+    const parentPlan = await Plan.findByPk(artifact.planId);
+    if (!parentPlan || parentPlan.teacherId !== req.userId) {
+      if (singleFile && fs.existsSync(singleFile.path)) fs.unlinkSync(singleFile.path);
+      return res.status(403).send({ message: "只能修改本人创建的乡土课程设计的附件。" });
+    }
+
     const payload = {
       description: req.body.description !== undefined ? req.body.description : artifact.description,
       category: req.body.category !== undefined ? req.body.category : artifact.category,
@@ -665,6 +686,11 @@ exports.delete = async (req, res) => {
     const data = await Artifact.findByPk(id);
     if (!data) {
       return res.status(404).send({ message: `未找到附件 id=${id}。` });
+    }
+
+    const parentPlan = await Plan.findByPk(data.planId);
+    if (!parentPlan || parentPlan.teacherId !== req.userId) {
+      return res.status(403).send({ message: "只能删除本人创建的乡土课程设计的附件。" });
     }
 
     await Artifact.destroy({ where: { id } });

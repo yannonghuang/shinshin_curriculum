@@ -15,6 +15,8 @@ module.exports = function (app) {
   app.get("/api/plans/options", plans.getOptions);
   app.get("/api/plans/:id", plans.findOne);
   app.put("/api/plans/:id", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.update);
+  app.put("/api/plans/:id/suspend", [authJwt.verifyToken, authJwt.isAdmin], plans.suspend);
+  app.put("/api/plans/:id/unsuspend", [authJwt.verifyToken, authJwt.isAdmin], plans.unsuspend);
   app.delete("/api/plans/:id", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.delete);
 
   // Online-fill -> downloadable .docx, registered as a 课程设计文件 artifact.

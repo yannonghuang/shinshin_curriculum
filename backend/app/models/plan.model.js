@@ -48,6 +48,11 @@ module.exports = (sequelize, Sequelize) => {
       curatorNote: {
         type: Sequelize.STRING(1024),
       },
+      suspended: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
     },
     {
       tableName: "plans",

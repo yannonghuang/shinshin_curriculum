@@ -64,8 +64,11 @@ const PlansList = (props) => {
   const canToggleMineAll = !excellentOnly && !statusFilter && AuthService.isAdmin();
   const effectiveMineOnly = canToggleMineAll ? showMineOnly : mineOnly;
 
-  const canEditItem = (item) =>
-    AuthService.isAdmin() || (AuthService.isTeacher() && String(item.teacherId) === String(currentUserId()));
+  const isOwnerOf = (item) => AuthService.isTeacher() && String(item.teacherId) === String(currentUserId());
+  // Editing a plan's content is owner-only, no admin bypass -- managers can
+  // suspend/delete/promote/leave notes (see below), but not edit case content.
+  const canEditItem = (item) => !item.suspended && isOwnerOf(item);
+  const canDeleteItem = (item) => AuthService.isAdmin() || isOwnerOf(item);
 
   const retrieveAll = useCallback(async () => {
     try {
@@ -166,6 +169,23 @@ const PlansList = (props) => {
   const toggleExcellent = async (item) => {
     try {
       await PlanDataService.update(item.id, { isExcellentCase: !item.isExcellentCase });
+      retrieveAll();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "操作失败。");
+    }
+  };
+
+  const toggleSuspend = async (item) => {
+    if (!item.suspended) {
+      const ok = window.confirm(`确定停用「${item.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。`);
+      if (!ok) return;
+    }
+    try {
+      if (item.suspended) {
+        await PlanDataService.unsuspend(item.id);
+      } else {
+        await PlanDataService.suspend(item.id);
+      }
       retrieveAll();
     } catch (err) {
       setMessage(err?.response?.data?.message || "操作失败。");
@@ -308,6 +328,7 @@ const PlansList = (props) => {
           {plans.map((item) => (
             <div className="pl-plan-card" key={item.id}>
               {item.isExcellentCase && <span className="pl-plan-card-excellent">优秀案例</span>}
+              {item.suspended && <span className="pl-plan-card-suspended">已停用</span>}
               <div className="pl-plan-card-head">
                 <div className="pl-plan-card-badge">
                   <i className="fas fa-seedling"></i>
@@ -344,15 +365,20 @@ const PlansList = (props) => {
                       {item.isExcellentCase ? "取消优秀案例" : "设为优秀案例"}
                     </button>
                   )}
+                  {AuthService.isAdmin() && (
+                    <button className="btn btn-link p-0 mr-2" onClick={() => toggleSuspend(item)}>
+                      {item.suspended ? "启用" : "停用"}
+                    </button>
+                  )}
                   {canEditItem(item) && (
-                    <>
-                      <button className="btn btn-link p-0 mr-2" onClick={() => onEdit(item)}>
-                        编辑
-                      </button>
-                      <button className="btn btn-link p-0 text-danger" onClick={() => onDelete(item)}>
-                        删除
-                      </button>
-                    </>
+                    <button className="btn btn-link p-0 mr-2" onClick={() => onEdit(item)}>
+                      编辑
+                    </button>
+                  )}
+                  {canDeleteItem(item) && (
+                    <button className="btn btn-link p-0 text-danger" onClick={() => onDelete(item)}>
+                      删除
+                    </button>
                   )}
                 </div>
               </div>

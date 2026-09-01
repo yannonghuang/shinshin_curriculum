@@ -63,6 +63,7 @@ CREATE TABLE plans (   -- 乡土课程计划
   status ENUM('draft','submitted','reviewed') NOT NULL DEFAULT 'draft',
   is_excellent_case TINYINT(1) NOT NULL DEFAULT 0,
   curator_note VARCHAR(1024) NULL,
+  suspended TINYINT(1) NOT NULL DEFAULT 0,  -- admin-only stop; hidden from public/other-teacher views, still visible read-only to the owning teacher and fully to admin
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_plans_teacher FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE

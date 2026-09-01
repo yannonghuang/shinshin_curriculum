@@ -28,6 +28,14 @@ class PlanDataService {
     });
   }
 
+  suspend(id) {
+    return http.put(`/plans/${id}/suspend`, {}, { headers: authHeader() });
+  }
+
+  unsuspend(id) {
+    return http.put(`/plans/${id}/unsuspend`, {}, { headers: authHeader() });
+  }
+
   // Triggers backend planDocGenerator.js: renders plan_form_data into a .docx mirroring
   // curriculum_template/乡土课程设计方案模版.docx and registers it as a 课程设计文件 artifact.
   generateDoc(id) {
