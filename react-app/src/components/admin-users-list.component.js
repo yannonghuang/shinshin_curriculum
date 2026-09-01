@@ -13,9 +13,11 @@ const emptyForm = {
   username: "",
   chineseName: "",
   email: "",
+  phone: "",
   password: "",
   roles: ["admin"],
   school: null,
+  emailVerified: true,
 };
 
 // Admin-only user management: list/search/paginate, create a user with any role
@@ -39,6 +41,7 @@ const AdminUsersList = () => {
   const [totalItems, setTotalItems] = useState(0);
 
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
 
   const retrieveAll = useCallback(async () => {
@@ -69,11 +72,31 @@ const AdminUsersList = () => {
   };
 
   const openCreateEditor = () => {
+    setEditingId(null);
     setForm(emptyForm);
     setIsEditorOpen(true);
   };
 
+  const openEditEditor = (item) => {
+    const roleNames = (item.roles || []).map((r) => r.name);
+    const school =
+      item.schoolCode != null ? schoolOptions.find((o) => String(o.value) === String(item.schoolCode)) || null : null;
+    setEditingId(item.id);
+    setForm({
+      username: item.username || "",
+      chineseName: item.chineseName || "",
+      email: item.email || "",
+      phone: item.phone || "",
+      password: "",
+      roles: roleNames,
+      school,
+      emailVerified: !!item.emailVerified,
+    });
+    setIsEditorOpen(true);
+  };
+
   const closeEditor = () => {
+    setEditingId(null);
     setForm(emptyForm);
     setIsEditorOpen(false);
   };
@@ -97,21 +120,40 @@ const AdminUsersList = () => {
       setMessage("请至少选择一个角色。");
       return;
     }
+    const schoolCode = form.roles.includes("teacher") && form.school ? form.school.value : null;
+    const schoolName = form.roles.includes("teacher") && form.school ? form.school.label : null;
     try {
-      await AdminUserDataService.create({
-        username: form.username,
-        chineseName: form.chineseName,
-        email: form.email,
-        password: form.password,
-        roles: form.roles,
-        schoolCode: form.roles.includes("teacher") && form.school ? form.school.value : undefined,
-        schoolName: form.roles.includes("teacher") && form.school ? form.school.label : undefined,
-      });
-      setMessage("用户创建成功。");
+      if (editingId) {
+        const payload = {
+          username: form.username,
+          chineseName: form.chineseName,
+          email: form.email,
+          phone: form.phone,
+          roles: form.roles,
+          schoolCode,
+          schoolName,
+          emailVerified: form.emailVerified,
+        };
+        if (form.password) payload.password = form.password;
+        await AdminUserDataService.update(editingId, payload);
+        setMessage("用户信息更新成功。");
+      } else {
+        await AdminUserDataService.create({
+          username: form.username,
+          chineseName: form.chineseName,
+          email: form.email,
+          phone: form.phone,
+          password: form.password,
+          roles: form.roles,
+          schoolCode: schoolCode || undefined,
+          schoolName: schoolName || undefined,
+        });
+        setMessage("用户创建成功。");
+      }
       closeEditor();
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "创建失败。");
+      setMessage(err?.response?.data?.message || (editingId ? "更新失败。" : "创建失败。"));
     }
   };
 
@@ -245,6 +287,9 @@ const AdminUsersList = () => {
                     <span className="text-muted">（当前账号）</span>
                   ) : (
                     <>
+                      <button className="btn btn-link p-0 mr-2" onClick={() => openEditEditor(item)}>
+                        编辑
+                      </button>
                       {item.suspended ? (
                         <button className="btn btn-link p-0 mr-2" onClick={() => onUnsuspend(item)}>
                           启用
@@ -301,7 +346,7 @@ const AdminUsersList = () => {
           <button className="pl-drawer-mask" type="button" onClick={closeEditor} aria-label="close editor" />
           <div className="pl-drawer-panel">
             <div className="pl-drawer-head">
-              <h5 className="mb-0">新增用户</h5>
+              <h5 className="mb-0">{editingId ? "编辑用户" : "新增用户"}</h5>
               <button className="btn btn-link p-0" type="button" onClick={closeEditor}>
                 关闭
               </button>
@@ -333,7 +378,11 @@ const AdminUsersList = () => {
                 />
               </div>
               <div className="form-group">
-                <label>密码</label>
+                <label>电话</label>
+                <input className="form-control" name="phone" value={form.phone} onChange={onChange} />
+              </div>
+              <div className="form-group">
+                <label>{editingId ? "新密码（留空则不修改）" : "密码"}</label>
                 <input
                   className="form-control"
                   type="password"
@@ -341,9 +390,22 @@ const AdminUsersList = () => {
                   minLength={6}
                   value={form.password}
                   onChange={onChange}
-                  required
+                  required={!editingId}
                 />
               </div>
+              {editingId && (
+                <div className="form-group">
+                  <label className="d-flex align-items-center mb-0">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
+                      checked={form.emailVerified}
+                      onChange={(e) => setForm((prev) => ({ ...prev, emailVerified: e.target.checked }))}
+                    />
+                    邮箱已验证
+                  </label>
+                </div>
+              )}
               <div className="form-group">
                 <label>角色</label>
                 <div className="auth-roles-grid">
@@ -357,9 +419,11 @@ const AdminUsersList = () => {
                     );
                   })}
                 </div>
-                <small className="form-text text-muted">
-                  管理员创建的账号无需邮箱验证，创建后即可直接登录。
-                </small>
+                {!editingId && (
+                  <small className="form-text text-muted">
+                    管理员创建的账号无需邮箱验证，创建后即可直接登录。
+                  </small>
+                )}
               </div>
               {form.roles.includes("teacher") && (
                 <div className="form-group">
@@ -375,7 +439,7 @@ const AdminUsersList = () => {
               )}
               <div className="d-flex">
                 <button className="btn btn-primary mr-2" type="submit">
-                  创建
+                  {editingId ? "保存" : "创建"}
                 </button>
                 <button className="btn btn-secondary" type="button" onClick={closeEditor}>
                   取消
