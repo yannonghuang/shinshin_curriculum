@@ -15,6 +15,14 @@ class AdminUserDataService {
     return http.post("/auth/admin/users", data, { headers: authHeader() });
   }
 
+  // Same PUT /api/auth/users/:id endpoint profile.component.js uses for
+  // self-edit -- authJwt.isSelfOrAdmin allows an admin to target any id, and
+  // auth.controller.js#update additionally unlocks roles/emailVerified when
+  // the requester is admin (isAdminActor).
+  update(id, data) {
+    return http.put(`/auth/users/${id}`, data, { headers: authHeader() });
+  }
+
   suspend(id) {
     return http.put(`/auth/users/${id}/suspend`, {}, { headers: authHeader() });
   }
