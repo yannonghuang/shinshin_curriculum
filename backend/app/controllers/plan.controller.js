@@ -163,7 +163,7 @@ exports.create = async (req, res) => {
   } catch (err) {
     await t.rollback();
     return res.status(500).send({
-      message: err.message || "创建乡土课程计划时发生错误。",
+      message: err.message || "创建乡土课程设计时发生错误。",
     });
   }
 };
@@ -211,7 +211,7 @@ exports.findAll = async (req, res) => {
     return res.send(getPagingData(data, page, limit));
   } catch (err) {
     return res.status(500).send({
-      message: err.message || "查询乡土课程计划列表时发生错误。",
+      message: err.message || "查询乡土课程设计列表时发生错误。",
     });
   }
 };
@@ -259,13 +259,13 @@ exports.findOne = async (req, res) => {
     });
 
     if (!data) {
-      return res.status(404).send({ message: `未找到乡土课程计划 id=${req.params.id}。` });
+      return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
     }
 
     return res.send(data);
   } catch (err) {
     return res.status(500).send({
-      message: err.message || `查询乡土课程计划 id=${req.params.id} 时发生错误。`,
+      message: err.message || `查询乡土课程设计 id=${req.params.id} 时发生错误。`,
     });
   }
 };
@@ -290,7 +290,7 @@ exports.update = async (req, res) => {
     const data = await Plan.findByPk(id, { transaction: t });
     if (!data) {
       await t.rollback();
-      return res.status(404).send({ message: `未找到乡土课程计划 id=${id}。` });
+      return res.status(404).send({ message: `未找到乡土课程设计 id=${id}。` });
     }
 
     const payload = {};
@@ -379,11 +379,11 @@ exports.update = async (req, res) => {
     }
 
     await t.commit();
-    return res.send({ message: "乡土课程计划更新成功。" });
+    return res.send({ message: "乡土课程设计更新成功。" });
   } catch (err) {
     await t.rollback();
     return res.status(500).send({
-      message: err.message || `更新乡土课程计划 id=${req.params.id} 时发生错误。`,
+      message: err.message || `更新乡土课程设计 id=${req.params.id} 时发生错误。`,
     });
   }
 };
@@ -392,7 +392,7 @@ exports.delete = async (req, res) => {
   const id = req.params.id;
   if (!mustConfirm(req.query.confirmCascade)) {
     return res.status(400).send({
-      message: "危险操作：将永久删除该乡土课程计划及其所有附件与点评。请使用 confirmCascade=true 重新提交。",
+      message: "危险操作：将永久删除该乡土课程设计及其所有附件与点评。请使用 confirmCascade=true 重新提交。",
     });
   }
 
@@ -401,7 +401,7 @@ exports.delete = async (req, res) => {
     const data = await Plan.findByPk(id, { transaction: t });
     if (!data) {
       await t.rollback();
-      return res.status(404).send({ message: `未找到乡土课程计划 id=${id}。` });
+      return res.status(404).send({ message: `未找到乡土课程设计 id=${id}。` });
     }
 
     const artifacts = await Artifact.findAll({
@@ -425,11 +425,11 @@ exports.delete = async (req, res) => {
       }
     }
 
-    return res.send({ message: "乡土课程计划及其关联数据已删除。" });
+    return res.send({ message: "乡土课程设计及其关联数据已删除。" });
   } catch (err) {
     await t.rollback();
     return res.status(500).send({
-      message: err.message || `删除乡土课程计划 id=${id} 时发生错误。`,
+      message: err.message || `删除乡土课程设计 id=${id} 时发生错误。`,
     });
   }
 };
@@ -442,7 +442,7 @@ exports.generateDoc = async (req, res) => {
   try {
     const plan = await Plan.findByPk(req.params.id);
     if (!plan) {
-      return res.status(404).send({ message: `未找到乡土课程计划 id=${req.params.id}。` });
+      return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
     }
 
     const planDocGenerator = require("../services/planDocGenerator");
@@ -464,7 +464,7 @@ exports.generateDoc = async (req, res) => {
     return res.send(artifact);
   } catch (err) {
     return res.status(500).send({
-      message: err.message || `生成乡土课程计划 id=${req.params.id} 的课程设计文件时发生错误。`,
+      message: err.message || `生成乡土课程设计 id=${req.params.id} 的课程设计文件时发生错误。`,
     });
   }
 };

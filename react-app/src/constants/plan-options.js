@@ -1,6 +1,6 @@
 // Migrated from shinshin's react-app/src/constants/case-options.js's
 // CASE_CATEGORIES_BY_COURSE['乡土课程'] -- the already-curated 11-item local-curriculum-theme
-// taxonomy, reused here for 乡土课程计划 theme tagging/browsing.
+// taxonomy, reused here for 乡土课程设计 theme tagging/browsing.
 export const PLAN_THEMES = [
   "家乡美食与饮食文化",
   "非遗与传统手工艺",

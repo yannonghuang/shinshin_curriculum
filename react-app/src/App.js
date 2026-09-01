@@ -81,7 +81,7 @@ class App extends Component {
                 {AuthService.isAdmin() && (
                   <li className="nav-item">
                     <Link to="/plans" className="nav-link">
-                      全部课程计划
+                      全部课程设计
                     </Link>
                   </li>
                 )}

@@ -476,7 +476,7 @@ const PlanDetail = (props) => {
     } catch (e) {
       console.log(e);
       setPlan(null);
-      setMessage(e?.response?.data?.message || "加载课程计划详情失败。");
+      setMessage(e?.response?.data?.message || "加载课程设计详情失败。");
     } finally {
       setIsLoadingPlan(false);
     }
@@ -515,7 +515,7 @@ const PlanDetail = (props) => {
         plannedLessonCount: metaForm.plannedLessonCount ? Number(metaForm.plannedLessonCount) : null,
       });
       setIsEditingMeta(false);
-      setMessage("课程计划信息已更新。");
+      setMessage("课程设计信息已更新。");
       retrievePlan();
     } catch (err) {
       setMessage(err?.response?.data?.message || "更新失败。");
@@ -582,7 +582,7 @@ const PlanDetail = (props) => {
   if (!plan) {
     return (
       <div className="container pl-page">
-        <div className="alert alert-danger py-2 mb-0">{message || "加载课程计划详情失败。"}</div>
+        <div className="alert alert-danger py-2 mb-0">{message || "加载课程设计详情失败。"}</div>
       </div>
     );
   }
