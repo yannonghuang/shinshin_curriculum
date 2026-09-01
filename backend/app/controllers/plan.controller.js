@@ -38,12 +38,6 @@ const parseYear = (year) => {
   return y;
 };
 
-const parseId = (value) => {
-  if (value === undefined || value === null || value === "") return null;
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : null;
-};
-
 const parseLessonCount = (value) => {
   if (value === undefined || value === null || value === "") return null;
   const n = Number(value);
@@ -77,7 +71,6 @@ exports.create = async (req, res) => {
       plannedLessonCount,
       planMode,
       planFormData,
-      teacherId,
       status,
     } = req.body;
 
@@ -119,33 +112,9 @@ exports.create = async (req, res) => {
       return res.status(422).send({ message: "状态 无效。" });
     }
 
-    // Only admins may create a plan on behalf of another teacher
-    // (used for the "管理员上传" excellent-case path).
-    let effectiveTeacherId = req.userId;
-    if (teacherId !== undefined && teacherId !== null && teacherId !== "") {
-      const parsedTeacherId = parseId(teacherId);
-      if (!parsedTeacherId) {
-        await t.rollback();
-        return res.status(422).send({ message: "teacherId 无效。" });
-      }
-      if (parsedTeacherId !== req.userId) {
-        const requesterIsAdmin = await isAdminRequester(req.userId, t);
-        if (!requesterIsAdmin) {
-          await t.rollback();
-          return res.status(403).send({ message: "只有管理员可以指定其他教师创建课程。" });
-        }
-        const teacher = await User.findByPk(parsedTeacherId, { transaction: t });
-        if (!teacher) {
-          await t.rollback();
-          return res.status(422).send({ message: "指定的教师不存在。" });
-        }
-      }
-      effectiveTeacherId = parsedTeacherId;
-    }
-
     const data = await Plan.create(
       {
-        teacherId: effectiveTeacherId,
+        teacherId: req.userId,
         title: normalizedTitle,
         theme: theme || null,
         grade: grade || null,

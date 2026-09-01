@@ -56,7 +56,10 @@ const PlansList = (props) => {
   // afterward -- only actually used when canToggleMineAll (see effectiveMineOnly).
   const [showMineOnly, setShowMineOnly] = useState(mineOnly);
 
-  const canCreate = !excellentOnly && (AuthService.isTeacher() || AuthService.isAdmin());
+  // Only teachers author a new plan -- managers/experts manage existing
+  // cases (suspend/delete/promote/review) but don't create their own, matching
+  // plan.routes.js's isTeacher-only gate on POST /api/plans.
+  const canCreate = !excellentOnly && AuthService.isTeacher();
   const stylishPublic = excellentOnly || !AuthService.isLogin();
   // Only an admin has legitimate access to both "just mine" and "everyone's" --
   // a teacher's mine=true is fixed (no toggle), and the 待点评/gallery contexts
