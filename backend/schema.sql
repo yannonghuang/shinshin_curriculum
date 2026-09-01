@@ -31,6 +31,13 @@ CREATE TABLE users (
   -- Admin user-management: a suspended account can't sign in (checked
   -- between password and email-verification checks) but is not deleted.
   suspended TINYINT(1) NOT NULL DEFAULT 0,
+  -- Only meaningful for 教师 -- enforced at the application layer (see
+  -- auth.controller.js's validateSchoolFields), not a DB constraint, since a
+  -- role is a many-to-many relation (user_roles) that a CHECK constraint
+  -- can't reach. Migrated from shinshin's `schools` table (code, name) via
+  -- react-app/src/constants/school-options.js's static SCHOOLS list.
+  school_code INT NULL,
+  school_name VARCHAR(255) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

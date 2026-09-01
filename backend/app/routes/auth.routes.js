@@ -9,12 +9,12 @@ module.exports = function (app) {
 
   app.post(
     "/api/auth/signup",
-    [verifySignUp.checkDuplicateUsernameOrEmail, verifySignUp.checkRolesExisted, verifySignUp.checkNotAdminRole],
+    [verifySignUp.checkDuplicateUsernameOrEmail, verifySignUp.checkRolesExisted, verifySignUp.checkOnlyTeacherRole],
     controller.signup
   );
 
-  // Admin-only: create a user with any role, including "admin". Public
-  // signup can never mint an admin account (see checkNotAdminRole above).
+  // Admin-only: create a user with any role, including "admin"/"expert".
+  // Public signup is teacher-only (see checkOnlyTeacherRole above).
   app.post(
     "/api/auth/admin/users",
     [

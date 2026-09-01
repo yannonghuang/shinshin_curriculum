@@ -49,13 +49,16 @@ checkRolesExisted = (req, res, next) => {
   next();
 };
 
-// Public signup (POST /api/auth/signup) must never be able to mint an admin
-// account — only an existing admin can create another admin, via the
-// separate authJwt.isAdmin-gated POST /api/auth/admin/users endpoint.
-checkNotAdminRole = (req, res, next) => {
-  if (req.body.roles && req.body.roles.includes("admin")) {
+// Public signup (POST /api/auth/signup) is teacher-only — anyone wanting an
+// 专家/管理员 account needs one created for them via the authJwt.isAdmin-gated
+// POST /api/auth/admin/users endpoint instead. Enforced server-side (not just
+// by the frontend hiding the choice) since the frontend alone can always be
+// bypassed by posting to the API directly.
+checkOnlyTeacherRole = (req, res, next) => {
+  const roles = req.body.roles;
+  if (roles && roles.some((r) => r !== "teacher")) {
     return res.status(403).send({
-      message: "不能通过注册创建管理员账号，请联系现有管理员。",
+      message: "自助注册仅限教师角色，专家/管理员账号请联系现有管理员创建。",
     });
   }
   next();
@@ -64,7 +67,7 @@ checkNotAdminRole = (req, res, next) => {
 const verifySignUp = {
   checkDuplicateUsernameOrEmail: checkDuplicateUsernameOrEmail,
   checkRolesExisted: checkRolesExisted,
-  checkNotAdminRole: checkNotAdminRole,
+  checkOnlyTeacherRole: checkOnlyTeacherRole,
 };
 
 module.exports = verifySignUp;

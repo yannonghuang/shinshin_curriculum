@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Pagination from "@material-ui/lab/Pagination";
+import Select from "react-select";
 import AdminUserDataService from "../services/admin-user.service";
 import AuthService from "../services/auth.service";
+import { SCHOOLS } from "../constants/school-options";
 import "../curriculum.css";
 
 const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员" };
+const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name }));
 
 const emptyForm = {
   username: "",
@@ -12,6 +15,7 @@ const emptyForm = {
   email: "",
   password: "",
   roles: ["admin"],
+  school: null,
 };
 
 // Admin-only user management: list/search/paginate, create a user with any role
@@ -100,6 +104,8 @@ const AdminUsersList = () => {
         email: form.email,
         password: form.password,
         roles: form.roles,
+        schoolCode: form.roles.includes("teacher") && form.school ? form.school.value : undefined,
+        schoolName: form.roles.includes("teacher") && form.school ? form.school.label : undefined,
       });
       setMessage("用户创建成功。");
       closeEditor();
@@ -355,6 +361,18 @@ const AdminUsersList = () => {
                   管理员创建的账号无需邮箱验证，创建后即可直接登录。
                 </small>
               </div>
+              {form.roles.includes("teacher") && (
+                <div className="form-group">
+                  <label>所在学校（可选）</label>
+                  <Select
+                    options={schoolOptions}
+                    value={form.school}
+                    onChange={(option) => setForm((prev) => ({ ...prev, school: option }))}
+                    isClearable
+                    placeholder="搜索并选择学校..."
+                  />
+                </div>
+              )}
               <div className="d-flex">
                 <button className="btn btn-primary mr-2" type="submit">
                   创建

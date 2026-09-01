@@ -1,15 +1,20 @@
 import axios from "axios";
+import authHeader from "./auth-header";
 
 const API_URL = "/api/auth/";
 
 class AuthService {
-  signup(username, email, password, roles, chineseName) {
+  // schoolCode/schoolName: only meaningful when roles includes "teacher" --
+  // the backend rejects them otherwise (see auth.controller.js#validateSchoolFields).
+  signup({ username, email, password, roles, chineseName, schoolCode, schoolName }) {
     return axios.post(API_URL + "signup", {
       username,
       email,
       password,
       roles,
       chineseName,
+      schoolCode,
+      schoolName,
     });
   }
 
@@ -50,6 +55,18 @@ class AuthService {
 
   getRoles() {
     return axios.get(API_URL + "roles");
+  }
+
+  // Self-or-admin: PUT /api/auth/users/:id (authJwt.isSelfOrAdmin-gated).
+  // Used by profile.component.js for "everyone can edit their own user data
+  // except id" -- id is simply never a writable field server-side, so
+  // there's no way to alter it through this endpoint regardless of payload.
+  getProfile(id) {
+    return axios.get(API_URL + "users/" + id, { headers: authHeader() });
+  }
+
+  updateProfile(id, data) {
+    return axios.put(API_URL + "users/" + id, data, { headers: authHeader() });
   }
 
   getCurrentUser() {

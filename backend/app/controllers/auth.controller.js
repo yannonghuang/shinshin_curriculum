@@ -13,72 +13,85 @@ exports.getRoles = (req, res) => {
   res.send(ROLES);
 };
 
-exports.signup = (req, res) => {
-  User.create({
-    username: req.body.username,
-    email: req.body.email,
-    password: bcrypt.hashSync(req.body.password, 8),
-    chineseName: req.body.chineseName,
-    phone: req.body.phone,
-    emailVerified: false,
-  })
-    .then((user) => {
-      if (req.body.roles) {
-        Role.findAll({
-          where: {
-            name: {
-              [Op.or]: req.body.roles,
-            },
-          },
-        }).then((roles) => {
-          user.setRoles(roles).then(() => {
-            res.send({ message: "User was registered successfully!" });
-          });
-        });
-      } else {
-        // default role = teacher
-        Role.findOne({ where: { name: "teacher" } }).then((role) => {
-          user.setRoles(role ? [role] : []).then(() => {
-            res.send({ message: "User was registered successfully!" });
-          });
-        });
-      }
-    })
-    .catch((err) => {
-      res.status(500).send({ message: "创建用户异常，密码是必填项。。。" + err.message });
+// Only 教师 may have non-null schoolCode/schoolName (migrated from shinshin's
+// `schools` table -- see react-app/src/constants/school-options.js). roleNames
+// is whatever the user's role set will actually be *after* the request:
+// the roles being assigned (signup/admin-create/admin-update-with-roles), or
+// the user's existing roles (self-update, or an admin update that doesn't
+// touch roles). Clearing to null is always allowed regardless of role.
+const validateSchoolFields = (schoolCode, schoolName, roleNames) => {
+  const hasValue =
+    (schoolCode !== undefined && schoolCode !== null && schoolCode !== "") ||
+    (schoolName !== undefined && schoolName !== null && schoolName !== "");
+  if (hasValue && !(roleNames || []).includes("teacher")) {
+    return "只有教师角色可以设置学校代码/学校名称。";
+  }
+  return null;
+};
+
+exports.signup = async (req, res) => {
+  try {
+    // roles not provided => defaults to a single "teacher" role (matches the
+    // setRoles() fallback below), so that's also the default validated against.
+    const roleNames = req.body.roles && req.body.roles.length ? req.body.roles : ["teacher"];
+    const schoolError = validateSchoolFields(req.body.schoolCode, req.body.schoolName, roleNames);
+    if (schoolError) {
+      return res.status(422).send({ message: schoolError });
+    }
+
+    const user = await User.create({
+      username: req.body.username,
+      email: req.body.email,
+      password: bcrypt.hashSync(req.body.password, 8),
+      chineseName: req.body.chineseName,
+      phone: req.body.phone,
+      schoolCode: req.body.schoolCode || null,
+      schoolName: req.body.schoolName || null,
+      emailVerified: false,
     });
+
+    if (req.body.roles) {
+      const roles = await Role.findAll({ where: { name: { [Op.or]: req.body.roles } } });
+      await user.setRoles(roles);
+    } else {
+      const role = await Role.findOne({ where: { name: "teacher" } });
+      await user.setRoles(role ? [role] : []);
+    }
+    res.send({ message: "User was registered successfully!" });
+  } catch (err) {
+    res.status(500).send({ message: "创建用户异常，密码是必填项。。。" + err.message });
+  }
 };
 
 // Admin-only user creation (POST /api/auth/admin/users, authJwt.isAdmin-gated).
 // Unlike public signup, this can assign any role including "admin" and skips
 // the email-verification requirement entirely -- the creating admin is
 // vouching for the account, so it's marked emailVerified immediately.
-exports.adminCreateUser = (req, res) => {
-  User.create({
-    username: req.body.username,
-    email: req.body.email,
-    password: bcrypt.hashSync(req.body.password, 8),
-    chineseName: req.body.chineseName,
-    phone: req.body.phone,
-    emailVerified: true,
-  })
-    .then((user) => {
-      const roleNames = req.body.roles && req.body.roles.length ? req.body.roles : ["teacher"];
-      Role.findAll({
-        where: {
-          name: {
-            [Op.or]: roleNames,
-          },
-        },
-      }).then((roles) => {
-        user.setRoles(roles).then(() => {
-          res.send({ message: "User was created successfully!" });
-        });
-      });
-    })
-    .catch((err) => {
-      res.status(500).send({ message: "创建用户异常，密码是必填项。。。" + err.message });
+exports.adminCreateUser = async (req, res) => {
+  try {
+    const roleNames = req.body.roles && req.body.roles.length ? req.body.roles : ["teacher"];
+    const schoolError = validateSchoolFields(req.body.schoolCode, req.body.schoolName, roleNames);
+    if (schoolError) {
+      return res.status(422).send({ message: schoolError });
+    }
+
+    const user = await User.create({
+      username: req.body.username,
+      email: req.body.email,
+      password: bcrypt.hashSync(req.body.password, 8),
+      chineseName: req.body.chineseName,
+      phone: req.body.phone,
+      schoolCode: req.body.schoolCode || null,
+      schoolName: req.body.schoolName || null,
+      emailVerified: true,
     });
+
+    const roles = await Role.findAll({ where: { name: { [Op.or]: roleNames } } });
+    await user.setRoles(roles);
+    res.send({ message: "User was created successfully!" });
+  } catch (err) {
+    res.status(500).send({ message: "创建用户异常，密码是必填项。。。" + err.message });
+  }
 };
 
 exports.signin = (req, res) => {
@@ -244,7 +257,14 @@ exports.findOne = (req, res) => {
       "chineseName",
       "phone",
       "emailVerified",
-      [db.Sequelize.fn("date_format", db.Sequelize.col("users.created_at"), "%Y-%m-%d"), "createdAt"],
+      "schoolCode",
+      "schoolName",
+      // Sequelize.col("users.created_at") (a "table.column" qualifier) fails
+      // with "Unknown column 'users.created_at' in 'field list'" -- doesn't
+      // match the alias Sequelize actually generates for this query. Bare
+      // "created_at" (matching how last_login is referenced right below,
+      // unqualified) resolves correctly.
+      [db.Sequelize.fn("date_format", db.Sequelize.col("created_at"), "%Y-%m-%d"), "createdAt"],
       [db.Sequelize.fn("date_format", db.Sequelize.col("last_login"), "%Y-%m-%d %H:%i:%s"), "lastLogin"],
     ],
     include: [
@@ -279,7 +299,10 @@ exports.update = async (req, res) => {
 
   try {
     const { password, roles, ...otherParameters } = req.body;
-    const allowed = ["username", "email", "chineseName", "phone"];
+    // schoolCode/schoolName are self-editable like the other basic profile
+    // fields (unlike roles/emailVerified, which stay admin-only) -- id is
+    // never in this list, so it can never be altered via this endpoint.
+    const allowed = ["username", "email", "chineseName", "phone", "schoolCode", "schoolName"];
     if (isAdminActor) allowed.push("emailVerified");
 
     const updateParams = {};
@@ -290,15 +313,33 @@ exports.update = async (req, res) => {
       updateParams.password = bcrypt.hashSync(password, 8);
     }
 
-    if (Object.keys(updateParams).length > 0) {
-      await User.update(updateParams, { where: { id } });
-    }
-
     const user = await User.findByPk(id);
     if (!user) {
       return res.send({
         message: `Cannot update User with id=${id}. Maybe User was not found or req.body is empty!`,
       });
+    }
+
+    if (updateParams.schoolCode !== undefined || updateParams.schoolName !== undefined) {
+      // Validate against the *effective* role set: roles being assigned in
+      // this same request (admin only), else the user's current roles.
+      let roleNames;
+      if (roles && isAdminActor) {
+        roleNames = roles;
+      } else {
+        const currentRoles = await user.getRoles();
+        roleNames = currentRoles.map((r) => r.name);
+      }
+      const schoolCodeValue = updateParams.schoolCode !== undefined ? updateParams.schoolCode : user.schoolCode;
+      const schoolNameValue = updateParams.schoolName !== undefined ? updateParams.schoolName : user.schoolName;
+      const schoolError = validateSchoolFields(schoolCodeValue, schoolNameValue, roleNames);
+      if (schoolError) {
+        return res.status(422).send({ message: schoolError });
+      }
+    }
+
+    if (Object.keys(updateParams).length > 0) {
+      await User.update(updateParams, { where: { id } });
     }
 
     if (roles && isAdminActor) {
@@ -411,7 +452,19 @@ exports.findAll = async (req, res) => {
         },
       ],
       distinct: true,
-      attributes: ["id", "username", "email", "chineseName", "phone", "emailVerified", "suspended", "lastLogin", "createdAt"],
+      attributes: [
+        "id",
+        "username",
+        "email",
+        "chineseName",
+        "phone",
+        "emailVerified",
+        "suspended",
+        "schoolCode",
+        "schoolName",
+        "lastLogin",
+        "createdAt",
+      ],
       limit,
       offset,
       order: [["id", "DESC"]],
