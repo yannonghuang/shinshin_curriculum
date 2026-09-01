@@ -14,12 +14,14 @@ const jwt = require("jsonwebtoken");
 
 init(emailjsConfig.userId);
 
-// 教师 lands on their own plans, 管理员 lands on the full plans list (their
-// day-to-day work is managing existing cases, not a generic home dashboard);
-// everyone else (专家) keeps the generic home landing.
+// 教师 lands on their own plans, 专家 lands on the 待点评 queue, 管理员 lands
+// on the full plans list -- each role's day-to-day work is managing existing
+// cases, not a generic home dashboard.
 const landingPathForRoles = (roles) => {
-  if ((roles || []).includes("ROLE_TEACHER")) return "/plans?mine=true";
-  if ((roles || []).includes("ROLE_ADMIN")) return "/plans";
+  const r = roles || [];
+  if (r.includes("ROLE_TEACHER")) return "/plans?mine=true";
+  if (r.includes("ROLE_EXPERT")) return "/plans?status=submitted";
+  if (r.includes("ROLE_ADMIN")) return "/plans";
   return "/";
 };
 
