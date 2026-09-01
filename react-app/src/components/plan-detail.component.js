@@ -5,51 +5,46 @@ import PlanDataService from "../services/plan.service";
 import ArtifactDataService from "../services/artifact.service";
 import AuthService from "../services/auth.service";
 import ReviewList from "./review-list.component";
-import { PLAN_THEMES, PLAN_GRADES, ARTIFACT_CATEGORIES_LESSON_LEVEL } from "../constants/plan-options";
+import { PLAN_THEMES, PLAN_GRADES, ARTIFACT_CATEGORIES_LESSON_LEVEL, EMPTY_WHY_WHAT_HOW } from "../constants/plan-options";
 import "../curriculum.css";
 
-const emptyWhyWhatHow = {
-  why: {
-    cognitiveGoals: "",
-    practicalGoals: "",
-    socialEmotionalGoals: "",
-    otherGoals: "",
-  },
-  what: {
-    projectIntro: "",
-    drivingQuestion: "",
-    finalOutcomePersonal: "",
-    finalOutcomeTeam: "",
-    publicDisplayMethod: "",
-  },
-  how: {
-    entryActivity: "",
-    teacherStudentDiscussion: "",
-    outcomeDisplayDiscussion: "",
-    requirementsChecklist: "",
-    knowledgeExploration: "",
-    productMaking: "",
-    reflectionIteration: "",
-    finalOutcomeDisplay: "",
-    reflectionSummary: "",
-    materialsNeeded: "",
-    resourcesNeeded: "",
-  },
-};
-
 const mergeFormData = (data) => ({
-  why: { ...emptyWhyWhatHow.why, ...(data && data.why) },
-  what: { ...emptyWhyWhatHow.what, ...(data && data.what) },
-  how: { ...emptyWhyWhatHow.how, ...(data && data.how) },
+  why: { ...EMPTY_WHY_WHAT_HOW.why, ...(data && data.why) },
+  what: { ...EMPTY_WHY_WHAT_HOW.what, ...(data && data.what) },
+  how: { ...EMPTY_WHY_WHAT_HOW.how, ...(data && data.how) },
 });
 
-// Embedded artifact upload/list panel, scoped to exactly one category -- the
-// nav leaf that renders it IS the category selector now (see PlanDetail's 计划
-// and 实施 trees), so upload is a single drag-drop zone taking multiple files
-// at once, all tagged with that implied category. Replaces the old panel that
-// covered several categories at once behind a zip-bulk-upload form, a single-
-// file form with a category dropdown, and a row of per-category drop targets
-// -- collapsed into one zone per the "flat and clean" nav-driven redesign.
+// Extension -> lesson-level category, used to auto-file a dropped batch of
+// mixed files into 实施记录文件/课件PPT/图片/视频 without asking the user to
+// sort them first. Catch-all is 实施记录文件 (docs, pdfs, anything else).
+const inferCategoryFromFilename = (filename) => {
+  const ext = (filename || "").toLowerCase().split(".").pop();
+  if (["mp4", "mov", "avi", "mkv", "webm", "flv", "wmv", "m4v"].includes(ext)) return "视频";
+  if (["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "heic"].includes(ext)) return "图片";
+  if (["ppt", "pptx"].includes(ext)) return "课件PPT";
+  return "实施记录文件";
+};
+
+const ARTIFACT_ICONS = {
+  视频: "fas fa-file-video",
+  图片: "fas fa-file-image",
+  课件PPT: "fas fa-file-powerpoint",
+};
+const iconClassForArtifact = (artifact) => {
+  const type = (artifact.type || "").toLowerCase();
+  if (type === "pdf") return "fas fa-file-pdf";
+  if (["doc", "docx"].includes(type)) return "fas fa-file-word";
+  if (["xls", "xlsx"].includes(type)) return "fas fa-file-excel";
+  return ARTIFACT_ICONS[artifact.category] || "fas fa-file";
+};
+
+// Embedded artifact upload/list panel. Two modes: a fixed single `category`
+// (the plan-level 课程设计文件 panel -- every upload is tagged with it, no
+// choice needed) or, when `category` is omitted (every 课时's panel), an
+// auto-categorizing mode -- one shared drag-drop zone takes any mix of
+// files at once, each auto-filed into 实施记录文件/课件PPT/图片/视频 by
+// extension (inferCategoryFromFilename), and the list below groups them
+// into a labeled card per category instead of one flat table.
 // planUpdatedAt (optional): when provided, any 课程设计文件 artifact generated/uploaded
 // before the plan's last edit is flagged "内容已更新，文档可能已过时" -- the doc's content
 // is derived from planFormData at generation time and doesn't auto-regenerate on later edits.
@@ -71,7 +66,7 @@ const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }
     try {
       const resp = await ArtifactDataService.getByPlan(planId, lessonIndex);
       const list = Array.isArray(resp.data) ? resp.data : resp.data.rows || resp.data.artifacts || [];
-      setArtifacts(list.filter((a) => a.category === category));
+      setArtifacts(category ? list.filter((a) => a.category === category) : list);
     } catch (e) {
       console.log(e);
       setMessage("加载附件列表失败。");
@@ -98,7 +93,7 @@ const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }
       for (let index = 0; index < files.length; index += 1) {
         const formData = new FormData();
         formData.append("description", "");
-        formData.append("category", category);
+        formData.append("category", category || inferCategoryFromFilename(files[index].name));
         if (lessonIndex !== undefined && lessonIndex !== null) formData.append("lessonIndex", lessonIndex);
         formData.append("file", files[index]);
         await ArtifactDataService.create(planId, formData);
@@ -179,6 +174,39 @@ const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }
     }
   };
 
+  const renderArtifactCard = (artifact) => {
+    const isStaleDoc =
+      artifact.category === "课程设计文件" && planUpdatedAt && artifact.createdAt && new Date(planUpdatedAt) > new Date(artifact.createdAt);
+    return (
+      <div className="pl-artifact-card" key={artifact.id}>
+        <div className="pl-artifact-card-icon">
+          <i className={iconClassForArtifact(artifact)}></i>
+        </div>
+        <div className="pl-artifact-card-name" title={artifact.attachmentName}>
+          {artifact.attachmentName}
+        </div>
+        {artifact.description && <div className="pl-artifact-card-desc">{artifact.description}</div>}
+        <div className="pl-artifact-card-meta">
+          {artifact.type} · {artifact.attachmentSize} bytes
+        </div>
+        {isStaleDoc && <span className="pl-tag pl-tag-warn">内容已更新，文档可能已过时</span>}
+        <div className="pl-artifact-card-actions">
+          <button className="btn btn-link p-0 mr-2" onClick={() => previewArtifactContent(artifact)}>
+            预览
+          </button>
+          <button className="btn btn-link p-0 mr-2" onClick={() => downloadArtifact(artifact)}>
+            下载
+          </button>
+          {canEdit && (
+            <button className="btn btn-link p-0 text-danger" onClick={() => deleteArtifact(artifact)}>
+              删除
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div>
       {canEdit && (
@@ -197,7 +225,11 @@ const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }
               if (!isUploading) uploadFiles(e.dataTransfer?.files);
             }}
           >
-            {isUploading ? `上传中...${uploadProgress !== null ? uploadProgress + "%" : ""}` : "拖拽文件到这里，或点击选择文件（支持多选）"}
+            {isUploading
+              ? `上传中...${uploadProgress !== null ? uploadProgress + "%" : ""}`
+              : category
+              ? "拖拽文件到这里，或点击选择文件（支持多选）"
+              : "拖拽文件到这里，或点击选择文件（支持多选，将按类型自动归类）"}
           </div>
           <input ref={fileInputRef} type="file" multiple className="d-none" onChange={(e) => uploadFiles(e.target.files)} disabled={isUploading} />
         </>
@@ -205,59 +237,26 @@ const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }
 
       {message && <div className="alert alert-info py-2">{message}</div>}
 
-      <div className="pl-table-wrap">
-        <table className="table table-sm table-bordered">
-          <thead>
-            <tr>
-              <th>文件名</th>
-              <th>类型</th>
-              <th>描述</th>
-              <th>大小(bytes)</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {artifacts.map((artifact) => {
-              const isStaleDoc =
-                category === "课程设计文件" &&
-                planUpdatedAt &&
-                artifact.createdAt &&
-                new Date(planUpdatedAt) > new Date(artifact.createdAt);
-              return (
-              <tr key={artifact.id}>
-                <td>
-                  {artifact.attachmentName}
-                  {isStaleDoc && <span className="pl-tag pl-tag-warn ml-2">内容已更新，文档可能已过时</span>}
-                </td>
-                <td>{artifact.type}</td>
-                <td>{artifact.description}</td>
-                <td>{artifact.attachmentSize}</td>
-                <td>
-                  <button className="btn btn-link p-0 mr-2" onClick={() => previewArtifactContent(artifact)}>
-                    预览
-                  </button>
-                  <button className="btn btn-link p-0 mr-2" onClick={() => downloadArtifact(artifact)}>
-                    下载
-                  </button>
-                  {canEdit && (
-                    <button className="btn btn-link p-0 text-danger" onClick={() => deleteArtifact(artifact)}>
-                      删除
-                    </button>
-                  )}
-                </td>
-              </tr>
-              );
-            })}
-            {artifacts.length === 0 && (
-              <tr>
-                <td colSpan="5" className="pl-empty">
-                  暂无附件
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {category ? (
+        artifacts.length === 0 ? (
+          <div className="pl-empty">暂无附件</div>
+        ) : (
+          <div className="pl-artifact-grid">{artifacts.map(renderArtifactCard)}</div>
+        )
+      ) : artifacts.length === 0 ? (
+        <div className="pl-empty">暂无附件</div>
+      ) : (
+        ARTIFACT_CATEGORIES_LESSON_LEVEL.map((cat) => {
+          const items = artifacts.filter((a) => a.category === cat);
+          if (items.length === 0) return null;
+          return (
+            <div key={cat} className="pl-artifact-group">
+              <h6 className="pl-artifact-group-title">{cat}</h6>
+              <div className="pl-artifact-grid">{items.map(renderArtifactCard)}</div>
+            </div>
+          );
+        })
+      )}
 
       {previewArtifact && (
         <div ref={previewRef} className="pl-card mt-3">
@@ -313,10 +312,6 @@ const PLAN_SECTIONS_UPLOAD = [
   { key: "reviews", label: "整体点评" },
 ];
 
-// Each 课时 under 实施 splits into these leaves -- one per artifact category
-// (each its own ArtifactPanel, scoped to that single category) plus 点评.
-const LESSON_SECTIONS = [...ARTIFACT_CATEGORIES_LESSON_LEVEL, "点评"];
-
 const PlanDetail = (props) => {
   const planId = props.match.params.id;
   const [plan, setPlan] = useState(null);
@@ -324,19 +319,14 @@ const PlanDetail = (props) => {
   const [message, setMessage] = useState("");
   const [metaForm, setMetaForm] = useState(null);
   const [isEditingMeta, setIsEditingMeta] = useState(false);
-  const [formData, setFormData] = useState(emptyWhyWhatHow);
+  const [formData, setFormData] = useState(EMPTY_WHY_WHAT_HOW);
   const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
   const [curatorNote, setCuratorNote] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({ plan: true, execution: true });
-  // Each 课时 under 实施 is its own nested sub-folder (实施记录文件/课件PPT/图片/视频/点评)
-  // -- collapsed by default so the tree doesn't open with every lesson's every
-  // file type already expanded.
-  const [expandedLessons, setExpandedLessons] = useState({});
   const [selected, setSelected] = useState({ type: "plan", key: "basic" });
 
   const toggleGroup = (name) => setExpandedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
-  const toggleLesson = (n) => setExpandedLessons((prev) => ({ ...prev, [n]: !prev[n] }));
   const select = (type, key) => setSelected({ type, key });
 
   const retrievePlan = useCallback(async () => {
@@ -715,21 +705,13 @@ const PlanDetail = (props) => {
     }
 
     if (selected.type === "execution") {
-      const { lesson, section } = selected.key;
-      if (section === "点评") {
-        return (
-          <div className="pl-card">
-            <h6>点评（课时 {lesson}）</h6>
-            <ReviewList planId={planId} lessonIndex={lesson} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
-          </div>
-        );
-      }
+      const n = selected.key;
       return (
         <div className="pl-card">
-          <h6>
-            {section}（课时 {lesson}）
-          </h6>
-          <ArtifactPanel planId={planId} lessonIndex={lesson} category={section} canEdit={canEditPlan} />
+          <h6>课时 {n}</h6>
+          <ArtifactPanel planId={planId} lessonIndex={n} canEdit={canEditPlan} />
+          <hr />
+          <ReviewList planId={planId} lessonIndex={n} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
         </div>
       );
     }
@@ -833,28 +815,14 @@ const PlanDetail = (props) => {
               {expandedGroups.execution && (
                 <div className="pl-explorer-children">
                   {lessons.map((n) => (
-                    <div key={n} className="pl-explorer-subgroup">
-                      <button type="button" className="pl-explorer-folder pl-explorer-subfolder" onClick={() => toggleLesson(n)}>
-                        <i className={`fas fa-chevron-${expandedLessons[n] ? "down" : "right"} pl-explorer-chevron`}></i>
-                        <i className="fas fa-folder-open mr-1"></i> 课时 {n}
-                      </button>
-                      {expandedLessons[n] && (
-                        <div className="pl-explorer-children pl-explorer-children-nested">
-                          {LESSON_SECTIONS.map((section) => (
-                            <button
-                              key={section}
-                              type="button"
-                              className={`pl-explorer-leaf ${
-                                selected.type === "execution" && selected.key.lesson === n && selected.key.section === section ? "is-active" : ""
-                              }`}
-                              onClick={() => select("execution", { lesson: n, section })}
-                            >
-                              {section}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <button
+                      key={n}
+                      type="button"
+                      className={`pl-explorer-leaf ${selected.type === "execution" && selected.key === n ? "is-active" : ""}`}
+                      onClick={() => select("execution", n)}
+                    >
+                      课时 {n}
+                    </button>
                   ))}
                   {lessons.length === 0 && <div className="pl-explorer-empty">尚未设置预计课时</div>}
                 </div>

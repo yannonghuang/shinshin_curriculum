@@ -56,8 +56,21 @@ const moveIntoArtifactDirectory = (planId, category, lessonIndex, uploadedFile) 
   return path.resolve(targetPath);
 };
 
+// multipart/form-data never declares a charset for filenames, and busboy
+// (which multer uses under the hood) decodes them as latin1 by default --
+// browsers actually send UTF-8, so any non-ASCII filename (Chinese, etc.)
+// arrives mojibake unless corrected. Re-decoding the latin1 bytes as UTF-8
+// recovers the original. Mutating `file` here (destination runs before
+// filename, and both run before the controller sees req.file/req.files)
+// fixes it everywhere downstream in one place: the stored attachmentName
+// and the on-disk filename both read file.originalname after this.
+const fixOriginalNameEncoding = (file) => {
+  file.originalname = Buffer.from(file.originalname, "latin1").toString("utf8");
+};
+
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
+    fixOriginalNameEncoding(file);
     // Multer processes multipart fields in order; category/lessonIndex may
     // not be populated yet when this callback runs, so — like shinshin's
     // artifact.controller.js — files land in the plan's top-level directory

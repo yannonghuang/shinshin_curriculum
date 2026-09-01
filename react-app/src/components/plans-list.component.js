@@ -5,7 +5,7 @@ import PlanDataService from "../services/plan.service";
 import ArtifactDataService from "../services/artifact.service";
 import AuthService from "../services/auth.service";
 import Pagination from "@material-ui/lab/Pagination";
-import { PLAN_THEMES, PLAN_GRADES, PLAN_MODES } from "../constants/plan-options";
+import { PLAN_THEMES, PLAN_GRADES, PLAN_MODES, EMPTY_WHY_WHAT_HOW, WHY_WHAT_HOW_FIELD_LABELS } from "../constants/plan-options";
 import "../curriculum.css";
 
 const STATUS_LABELS = { draft: "草稿", submitted: "已提交", reviewed: "已点评" };
@@ -40,6 +40,45 @@ const extractPlanFieldsFromText = (text) => {
   if (lessonMatch) result.plannedLessonCount = lessonMatch[1];
 
   return result;
+};
+
+// Best-effort extraction of the WHY/WHAT/HOW body into the same shape the
+// online-fill form uses (EMPTY_WHY_WHAT_HOW), so an uploaded plan renders
+// through the same section-by-section presentation as one filled in online,
+// not just an attached file. A real filled-in document mixes two styles --
+// "标签：内容" inline (WHY's four goals) and "标题\n内容段落" (HOW's
+// activities) -- so rather than a per-field regex, this finds every known
+// label's first occurrence position in the raw text, sorts them, and takes
+// each field's content as the text between its label and whichever known
+// label comes next (in document order, not list order) -- that boundary
+// works for both styles uniformly. Fields whose label isn't found at all
+// are left blank rather than guessed.
+const extractWhyWhatHowFromText = (text) => {
+  const positions = WHY_WHAT_HOW_FIELD_LABELS.map(([path, label]) => ({ path, label, idx: text.indexOf(label) }))
+    .filter((p) => p.idx !== -1)
+    .sort((a, b) => a.idx - b.idx);
+
+  const result = {};
+  positions.forEach((p, i) => {
+    const contentStart = p.idx + p.label.length;
+    const contentEnd = i + 1 < positions.length ? positions[i + 1].idx : text.length;
+    let content = text.slice(contentStart, contentEnd);
+    content = content.replace(/^[（(][^）)]*[）)]/, ""); // e.g. trailing "（为什么做这个乡土主题？）" right after a label
+    content = content.replace(/^[：:]/, "");
+    content = content.replace(/^[\s•·\t\d.．、]+/, "");
+    content = content.trim();
+    if (content) result[p.path] = content;
+  });
+  return result;
+};
+
+const buildPlanFormData = (extracted) => {
+  const data = { why: { ...EMPTY_WHY_WHAT_HOW.why }, what: { ...EMPTY_WHY_WHAT_HOW.what }, how: { ...EMPTY_WHY_WHAT_HOW.how } };
+  for (const [path, value] of Object.entries(extracted)) {
+    const [section, field] = path.split(".");
+    data[section][field] = value;
+  }
+  return data;
 };
 
 const currentUserId = () => {
@@ -77,12 +116,17 @@ const PlansList = (props) => {
   const [searchTheme, setSearchTheme] = useState("");
   const [searchGrade, setSearchGrade] = useState("");
   const [searchYear, setSearchYear] = useState("");
-  // planMode='upload' drag-drop: the picked file both seeds form fields (best-
-  // effort, see extractPlanFieldsFromText) and gets attached as the new plan's
-  // 课程设计文件 artifact right after creation (see onSubmit).
+  // planMode='upload' drag-drop: the picked file seeds form fields and the
+  // WHY/WHAT/HOW body (best-effort, see extractPlanFieldsFromText/
+  // extractWhyWhatHowFromText) and gets attached as the new plan's 课程设计文件
+  // artifact right after creation (see onSubmit) -- if any body content was
+  // extracted, the plan is created as planMode='online' so it renders through
+  // the same section-by-section form as one filled in online, pre-filled,
+  // rather than just an attached file.
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadDragActive, setUploadDragActive] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
+  const [uploadFormData, setUploadFormData] = useState(null);
   const uploadFileInputRef = useRef(null);
 
   // Only teachers author a new plan -- managers/experts manage existing
@@ -90,11 +134,18 @@ const PlansList = (props) => {
   // plan.routes.js's isTeacher-only gate on POST /api/plans.
   const canCreate = !excellentOnly && AuthService.isTeacher();
   const stylishPublic = excellentOnly || !AuthService.isLogin();
-  // mine=true only ever comes from a teacher's own landing link -- a manager
-  // is only ever interested in all plans, so there's no "只看我的" toggle to
-  // offer them (removed; previously shown to admin only, but managing means
-  // seeing everything, not filtering to a personal subset that's usually empty).
-  const effectiveMineOnly = mineOnly;
+  // A teacher never has a legitimate reason to browse "all plans" -- the
+  // backend only ever shows them their own plans plus 优秀案例 (see
+  // plan.controller.js#findAll's visibility rule), so treat any /plans visit
+  // as "mine" for a teacher regardless of the mine= query param, not just the
+  // ?mine=true landing link. Otherwise a teacher who reaches bare /plans
+  // (e.g. by editing the URL) sees their own just-created ordinary plan
+  // vanish, since it isn't excellent and isn't "mine" without this. Excluded
+  // when excellentOnly (the public gallery) or statusFilter (an expert's
+  // 待点评 queue) is in play -- neither of those is about plan ownership.
+  // A manager is only ever interested in all plans, so there's no "只看我的"
+  // toggle to offer them either (removed; previously shown to admin only).
+  const effectiveMineOnly = mineOnly || (!excellentOnly && !statusFilter && AuthService.isTeacher());
 
   const isOwnerOf = (item) => AuthService.isTeacher() && String(item.teacherId) === String(currentUserId());
   // Editing a plan's content is owner-only, no admin bypass -- managers can
@@ -147,6 +198,10 @@ const PlansList = (props) => {
         plannedLessonCount: form.plannedLessonCount ? Number(form.plannedLessonCount) : null,
         planMode: form.planMode,
       };
+      if (!editingId && uploadFormData) {
+        payload.planMode = "online";
+        payload.planFormData = uploadFormData;
+      }
       if (editingId) {
         await PlanDataService.update(editingId, payload);
         setMessage("课程设计更新成功。");
@@ -169,6 +224,7 @@ const PlansList = (props) => {
       setForm(emptyForm);
       setUploadFile(null);
       setUploadStatus("");
+      setUploadFormData(null);
       setIsEditorOpen(false);
       retrieveAll();
     } catch (err) {
@@ -188,11 +244,23 @@ const PlansList = (props) => {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const result = await mammoth.extractRawText({ arrayBuffer });
-      const extracted = extractPlanFieldsFromText(result.value || "");
+      const text = result.value || "";
+
+      const extracted = extractPlanFieldsFromText(text);
       const matchedLabels = Object.keys(extracted).map((k) => UPLOAD_FIELD_LABELS[k]);
       setForm((prev) => ({ ...prev, ...extracted }));
+
+      const bodyExtracted = extractWhyWhatHowFromText(text);
+      const bodyFieldCount = Object.keys(bodyExtracted).length;
+      setUploadFormData(bodyFieldCount > 0 ? buildPlanFormData(bodyExtracted) : null);
+
+      const parts = [];
+      if (matchedLabels.length > 0) parts.push(matchedLabels.join("、"));
+      if (bodyFieldCount > 0) parts.push(`课程设计方案 WHY/WHAT/HOW 共 ${bodyFieldCount} 项内容`);
       setUploadStatus(
-        matchedLabels.length > 0 ? `已从文件中识别：${matchedLabels.join("、")}，请核对后提交。` : "未能从文件中自动识别课程信息，请手动填写。"
+        parts.length > 0
+          ? `已从文件中识别：${parts.join("；")}${bodyFieldCount > 0 ? "，课程设计将以在线填写形式创建" : ""}，请核对后提交。`
+          : "未能从文件中自动识别课程信息，请手动填写。"
       );
     } catch (err) {
       console.log(err);
@@ -205,6 +273,7 @@ const PlansList = (props) => {
     setForm({ ...emptyForm, year: String(new Date().getFullYear()), theme: searchTheme });
     setUploadFile(null);
     setUploadStatus("");
+    setUploadFormData(null);
     setIsEditorOpen(true);
   };
 
@@ -213,6 +282,7 @@ const PlansList = (props) => {
     setForm(emptyForm);
     setUploadFile(null);
     setUploadStatus("");
+    setUploadFormData(null);
     setIsEditorOpen(false);
   };
 
@@ -228,6 +298,7 @@ const PlansList = (props) => {
     });
     setUploadFile(null);
     setUploadStatus("");
+    setUploadFormData(null);
     setIsEditorOpen(true);
   };
 
