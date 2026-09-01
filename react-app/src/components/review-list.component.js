@@ -9,11 +9,14 @@ import { REVIEW_SECTIONS } from "../constants/plan-options";
 //    expert/admin reviewers,
 //  - a "请AI点评" trigger button shown to teacher/admin that calls the AI-review endpoint,
 //  - AI-authored rows visually tagged distinctly (.pl-tag-ai) from expert rows (.pl-tag-expert).
+//  - an "out of sync" badge on any review written before the plan's last edit (planUpdatedAt
+//    prop) -- the plan stays editable after review/submission (no read-only lock), so a review
+//    can silently no longer reflect the current content; this flags that instead of hiding it.
 // Review lists are scoped to a single plan (and, per-lesson, to a single lessonIndex), so
 // unlike comments-list.component.js this renders a plain client-sorted table instead of a
 // server-paginated react-table -- the plan's REST contract does not paginate this endpoint.
 const ReviewList = (props) => {
-  const { planId, lessonIndex, embedded } = props;
+  const { planId, lessonIndex, embedded, planUpdatedAt } = props;
   const [reviews, setReviews] = useState([]);
   const [text, setText] = useState("");
   const [sectionKey, setSectionKey] = useState("WHY");
@@ -163,7 +166,10 @@ const ReviewList = (props) => {
           </tr>
         </thead>
         <tbody>
-          {reviews.map((review) => (
+          {reviews.map((review) => {
+            const isStale =
+              planUpdatedAt && review.createdAt && new Date(planUpdatedAt) > new Date(review.createdAt);
+            return (
             <tr key={review.id}>
               <td>
                 {review.reviewerType === "ai" ? (
@@ -171,6 +177,7 @@ const ReviewList = (props) => {
                 ) : (
                   <span className="pl-tag-expert">专家点评</span>
                 )}
+                {isStale && <span className="pl-tag pl-tag-warn d-block mt-1">内容已更新，点评可能已过时</span>}
               </td>
               <td>{review.sectionKey || "-"}</td>
               <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>
@@ -185,7 +192,8 @@ const ReviewList = (props) => {
                 )}
               </td>
             </tr>
-          ))}
+            );
+          })}
           {reviews.length === 0 && (
             <tr>
               <td colSpan="7" className="pl-empty">

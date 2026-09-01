@@ -49,7 +49,10 @@ const mergeFormData = (data) => ({
 // (lessonIndex=null) and each per-课时 "实施记录文件/课件PPT/图片/视频" tab. Migrated from
 // shinshin's case-detail.component.js: single-file upload w/ progress bar, category-folder
 // drag/drop multi-upload, bulk-zip upload, and docx(mammoth)/pdf/image/video/audio preview.
-const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit }) => {
+// planUpdatedAt (optional): when provided, any 课程设计文件 artifact generated/uploaded
+// before the plan's last edit is flagged "内容已更新，文档可能已过时" -- the doc's content
+// is derived from planFormData at generation time and doesn't auto-regenerate on later edits.
+const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit, planUpdatedAt }) => {
   const [artifacts, setArtifacts] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(categories[0]);
   const [singleForm, setSingleForm] = useState({ description: "", category: categories[0], file: null });
@@ -385,9 +388,18 @@ const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit }) 
             </tr>
           </thead>
           <tbody>
-            {filtered.map((artifact) => (
+            {filtered.map((artifact) => {
+              const isStaleDoc =
+                artifact.category === "课程设计文件" &&
+                planUpdatedAt &&
+                artifact.createdAt &&
+                new Date(planUpdatedAt) > new Date(artifact.createdAt);
+              return (
               <tr key={artifact.id}>
-                <td>{artifact.attachmentName}</td>
+                <td>
+                  {artifact.attachmentName}
+                  {isStaleDoc && <span className="pl-tag pl-tag-warn ml-2">内容已更新，文档可能已过时</span>}
+                </td>
                 <td>{artifact.type}</td>
                 <td>{artifact.description}</td>
                 <td>{artifact.attachmentSize}</td>
@@ -405,7 +417,8 @@ const ArtifactPanel = ({ planId, lessonIndex, categories, allowBulk, canEdit }) 
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {filtered.length === 0 && (
               <tr>
                 <td colSpan="5" className="pl-empty">
@@ -489,7 +502,12 @@ const PlanDetail = (props) => {
   const currentUser = AuthService.getCurrentUser();
   const isOwner = !!(plan && currentUser && String(plan.teacherId) === String(currentUser.id));
   const isAdmin = AuthService.isAdmin();
-  const canEditPlan = isAdmin || (isOwner && plan && plan.status === "draft");
+  // Always editable for the owner/admin, regardless of status (submitting for
+  // review no longer locks the plan) -- previously gated on plan.status ===
+  // "draft", which made it read-only the moment a teacher clicked 提交待点评.
+  // Staleness of the generated doc / existing reviews relative to later edits
+  // is now surfaced as an "out of sync" badge instead (see planUpdatedAt below).
+  const canEditPlan = isAdmin || isOwner;
 
   const goBack = () => props.history.push("/plans");
 
@@ -787,7 +805,14 @@ const PlanDetail = (props) => {
 
           <hr />
           <h6>课程设计文件</h6>
-          <ArtifactPanel planId={planId} lessonIndex={null} categories={["课程设计文件"]} allowBulk={false} canEdit={canEditPlan} />
+          <ArtifactPanel
+            planId={planId}
+            lessonIndex={null}
+            categories={["课程设计文件"]}
+            allowBulk={false}
+            canEdit={canEditPlan}
+            planUpdatedAt={plan.updatedAt}
+          />
         </div>
       ) : (
         <div className="pl-card">
@@ -798,7 +823,7 @@ const PlanDetail = (props) => {
 
       <div className="pl-card">
         <h5>整体点评</h5>
-        <ReviewList planId={planId} lessonIndex={null} embedded />
+        <ReviewList planId={planId} lessonIndex={null} embedded planUpdatedAt={plan.updatedAt} />
       </div>
 
       {lessonCount > 0 && (
@@ -813,7 +838,7 @@ const PlanDetail = (props) => {
             {lessons.map((n) => (
               <TabPanel key={n}>
                 <ArtifactPanel planId={planId} lessonIndex={n} categories={ARTIFACT_CATEGORIES_LESSON_LEVEL} allowBulk canEdit={canEditPlan} />
-                <ReviewList planId={planId} lessonIndex={n} embedded />
+                <ReviewList planId={planId} lessonIndex={n} embedded planUpdatedAt={plan.updatedAt} />
               </TabPanel>
             ))}
           </Tabs>
