@@ -5,13 +5,14 @@ import PlanDataService from "../services/plan.service";
 import ArtifactDataService from "../services/artifact.service";
 import AuthService from "../services/auth.service";
 import ReviewList from "./review-list.component";
-import { PLAN_THEMES, PLAN_GRADES, ARTIFACT_CATEGORIES_LESSON_LEVEL, EMPTY_WHY_WHAT_HOW } from "../constants/plan-options";
+import { PLAN_THEMES, PLAN_GRADES, ARTIFACT_CATEGORIES_LESSON_LEVEL, EMPTY_WHY_WHAT_HOW, EMPTY_LESSON } from "../constants/plan-options";
 import "../curriculum.css";
 
 const mergeFormData = (data) => ({
   why: { ...EMPTY_WHY_WHAT_HOW.why, ...(data && data.why) },
   what: { ...EMPTY_WHY_WHAT_HOW.what, ...(data && data.what) },
   how: { ...EMPTY_WHY_WHAT_HOW.how, ...(data && data.how) },
+  lessons: Array.isArray(data && data.lessons) ? data.lessons : [],
 });
 
 // Extension -> lesson-level category, used to auto-file a dropped batch of
@@ -48,7 +49,11 @@ const iconClassForArtifact = (artifact) => {
 // planUpdatedAt (optional): when provided, any 课程设计文件 artifact generated/uploaded
 // before the plan's last edit is flagged "内容已更新，文档可能已过时" -- the doc's content
 // is derived from planFormData at generation time and doesn't auto-regenerate on later edits.
-const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }) => {
+// allowUpload (default true): the plan-level 课程设计文件 panel passes false -- that
+// category is meant to hold only the doc generated from the plan's own online
+// content (see the "生成课程设计文件" button above it), never an arbitrary manually
+// dropped file, so no drop-zone/file-picker is rendered for it at all.
+const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt, allowUpload = true }) => {
   const [artifacts, setArtifacts] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -209,7 +214,7 @@ const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }
 
   return (
     <div>
-      {canEdit && (
+      {canEdit && allowUpload && (
         <>
           <div
             className={`pl-file-drop-zone mb-3 ${isDragOver ? "is-dragover" : ""}`}
@@ -319,11 +324,22 @@ const PlanDetail = (props) => {
   const [message, setMessage] = useState("");
   const [metaForm, setMetaForm] = useState(null);
   const [isEditingMeta, setIsEditingMeta] = useState(false);
-  const [formData, setFormData] = useState(EMPTY_WHY_WHAT_HOW);
+  const [formData, setFormData] = useState({ ...EMPTY_WHY_WHAT_HOW, lessons: [] });
   const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
+  // Bumped after a successful generateDoc so the 课程设计文件 ArtifactPanel (whose
+  // artifact list it doesn't otherwise share any state with) remounts and
+  // re-fetches -- without this the newly generated file never appears until an
+  // unrelated re-render happens to remount the panel (e.g. switching tabs away
+  // and back).
+  const [filesRefreshKey, setFilesRefreshKey] = useState(0);
   const [curatorNote, setCuratorNote] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState({ plan: true, execution: true });
+  // planLessons (分课时设计, nested under 计划) starts collapsed, unlike plan/
+  // execution -- it can hold as many leaves as 实施's own 课时 list, and it's
+  // one level deeper, so expanding it by default would make the plan section
+  // of the sidebar as tall as the whole 实施 tree before a teacher's even
+  // looked at it.
+  const [expandedGroups, setExpandedGroups] = useState({ plan: true, execution: true, planLessons: false });
   const [selected, setSelected] = useState({ type: "plan", key: "basic" });
 
   const toggleGroup = (name) => setExpandedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -400,6 +416,20 @@ const PlanDetail = (props) => {
     setFormData((prev) => ({ ...prev, [section]: { ...prev[section], [field]: value } }));
   };
 
+  // formData.lessons is a sparse array of { index, title, content } (see
+  // EMPTY_LESSON) -- index n may have no entry yet (a plan with no lesson
+  // content filled in, or a lesson beyond what's been written so far), so this
+  // creates one on first edit rather than requiring every lessonCount slot to
+  // be pre-populated up front.
+  const onLessonFieldChange = (lessonIndex, field, value) => {
+    setFormData((prev) => {
+      const lessons = prev.lessons.some((l) => Number(l.index) === lessonIndex)
+        ? prev.lessons.map((l) => (Number(l.index) === lessonIndex ? { ...l, [field]: value } : l))
+        : [...prev.lessons, { ...EMPTY_LESSON, index: lessonIndex, [field]: value }];
+      return { ...prev, lessons };
+    });
+  };
+
   const saveFormData = async (submitStatus) => {
     try {
       await PlanDataService.update(planId, {
@@ -419,6 +449,7 @@ const PlanDetail = (props) => {
     try {
       await PlanDataService.generateDoc(planId);
       setMessage("课程设计文件已生成，可在下方“课程设计文件”列表中下载。");
+      setFilesRefreshKey((k) => k + 1);
     } catch (err) {
       setMessage(err?.response?.data?.message || "生成课程设计文件失败。");
     } finally {
@@ -685,11 +716,13 @@ const PlanDetail = (props) => {
             )}
           </div>
           <ArtifactPanel
+            key={filesRefreshKey}
             planId={planId}
             lessonIndex={null}
             category="课程设计文件"
             canEdit={canEditPlan}
             planUpdatedAt={plan.updatedAt}
+            allowUpload={false}
           />
         </div>
       );
@@ -700,6 +733,55 @@ const PlanDetail = (props) => {
         <div className="pl-card">
           <h6>整体点评</h6>
           <ReviewList planId={planId} lessonIndex={null} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
+        </div>
+      );
+    }
+
+    // "第二部分：分课时设计" in the template is part of the *design* document (课程设计
+    // 方案) -- the teacher's planned title/content for each 课时 -- not a record of
+    // what actually happened in class. That's why it lives under 计划's own
+    // "分课时设计" sub-tree (see the sidebar below) rather than inside 实施's 课时 N
+    // panes, which are for actual delivery evidence (uploaded artifacts, reviews).
+    if (selected.type === "planLesson") {
+      const n = selected.key;
+      // The template leaves each 课时 entirely freeform (see EMPTY_LESSON) --
+      // just an optional inline title after "第N课时：" plus a body -- so
+      // there's no fixed-field form here the way WHY/WHAT/HOW have one, just
+      // these two. lessons is a sparse array (see onLessonFieldChange), so a
+      // lesson with nothing written yet falls back to EMPTY_LESSON.
+      const lesson = formData.lessons.find((l) => Number(l.index) === n) || EMPTY_LESSON;
+      return (
+        <div className="pl-card pl-why-what-how">
+          <h6>分课时设计 · 课时 {n}</h6>
+          <div className="form-group">
+            <label>课时标题</label>
+            <input
+              className="form-control"
+              value={lesson.title}
+              disabled={!canEditPlan}
+              onChange={(e) => onLessonFieldChange(n, "title", e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label>课时设计内容</label>
+            <textarea
+              className="form-control"
+              rows="6"
+              value={lesson.content}
+              disabled={!canEditPlan}
+              onChange={(e) => onLessonFieldChange(n, "content", e.target.value)}
+            />
+          </div>
+          {canEditPlan && (
+            <div className="d-flex mt-2">
+              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveFormData()}>
+                保存草稿
+              </button>
+              <button className="btn btn-primary" type="button" onClick={() => saveFormData("submitted")}>
+                提交待点评
+              </button>
+            </div>
+          )}
         </div>
       );
     }
@@ -793,16 +875,61 @@ const PlanDetail = (props) => {
               </button>
               {expandedGroups.plan && (
                 <div className="pl-explorer-children">
-                  {planSections.map((s) => (
-                    <button
-                      key={s.key}
-                      type="button"
-                      className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === s.key ? "is-active" : ""}`}
-                      onClick={() => select("plan", s.key)}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
+                  {planSections
+                    .filter((s) => ["basic", "why", "what", "how"].includes(s.key))
+                    .map((s) => (
+                      <button
+                        key={s.key}
+                        type="button"
+                        className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === s.key ? "is-active" : ""}`}
+                        onClick={() => select("plan", s.key)}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  {/* 第二部分：分课时设计 -- part of the design document (see the
+                      planLesson render branch above), so nested here under 计划
+                      rather than a sibling of 实施's own 课时 list. Online-only,
+                      matching WHY/WHAT/HOW just above. */}
+                  {plan.planMode === "online" && (
+                    <div className="pl-explorer-subgroup">
+                      <button
+                        type="button"
+                        className="pl-explorer-folder pl-explorer-subfolder"
+                        onClick={() => toggleGroup("planLessons")}
+                      >
+                        <i className={`fas fa-chevron-${expandedGroups.planLessons ? "down" : "right"} pl-explorer-chevron`}></i>
+                        分课时设计
+                      </button>
+                      {expandedGroups.planLessons && (
+                        <div className="pl-explorer-children pl-explorer-children-nested">
+                          {lessons.map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              className={`pl-explorer-leaf ${selected.type === "planLesson" && selected.key === n ? "is-active" : ""}`}
+                              onClick={() => select("planLesson", n)}
+                            >
+                              课时 {n}
+                            </button>
+                          ))}
+                          {lessons.length === 0 && <div className="pl-explorer-empty">尚未设置预计课时</div>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {planSections
+                    .filter((s) => ["files", "reviews"].includes(s.key))
+                    .map((s) => (
+                      <button
+                        key={s.key}
+                        type="button"
+                        className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === s.key ? "is-active" : ""}`}
+                        onClick={() => select("plan", s.key)}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
                 </div>
               )}
             </div>

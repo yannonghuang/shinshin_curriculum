@@ -96,3 +96,15 @@ export const WHY_WHAT_HOW_FIELD_LABELS = [
   ["how.materialsNeeded", "需要的材料"],
   ["how.resourcesNeeded", "需要链接的资源"],
 ];
+
+// A single 第N课时 entry from the template's "第二部分：分课时设计" -- unlike Part 1's
+// fixed WHY/WHAT/HOW fields, the template leaves each lesson entirely freeform
+// ("第一课时：" followed by a blank line, no further sub-labels), so this is the
+// whole per-lesson shape: an optional inline title right after the "第N课时："
+// heading (e.g. "第1课时：入项激趣——认识一种...的米饼") plus the freeform body
+// beneath it. Shared between plan-detail.component.js (a 课时 N pane's lesson-design
+// form) and plans-list.component.js (extractLessonsFromText's best-effort
+// extraction from an uploaded .docx) -- see also planDocGenerator.js, which
+// renders plan.planFormData.lessons (an array of these, keyed by `index`) back
+// into "第二部分：分课时设计" when generating a plan's 课程设计文件.
+export const EMPTY_LESSON = { title: "", content: "" };
