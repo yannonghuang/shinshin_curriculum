@@ -2,10 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router-dom";
 import mammoth from "mammoth/mammoth.browser";
 import PlanDataService from "../services/plan.service";
-import ArtifactDataService from "../services/artifact.service";
 import AuthService from "../services/auth.service";
 import Pagination from "@material-ui/lab/Pagination";
-import { PLAN_THEMES, PLAN_GRADES, PLAN_MODES, EMPTY_WHY_WHAT_HOW, WHY_WHAT_HOW_FIELD_LABELS } from "../constants/plan-options";
+import { PLAN_THEMES, PLAN_GRADES, EMPTY_WHY_WHAT_HOW, WHY_WHAT_HOW_FIELD_LABELS } from "../constants/plan-options";
 import "../curriculum.css";
 
 const STATUS_LABELS = { draft: "草稿", submitted: "已提交", reviewed: "已点评" };
@@ -16,7 +15,6 @@ const emptyForm = {
   grade: "",
   year: "",
   plannedLessonCount: "",
-  planMode: "online",
 };
 
 const UPLOAD_FIELD_LABELS = { title: "标题", grade: "年级", plannedLessonCount: "预计课时" };
@@ -170,13 +168,62 @@ const extractWhyWhatHowFromText = (text, html) => {
   return result;
 };
 
-const buildPlanFormData = (extracted) => {
-  const data = { why: { ...EMPTY_WHY_WHAT_HOW.why }, what: { ...EMPTY_WHY_WHAT_HOW.what }, how: { ...EMPTY_WHY_WHAT_HOW.how } };
+const buildPlanFormData = (extracted, lessons) => {
+  const data = { why: { ...EMPTY_WHY_WHAT_HOW.why }, what: { ...EMPTY_WHY_WHAT_HOW.what }, how: { ...EMPTY_WHY_WHAT_HOW.how }, lessons: lessons || [] };
   for (const [path, value] of Object.entries(extracted)) {
     const [section, field] = path.split(".");
     data[section][field] = value;
   }
   return data;
+};
+
+// Leading-whitespace class used by the Part 2 regexes below (not \s -- \s also
+// matches a newline, which would let e.g. "第一课时：" with nothing else on the
+// line swallow the blank line after it and capture the *next* heading as this
+// one's inline title, the same class of bug findLabel had to avoid for Part 1's
+// labels). A real submission's lesson headings are inconsistently indented --
+// some with a couple of regular spaces, one with a literal U+00A0 non-breaking
+// space -- so this covers ordinary spaces/tabs plus the common Unicode space
+// variants, not just " ".
+const PART2_LEADING_WS = "[ \\t\\u00a0\\u2000-\\u200a\\u3000]*";
+const PART2_HEADING_RE = new RegExp(`^${PART2_LEADING_WS}第二部分[：:]?${PART2_LEADING_WS}分课时设计`, "m");
+const LESSON_HEADING_RE = new RegExp(`^${PART2_LEADING_WS}第[0-9一二三四五六七八九十百]+课时[：:]?${PART2_LEADING_WS}([^\\n]*)`, "gm");
+const PART3_HEADING_RE = new RegExp(`^${PART2_LEADING_WS}第三部分`, "m");
+
+// Best-effort extraction of "第二部分：分课时设计" into the same
+// [{ index, title, content }] shape planDocGenerator.js renders it from (see
+// EMPTY_LESSON). This section lives entirely outside the template's table (see
+// extractWhyWhatHowFromText's table-row approach for Part 1), as a flat run of
+// paragraphs with no structure of its own beyond the "第N课时：" headings
+// themselves, so it's handled independently over the whole flattened text
+// rather than through tableRowTexts. Each "第N课时" heading may carry an inline
+// title on the same line (e.g. "第1课时：入项激趣——认识一种...的米饼"); the
+// i-th heading found becomes lesson i, by position rather than by parsing the
+// heading's own numeral (Arabic and Chinese numerals are both used across the
+// template/real submissions, and document order is always sequential in
+// practice, so trusting position sidesteps numeral-parsing edge cases
+// entirely). Content runs from right after one heading to the next, capped at
+// "第三部分" for the last lesson if present (otherwise end of document) so it
+// doesn't swallow the materials/resources section that can follow.
+const extractLessonsFromText = (text) => {
+  const part2Idx = text.search(PART2_HEADING_RE);
+  if (part2Idx === -1) return [];
+  const part2Text = text.slice(part2Idx);
+  const matches = [...part2Text.matchAll(LESSON_HEADING_RE)];
+  if (matches.length === 0) return [];
+  const part3Idx = part2Text.search(PART3_HEADING_RE);
+  const end = part3Idx === -1 ? part2Text.length : part3Idx;
+
+  return matches
+    .map((m, i) => {
+      const contentStart = m.index + m[0].length;
+      const contentEnd = i + 1 < matches.length ? matches[i + 1].index : end;
+      if (contentEnd <= m.index) return null;
+      const title = (m[1] || "").trim();
+      const content = part2Text.slice(contentStart, contentEnd).trim();
+      return { index: i + 1, title, content };
+    })
+    .filter((l) => l && (l.title || l.content));
 };
 
 const currentUserId = () => {
@@ -214,13 +261,15 @@ const PlansList = (props) => {
   const [searchTheme, setSearchTheme] = useState("");
   const [searchGrade, setSearchGrade] = useState("");
   const [searchYear, setSearchYear] = useState("");
-  // planMode='upload' drag-drop: the picked file seeds form fields and the
-  // WHY/WHAT/HOW body (best-effort, see extractPlanFieldsFromText/
-  // extractWhyWhatHowFromText) and gets attached as the new plan's 课程设计文件
-  // artifact right after creation (see onSubmit) -- if any body content was
-  // extracted, the plan is created as planMode='online' so it renders through
-  // the same section-by-section form as one filled in online, pre-filled,
-  // rather than just an attached file.
+  // "从文件导入" is purely an initialization convenience, not a persisted plan
+  // state -- every plan is always planMode='online' (see onSubmit), so it can
+  // always be edited section-by-section afterward regardless of how it started.
+  // Toggled by a button (see JSX below) rather than tied to any saved field.
+  // The picked file only ever seeds form fields and the WHY/WHAT/HOW body
+  // (best-effort, see extractPlanFieldsFromText/extractWhyWhatHowFromText) --
+  // it's never itself attached as an artifact; 课程设计文件 is populated only by
+  // generating a doc from the plan's (possibly pre-filled) online content.
+  const [showFileImport, setShowFileImport] = useState(false);
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadDragActive, setUploadDragActive] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
@@ -294,32 +343,24 @@ const PlansList = (props) => {
         grade: form.grade || null,
         year: Number(form.year),
         plannedLessonCount: form.plannedLessonCount ? Number(form.plannedLessonCount) : null,
-        planMode: form.planMode,
+        // Always 'online' -- 从文件导入 (see showFileImport) is only ever how a
+        // plan gets its initial content, never a persisted state, so every plan
+        // stays section-by-section editable regardless of how it started.
+        planMode: "online",
       };
       if (!editingId && uploadFormData) {
-        payload.planMode = "online";
         payload.planFormData = uploadFormData;
       }
       if (editingId) {
         await PlanDataService.update(editingId, payload);
         setMessage("课程设计更新成功。");
       } else {
-        const created = await PlanDataService.create(payload);
+        await PlanDataService.create(payload);
         setMessage("课程设计创建成功。");
-        if (uploadFile && created?.data?.id) {
-          try {
-            const fd = new FormData();
-            fd.append("category", "课程设计文件");
-            fd.append("description", "");
-            fd.append("file", uploadFile);
-            await ArtifactDataService.create(created.data.id, fd);
-          } catch (uploadErr) {
-            setMessage("课程设计创建成功，但文件上传失败，请稍后在详情页手动上传。");
-          }
-        }
       }
       setEditingId(null);
       setForm(emptyForm);
+      setShowFileImport(false);
       setUploadFile(null);
       setUploadStatus("");
       setUploadFormData(null);
@@ -355,14 +396,17 @@ const PlansList = (props) => {
 
       const bodyExtracted = extractWhyWhatHowFromText(text, html);
       const bodyFieldCount = Object.keys(bodyExtracted).length;
-      setUploadFormData(bodyFieldCount > 0 ? buildPlanFormData(bodyExtracted) : null);
+      const lessons = extractLessonsFromText(text);
+      const hasOnlineContent = bodyFieldCount > 0 || lessons.length > 0;
+      setUploadFormData(hasOnlineContent ? buildPlanFormData(bodyExtracted, lessons) : null);
 
       const parts = [];
       if (matchedLabels.length > 0) parts.push(matchedLabels.join("、"));
       if (bodyFieldCount > 0) parts.push(`课程设计方案 WHY/WHAT/HOW 共 ${bodyFieldCount} 项内容`);
+      if (lessons.length > 0) parts.push(`分课时设计共 ${lessons.length} 课时`);
       setUploadStatus(
         parts.length > 0
-          ? `已从文件中识别：${parts.join("；")}${bodyFieldCount > 0 ? "，课程设计将以在线填写形式创建" : ""}，请核对后提交。`
+          ? `已从文件中识别：${parts.join("；")}${hasOnlineContent ? "，课程设计将以在线填写形式创建" : ""}，请核对后提交。`
           : "未能从文件中自动识别课程信息，请手动填写。"
       );
     } catch (err) {
@@ -374,6 +418,7 @@ const PlansList = (props) => {
   const openCreateEditor = () => {
     setEditingId(null);
     setForm({ ...emptyForm, year: String(new Date().getFullYear()), theme: searchTheme });
+    setShowFileImport(false);
     setUploadFile(null);
     setUploadStatus("");
     setUploadFormData(null);
@@ -383,6 +428,7 @@ const PlansList = (props) => {
   const closeEditor = () => {
     setEditingId(null);
     setForm(emptyForm);
+    setShowFileImport(false);
     setUploadFile(null);
     setUploadStatus("");
     setUploadFormData(null);
@@ -397,8 +443,8 @@ const PlansList = (props) => {
       grade: item.grade || "",
       year: item.year ? String(item.year) : "",
       plannedLessonCount: item.plannedLessonCount ? String(item.plannedLessonCount) : "",
-      planMode: item.planMode || "online",
     });
+    setShowFileImport(false);
     setUploadFile(null);
     setUploadStatus("");
     setUploadFormData(null);
@@ -714,17 +760,18 @@ const PlansList = (props) => {
                   onChange={onChange}
                 />
               </div>
-              <div className="form-group">
-                <label>填写方式</label>
-                <select className="form-control" name="planMode" value={form.planMode} onChange={onChange}>
-                  {PLAN_MODES.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {form.planMode === "upload" && !editingId && (
+              {!editingId && (
+                <div className="form-group">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary btn-sm"
+                    onClick={() => setShowFileImport((v) => !v)}
+                  >
+                    {showFileImport ? "取消从文件导入" : "从文件导入内容"}
+                  </button>
+                </div>
+              )}
+              {showFileImport && !editingId && (
                 <div className="form-group">
                   <label>上传乡土课程设计文件（可选，自动识别课程信息）</label>
                   <div
