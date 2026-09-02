@@ -15,7 +15,11 @@ module.exports = function (app) {
   // ?mine=true can be scoped server-side to the actual caller (see findAll).
   app.get("/api/plans", [authJwt.attachUserIfPresent], plans.findAll);
   app.get("/api/plans/options", plans.getOptions);
-  app.get("/api/plans/:id", plans.findOne);
+  // attachUserIfPresent: stays reachable without login (excellent-case plans
+  // are public), but resolves req.userId so findOne can allow the owner/
+  // admin/expert through for a non-excellent plan -- see findOne's visibility
+  // check.
+  app.get("/api/plans/:id", [authJwt.attachUserIfPresent], plans.findOne);
   app.put("/api/plans/:id", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.update);
   app.put("/api/plans/:id/suspend", [authJwt.verifyToken, authJwt.isAdmin], plans.suspend);
   app.put("/api/plans/:id/unsuspend", [authJwt.verifyToken, authJwt.isAdmin], plans.unsuspend);

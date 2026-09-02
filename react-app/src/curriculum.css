@@ -269,6 +269,27 @@
   background: #edf3ee;
 }
 
+/* Single-file drop target inside the plan create/edit drawer (planMode='upload')
+   -- a plainer dashed-border zone rather than the yellow folder-icon buttons
+   above, which are for category-based bulk upload, not this one-file case. */
+.pl-file-drop-zone {
+  border: 2px dashed var(--pl-line);
+  border-radius: 10px;
+  padding: 18px;
+  text-align: center;
+  color: var(--pl-muted);
+  cursor: pointer;
+  background: var(--pl-bg);
+  transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+
+.pl-file-drop-zone:hover,
+.pl-file-drop-zone.is-dragover {
+  border-color: var(--pl-accent);
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+}
+
 .pl-docx-preview {
   max-height: 70vh;
   overflow-y: auto;
@@ -393,6 +414,20 @@
 
 .pl-explorer-children {
   padding-left: 22px;
+}
+
+.pl-explorer-subgroup {
+  margin-bottom: 2px;
+}
+
+.pl-explorer-subfolder {
+  font-weight: 600;
+  font-size: 14px;
+  padding: 6px;
+}
+
+.pl-explorer-children-nested {
+  padding-left: 14px;
 }
 
 .pl-explorer-leaf {
@@ -852,4 +887,76 @@
   font-weight: 700;
   padding: 3px 10px;
   border-radius: 999px;
+}
+
+/* ArtifactPanel's card grid (plan-detail.component.js) -- replaces the old
+   flat file table with a stylish grid, grouped into a labeled .pl-artifact-group
+   per category when a panel covers several at once (每 课时's auto-categorized
+   uploads), or one flat .pl-artifact-grid when scoped to a single fixed
+   category (课程设计文件). */
+.pl-artifact-group {
+  margin-bottom: 16px;
+}
+
+.pl-artifact-group-title {
+  color: var(--pl-accent);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.pl-artifact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.pl-artifact-card {
+  background: var(--pl-panel);
+  border: 1px solid var(--pl-line);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 4px 10px rgba(36, 46, 37, 0.05);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.pl-artifact-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 18px rgba(29, 111, 83, 0.12);
+}
+
+.pl-artifact-card-icon {
+  font-size: 26px;
+  color: var(--pl-accent);
+  margin-bottom: 4px;
+}
+
+.pl-artifact-card-name {
+  font-weight: 700;
+  color: var(--pl-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-artifact-card-desc {
+  font-size: 12px;
+  color: var(--pl-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-artifact-card-meta {
+  font-size: 12px;
+  color: var(--pl-muted);
+}
+
+.pl-artifact-card-actions {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pl-line);
+  font-size: 13px;
 }

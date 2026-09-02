@@ -51,6 +51,13 @@ const isAdminRequester = async (userId, t) => {
   return roles.some((r) => r.name === "admin");
 };
 
+const isExpertRequester = async (userId, t) => {
+  const user = await User.findByPk(userId, { transaction: t });
+  if (!user) return false;
+  const roles = await user.getRoles({ transaction: t });
+  return roles.some((r) => r.name === "expert");
+};
+
 exports.getOptions = (req, res) => {
   return res.send({
     themes: PLAN_THEMES,
@@ -166,7 +173,16 @@ exports.findAll = async (req, res) => {
     // teachers' lists, but stay visible to admin (always) and to the owning
     // teacher via ?mine=true (read-only there -- see update's suspended check).
     const requesterIsAdmin = req.userId ? await isAdminRequester(req.userId) : false;
+    const requesterIsExpert = req.userId ? await isExpertRequester(req.userId) : false;
     const hideSuspended = !requesterIsAdmin && !viewingMine;
+
+    // Only 优秀案例 (excellent-case) plans are ever visible outside their own
+    // owner -- a plan isn't promoted to public just by existing. Admin/expert
+    // get full visibility (management/review need it); ?mine=true is the
+    // owner viewing their own, excellent or not. This applies regardless of
+    // any other filter (keyword/teacherId/etc.) so a non-owner teacher can't
+    // route around it by, say, querying a specific teacherId directly.
+    const restrictToExcellent = !viewingMine && !requesterIsAdmin && !requesterIsExpert;
 
     const condition = {
       [Op.and]: [
@@ -184,7 +200,9 @@ exports.findAll = async (req, res) => {
         parsedYear ? { year: { [Op.eq]: parsedYear } } : null,
         effectiveTeacherId ? { teacherId: { [Op.eq]: `${effectiveTeacherId}` } } : null,
         status ? { status: { [Op.eq]: `${status}` } } : null,
-        isExcellentCase !== undefined
+        restrictToExcellent
+          ? { isExcellentCase: true }
+          : isExcellentCase !== undefined
           ? { isExcellentCase: { [Op.eq]: isExcellentCase === "true" || isExcellentCase === "1" } }
           : null,
       ],
@@ -251,6 +269,21 @@ exports.findOne = async (req, res) => {
 
     if (!data) {
       return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
+    }
+
+    // Same visibility rule as findAll: only 优秀案例 plans are public. A
+    // direct link to someone else's ordinary plan is a 403, not an open
+    // door -- being excellent is what promotes a plan to public, not just
+    // existing. Requires authJwt.attachUserIfPresent on the route so
+    // req.userId is resolved for a logged-in caller while still allowing an
+    // anonymous request through (the public gallery has no login).
+    if (!data.isExcellentCase) {
+      const isOwner = !!(req.userId && data.teacherId === req.userId);
+      const requesterIsAdmin = req.userId ? await isAdminRequester(req.userId) : false;
+      const requesterIsExpert = req.userId ? await isExpertRequester(req.userId) : false;
+      if (!isOwner && !requesterIsAdmin && !requesterIsExpert) {
+        return res.status(403).send({ message: "无权查看该乡土课程设计。" });
+      }
     }
 
     return res.send(data);
