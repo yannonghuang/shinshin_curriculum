@@ -622,6 +622,8 @@ const PlanDetail = (props) => {
               </button>
             </div>
           )}
+          <hr />
+          <ReviewList planId={planId} lessonIndex={null} sectionKey="WHY" embedded planContentVersionAt={plan.contentVersionAt} />
         </div>
       );
     }
@@ -658,6 +660,8 @@ const PlanDetail = (props) => {
               </button>
             </div>
           )}
+          <hr />
+          <ReviewList planId={planId} lessonIndex={null} sectionKey="WHAT" embedded planContentVersionAt={plan.contentVersionAt} />
         </div>
       );
     }
@@ -700,6 +704,8 @@ const PlanDetail = (props) => {
               </button>
             </div>
           )}
+          <hr />
+          <ReviewList planId={planId} lessonIndex={null} sectionKey="HOW" embedded planContentVersionAt={plan.contentVersionAt} />
         </div>
       );
     }
