@@ -33,10 +33,6 @@ export const ARTIFACT_CATEGORIES_PLAN_LEVEL = ["课程设计文件"];
 export const ARTIFACT_CATEGORIES_LESSON_LEVEL = ["实施记录文件", "课件PPT", "图片", "视频"];
 export const ARTIFACT_CATEGORIES = [...ARTIFACT_CATEGORIES_PLAN_LEVEL, ...ARTIFACT_CATEGORIES_LESSON_LEVEL];
 
-// reviews.section_key options -- expert reviewers target one section of the WHY/WHAT/HOW
-// template (or leave it free-text); AI reviews always target the whole document/lesson.
-export const REVIEW_SECTIONS = ["WHY", "WHAT", "HOW", "自由文本"];
-
 // The online-fill WHY/WHAT/HOW form's field shape, matching
 // curriculum_template/乡土课程设计方案模版.docx's structure. Shared between
 // plan-detail.component.js (the online-fill form itself) and

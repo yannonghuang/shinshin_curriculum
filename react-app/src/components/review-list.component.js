@@ -1,12 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import ReviewDataService from "../services/review.service";
 import AuthService from "../services/auth.service";
-import { REVIEW_SECTIONS } from "../constants/plan-options";
 
 // Migrated from shinshin's comments-list.component.js (inline textarea-submit + list-below
 // pattern), extended with:
-//  - a reviewer-role-aware section picker (WHY/WHAT/HOW/自由文本 + score) shown only to
-//    expert/admin reviewers,
+//  - a reviewer-role-aware score field shown only to expert/admin reviewers,
 //  - a "请AI点评" trigger button shown only to the plan's owning teacher (canTriggerAi prop,
 //    passed down from plan-detail.component.js's canEditPlan) that calls the AI-review endpoint
 //    -- matches review.controller.js#createAiReview's owner-only check, no admin bypass,
@@ -21,6 +19,25 @@ import { REVIEW_SECTIONS } from "../constants/plan-options";
 // Review lists are scoped to a single plan (and, per-lesson, to a single lessonIndex), so
 // unlike comments-list.component.js this renders plain client-sorted/grouped tables instead of
 // a server-paginated react-table -- the plan's REST contract does not paginate this endpoint.
+//
+// Three distinct usages, driven by the sectionKey/lessonIndex props:
+//  - A segment mini-widget (sectionKey="WHY"/"WHAT"/"HOW", lessonIndex unset): embedded at the
+//    end of that segment's own tab in plan-detail.component.js. No section picker -- the section
+//    is simply whichever tab the widget lives in, and its list is pre-filtered to that section's
+//    reviews. This used to be a single "整体点评" list with a manual "点评模块" dropdown the
+//    reviewer had to remember to set correctly; asking a reviewer to comment right where they're
+//    already reading that section, rather than context-switch to a dropdown, is both more
+//    accurate and more pleasant to use.
+//  - A lesson widget (lessonIndex set, no sectionKey): unchanged from before, just the section
+//    picker removed -- lessonIndex is already the review's whole scope, a WHY/WHAT/HOW section
+//    within a single 课时 never applied.
+//  - The whole-plan aggregate (neither prop set, i.e. 整体点评 itself): shows every plan-level
+//    review together -- both genuine whole-plan comments written here directly, and, read-only,
+//    every WHY/WHAT/HOW segment review (tagged in a "模块" column) so a reviewer looking at 整体
+//    点评 sees the complete picture without having to click into each tab. A segment-tagged row
+//    has no delete button here even for its own author -- it's edited/deleted at its origin (the
+//    segment's own mini-widget), never from the aggregate, so nothing you see on a section's own
+//    tab can vanish out from under it via an edit made somewhere else.
 const groupByVersion = (sortedReviews) => {
   const groups = [];
   const byKey = new Map();
@@ -38,10 +55,9 @@ const groupByVersion = (sortedReviews) => {
 };
 
 const ReviewList = (props) => {
-  const { planId, lessonIndex, embedded, planContentVersionAt, canTriggerAi } = props;
+  const { planId, lessonIndex, sectionKey, embedded, planContentVersionAt, canTriggerAi } = props;
   const [reviews, setReviews] = useState([]);
   const [text, setText] = useState("");
-  const [sectionKey, setSectionKey] = useState("WHY");
   const [score, setScore] = useState("");
   const [message, setMessage] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -49,18 +65,25 @@ const ReviewList = (props) => {
   const isExpertReviewer = AuthService.isExpert() || AuthService.isAdmin();
   const currentUser = AuthService.getCurrentUser();
 
+  // The whole-plan 整体点评 usage: no fixed section, no lesson -- see the
+  // aggregate-view behavior described in the file header comment.
+  const isAggregateView = !sectionKey && (lessonIndex === undefined || lessonIndex === null);
+
   const retrieveReviews = useCallback(async () => {
     if (!planId) return;
     try {
       const resp = await ReviewDataService.getByPlan(planId, lessonIndex);
       const list = Array.isArray(resp.data) ? resp.data : resp.data.rows || resp.data.reviews || [];
-      const sorted = [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      // A segment mini-widget only ever shows its own section's reviews --
+      // the aggregate view (no sectionKey prop) shows everything, tagged.
+      const scoped = sectionKey ? list.filter((r) => r.sectionKey === sectionKey) : list;
+      const sorted = [...scoped].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setReviews(sorted);
     } catch (e) {
       console.log(e);
       setMessage("加载点评列表失败。");
     }
-  }, [planId, lessonIndex]);
+  }, [planId, lessonIndex, sectionKey]);
 
   useEffect(() => {
     retrieveReviews();
@@ -78,7 +101,10 @@ const ReviewList = (props) => {
         lessonIndex: lessonIndex !== undefined && lessonIndex !== null ? lessonIndex : undefined,
       };
       if (isExpertReviewer) {
-        data.sectionKey = sectionKey;
+        // sectionKey is a fixed prop, never reviewer-chosen -- omitted entirely
+        // for a lesson widget or a genuine whole-plan comment written directly
+        // in 整体点评.
+        if (sectionKey) data.sectionKey = sectionKey;
         if (score !== "") data.score = Number(score);
       }
       await ReviewDataService.create(planId, data);
@@ -112,7 +138,12 @@ const ReviewList = (props) => {
   // plan's current content version -- once superseded by a later edit, it's
   // locked as history for everyone, admin included.
   const isCurrentVersion = (review) => review.planVersionAt === planContentVersionAt;
+  // A review with a sectionKey only ever got it from that section's own
+  // mini-widget -- shown here in the aggregate 整体点评 view for visibility,
+  // but not editable/deletable from here at all (see the file header comment).
+  const isSectionOrigin = (review) => isAggregateView && !!review.sectionKey;
   const canDelete = (review) =>
+    !isSectionOrigin(review) &&
     isCurrentVersion(review) &&
     (AuthService.isAdmin() || (review.reviewerId && currentUser && String(review.reviewerId) === String(currentUser.id)));
 
@@ -127,10 +158,12 @@ const ReviewList = (props) => {
     }
   };
 
+  const headerLabel = sectionKey ? `点评（${sectionKey}）` : lessonIndex ? `点评（课时${lessonIndex}）` : "点评（整体）";
+
   return (
     <div className={embedded ? "" : "pl-card"}>
       <div className="d-flex justify-content-between align-items-center mb-2">
-        <h6 className="mb-0">点评{lessonIndex ? `（课时${lessonIndex}）` : "（整体）"}</h6>
+        <h6 className="mb-0">{headerLabel}</h6>
         {canTriggerAi && (
           <button type="button" className="btn btn-sm btn-outline-primary" onClick={triggerAiReview} disabled={aiLoading}>
             {aiLoading ? "AI点评生成中..." : "请AI点评"}
@@ -141,16 +174,6 @@ const ReviewList = (props) => {
       {isExpertReviewer && (
         <form onSubmit={save} className="mb-3">
           <div className="form-row">
-            <div className="form-group col-md-3">
-              <label>点评模块</label>
-              <select className="form-control form-control-sm" value={sectionKey} onChange={(e) => setSectionKey(e.target.value)}>
-                {REVIEW_SECTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
             <div className="form-group col-md-2">
               <label>评分（可选）</label>
               <input
@@ -164,7 +187,13 @@ const ReviewList = (props) => {
               />
             </div>
           </div>
-          <textarea rows="3" className="form-control mb-2" value={text} onChange={(e) => setText(e.target.value)} placeholder="请填写点评内容..." />
+          <textarea
+            rows="3"
+            className="form-control mb-2"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={sectionKey ? `请针对 ${sectionKey} 部分填写点评...` : "请填写点评内容..."}
+          />
           <button className="btn btn-primary btn-sm" type="submit">
             提交点评
           </button>
@@ -199,7 +228,7 @@ const ReviewList = (props) => {
               <thead>
                 <tr>
                   <th>类型</th>
-                  <th>模块</th>
+                  {isAggregateView && <th>模块</th>}
                   <th>评分</th>
                   <th>内容</th>
                   <th>点评人</th>
@@ -217,16 +246,18 @@ const ReviewList = (props) => {
                         <span className="pl-tag-expert">专家点评</span>
                       )}
                     </td>
-                    <td>{review.sectionKey || "-"}</td>
+                    {isAggregateView && <td>{review.sectionKey || "整体"}</td>}
                     <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>
                     <td style={{ whiteSpace: "pre-wrap" }}>{review.content}</td>
                     <td>{review.reviewerType === "ai" ? "AI智能体" : review.reviewer ? review.reviewer.chineseName || review.reviewer.username : "-"}</td>
                     <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
                     <td>
-                      {canDelete(review) && (
+                      {canDelete(review) ? (
                         <button className="btn btn-link p-0 text-danger" onClick={() => deleteReview(review)}>
                           删除
                         </button>
+                      ) : (
+                        isSectionOrigin(review) && <span className="text-muted small">在 {review.sectionKey} 处编辑</span>
                       )}
                     </td>
                   </tr>
