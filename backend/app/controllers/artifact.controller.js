@@ -288,30 +288,6 @@ exports.create = async (req, res) => {
   }
 };
 
-// Reusable creation path for files produced server-side (e.g. the generated
-// plan .docx) so they register through the exact same Artifact.create shape
-// as manual uploads, per the plan.
-exports.registerArtifactFile = async ({ planId, lessonIndex = null, category, description = null, buffer, originalName, mimeType }) => {
-  const normalizedLessonIndex = normalizeLessonIndex(lessonIndex);
-  const dir = getArtifactStorageDirectory(planId, category, normalizedLessonIndex);
-  const storedName = `${Date.now()}-${originalName}`;
-  const targetPath = path.join(dir, storedName);
-  fs.writeFileSync(targetPath, buffer);
-  const stat = fs.statSync(targetPath);
-
-  return Artifact.create({
-    planId,
-    lessonIndex: normalizedLessonIndex,
-    description,
-    category,
-    type: inferArtifactType(originalName),
-    attachmentPath: path.resolve(targetPath),
-    attachmentName: originalName,
-    attachmentMime: mimeType || inferMime(originalName),
-    attachmentSize: stat.size,
-  });
-};
-
 exports.bulkCreateFromZip = async (req, res) => {
   let uploadedZipPath = null;
   let extractDir = null;

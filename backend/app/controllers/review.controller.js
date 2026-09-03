@@ -1,5 +1,6 @@
 const childProcess = require("child_process");
 const mammoth = require("mammoth");
+const planDocGenerator = require("../services/planDocGenerator");
 
 const db = require("../models");
 const Review = db.review;
@@ -160,8 +161,22 @@ const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => {
       lines.push("该课时暂无已上传的实施记录文件。");
     }
   } else if (plan.planFormData) {
-    lines.push("\n以下是该课程设计方案的在线填写内容（JSON）：");
-    lines.push(JSON.stringify(plan.planFormData, null, 2));
+    // Render the same on-the-fly .docx the 课程设计文件 panel's 下载/预览
+    // commands would produce (see plan.controller.js#renderDoc) and read
+    // that back, rather than dumping the raw planFormData JSON -- the AI
+    // reviews exactly what a human reader would download/preview, and
+    // nothing is persisted here either. Falls back to the raw JSON if
+    // rendering/extraction fails for any reason.
+    try {
+      const buffer = await planDocGenerator.generatePlanDocx(plan);
+      const docText = (await mammoth.extractRawText({ buffer })).value.trim();
+      lines.push("\n以下是该课程设计方案文档内容：");
+      lines.push(docText || "（文档内容为空）");
+    } catch (e) {
+      console.error("AI 点评：生成课程设计文档失败，回退为原始表单数据。", e.message);
+      lines.push("\n以下是该课程设计方案的在线填写内容（JSON）：");
+      lines.push(JSON.stringify(plan.planFormData, null, 2));
+    }
   } else if (artifacts && artifacts.length > 0) {
     await appendArtifactSection("", "该课程设计未使用在线表单填写，已上传的课程设计文件：");
   } else {
@@ -186,9 +201,9 @@ exports.createAiReview = async (req, res) => {
       return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
-    // Owner-only, no admin bypass -- matches plan.controller.js#update and
-    // #generateDoc's content-authoring rule: requesting an AI review is part
-    // of working on one's own case, not a management action.
+    // Owner-only, no admin bypass -- matches plan.controller.js#update's
+    // content-authoring rule: requesting an AI review is part of working on
+    // one's own case, not a management action.
     if (plan.teacherId !== req.userId) {
       return res.status(403).send({ message: "只能为本人创建的乡土课程设计请求 AI 点评。" });
     }

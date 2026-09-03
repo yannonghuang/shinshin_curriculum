@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import mammoth from "mammoth/mammoth.browser";
 
 import PlanDataService from "../services/plan.service";
-import ArtifactDataService from "../services/artifact.service";
 import AuthService from "../services/auth.service";
 import ReviewList from "./review-list.component";
 import LessonFileManager from "./lesson-file-manager.component";
 import { PLAN_THEMES, PLAN_GRADES, EMPTY_WHY_WHAT_HOW, EMPTY_LESSON } from "../constants/plan-options";
+import { extractWhyWhatHowFromText, extractLessonsFromText, buildPlanFormData } from "../utils/planDocExtract";
 import "../curriculum.css";
 
 const mergeFormData = (data) => ({
@@ -16,199 +16,94 @@ const mergeFormData = (data) => ({
   lessons: Array.isArray(data && data.lessons) ? data.lessons : [],
 });
 
-const ARTIFACT_ICONS = {
-  视频: "fas fa-file-video",
-  图片: "fas fa-file-image",
-  课件PPT: "fas fa-file-powerpoint",
-};
-const iconClassForArtifact = (artifact) => {
-  const type = (artifact.type || "").toLowerCase();
-  if (type === "pdf") return "fas fa-file-pdf";
-  if (["doc", "docx"].includes(type)) return "fas fa-file-word";
-  if (["xls", "xlsx"].includes(type)) return "fas fa-file-excel";
-  return ARTIFACT_ICONS[artifact.category] || "fas fa-file";
-};
-
-// Embedded artifact list panel -- always a fixed single `category`. Currently
-// only ever used for the plan-level 课程设计文件 panel: every generated doc is
-// tagged with that category, uploads are disabled entirely (see the
-// "生成课程设计文件" button above it in the "files" section below -- that
-// category is meant to hold only the doc generated from the plan's own online
-// content, never an arbitrary manually dropped file), so this is just a
-// preview/download/delete list, no drop-zone/file-picker at all. For an
-// actual mini file system (folders, drag-and-drop, multi-select) see
-// lesson-file-manager.component.js, used for each 课时's own panel instead.
-// planUpdatedAt (optional): when provided, any 课程设计文件 artifact generated/uploaded
-// before the plan's last edit is flagged "内容已更新，文档可能已过时" -- the doc's content
-// is derived from planFormData at generation time and doesn't auto-regenerate on later edits.
-const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }) => {
-  const [artifacts, setArtifacts] = useState([]);
+// Content for the 课程设计文件 sidebar subgroup's "上传" leaf -- the other two
+// leaves, 下载/预览, act immediately from the sidebar itself (see
+// downloadDesignDoc/openDesignDocPreview in PlanDetail below) without ever
+// selecting into this panel, per the 3-command split described where the
+// subgroup is rendered. 上传 parses a dropped/picked .docx client-side (the
+// same best-effort extraction plans-list.component.js's "从文件导入" uses to
+// seed a brand-new plan, see utils/planDocExtract.js) and overwrites the
+// plan's planFormData wholesale after an explicit confirm -- a destructive
+// action, so it's gated behind a warning rather than a silent merge.
+const DesignDocUploadPanel = ({ planId, onUploaded }) => {
   const [message, setMessage] = useState("");
-  const previewRef = useRef(null);
-  const [previewArtifact, setPreviewArtifact] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [previewMime, setPreviewMime] = useState("");
-  const [previewDocxHtml, setPreviewDocxHtml] = useState("");
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef(null);
 
-  const retrieveArtifacts = useCallback(async () => {
-    try {
-      const resp = await ArtifactDataService.getByPlan(planId, lessonIndex);
-      const list = Array.isArray(resp.data) ? resp.data : resp.data.rows || resp.data.artifacts || [];
-      setArtifacts(list.filter((a) => a.category === category));
-    } catch (e) {
-      console.log(e);
-      setMessage("加载附件列表失败。");
+  const handleUploadFile = async (file) => {
+    if (!file) return;
+    const ext = (file.name || "").toLowerCase().split(".").pop();
+    if (ext !== "docx") {
+      setMessage("仅支持上传 .docx 文件。");
+      return;
     }
-  }, [planId, lessonIndex, category]);
-
-  useEffect(() => {
-    retrieveArtifacts();
-  }, [retrieveArtifacts]);
-
-  useEffect(() => {
-    return () => {
-      if (previewUrl) window.URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
-
-  const downloadArtifact = async (artifact) => {
-    try {
-      const resp = await ArtifactDataService.download(artifact.id);
-      const url = window.URL.createObjectURL(new Blob([resp.data], { type: artifact.attachmentMime || "application/octet-stream" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", artifact.attachmentName || `artifact-${artifact.id}`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (e) {
-      console.log(e);
-      setMessage("下载失败。");
+    if (
+      !window.confirm(
+        "上传新文件将覆盖当前课程设计方案的全部在线内容（WHY/WHAT/HOW 及分课时设计），且无法撤销，确定继续吗？"
+      )
+    ) {
+      return;
     }
-  };
-
-  const previewArtifactContent = async (artifact) => {
+    setMessage("");
+    setIsUploading(true);
     try {
-      setIsPreviewLoading(true);
-      if (previewUrl) window.URL.revokeObjectURL(previewUrl);
-      setPreviewDocxHtml("");
-      const resp = await ArtifactDataService.download(artifact.id);
-      const mime = artifact.attachmentMime || "application/octet-stream";
-      const ext = (artifact.attachmentName || "").toLowerCase().split(".").pop();
-      if (ext === "docx" || mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
-        const result = await mammoth.convertToHtml({ arrayBuffer: resp.data });
-        setPreviewArtifact(artifact);
-        setPreviewMime("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-        setPreviewDocxHtml(result.value || "<p>文档内容为空。</p>");
-        setPreviewUrl("");
-      } else {
-        const url = window.URL.createObjectURL(new Blob([resp.data], { type: mime }));
-        setPreviewArtifact(artifact);
-        setPreviewMime(mime);
-        setPreviewUrl(url);
+      const arrayBuffer = await file.arrayBuffer();
+      const [textResult, htmlResult] = await Promise.all([
+        mammoth.extractRawText({ arrayBuffer }),
+        mammoth.convertToHtml({ arrayBuffer }),
+      ]);
+      const text = textResult.value || "";
+      const html = htmlResult.value || "";
+
+      const bodyExtracted = extractWhyWhatHowFromText(text, html);
+      const lessons = extractLessonsFromText(text);
+      if (Object.keys(bodyExtracted).length === 0 && lessons.length === 0) {
+        setMessage("未能从文件中识别到有效内容，请确认文件是按课程设计方案模版填写的 .docx。");
+        return;
       }
-      setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 0);
+      const newFormData = buildPlanFormData(bodyExtracted, lessons);
+      await PlanDataService.update(planId, { planFormData: newFormData });
+      setMessage("课程设计文件已上传，在线内容已更新。");
+      if (onUploaded) onUploaded();
     } catch (e) {
       console.log(e);
-      setMessage("预览失败。若为 .doc 文件，请使用下载。");
+      setMessage((e && e.response && e.response.data && e.response.data.message) || "上传失败，请确认文件格式。");
     } finally {
-      setIsPreviewLoading(false);
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
-  };
-
-  const closePreview = () => {
-    if (previewUrl) window.URL.revokeObjectURL(previewUrl);
-    setPreviewArtifact(null);
-    setPreviewUrl("");
-    setPreviewMime("");
-    setPreviewDocxHtml("");
-  };
-
-  const deleteArtifact = async (artifact) => {
-    if (!window.confirm("此操作将永久删除该附件，且无法撤销。确定继续吗？")) return;
-    try {
-      await ArtifactDataService.delete(artifact.id, true);
-      setMessage("附件删除成功。");
-      retrieveArtifacts();
-    } catch (err) {
-      setMessage(err?.response?.data?.message || "删除失败。");
-    }
-  };
-
-  const renderArtifactCard = (artifact) => {
-    const isStaleDoc =
-      artifact.category === "课程设计文件" && planUpdatedAt && artifact.createdAt && new Date(planUpdatedAt) > new Date(artifact.createdAt);
-    return (
-      <div className="pl-artifact-card" key={artifact.id}>
-        <div className="pl-artifact-card-icon">
-          <i className={iconClassForArtifact(artifact)}></i>
-        </div>
-        <div className="pl-artifact-card-name" title={artifact.attachmentName}>
-          {artifact.attachmentName}
-        </div>
-        {artifact.description && <div className="pl-artifact-card-desc">{artifact.description}</div>}
-        <div className="pl-artifact-card-meta">
-          {artifact.type} · {artifact.attachmentSize} bytes
-        </div>
-        {isStaleDoc && <span className="pl-tag pl-tag-warn">内容已更新，文档可能已过时</span>}
-        <div className="pl-artifact-card-actions">
-          <button className="btn btn-link p-0 mr-2" onClick={() => previewArtifactContent(artifact)}>
-            预览
-          </button>
-          <button className="btn btn-link p-0 mr-2" onClick={() => downloadArtifact(artifact)}>
-            下载
-          </button>
-          {canEdit && (
-            <button className="btn btn-link p-0 text-danger" onClick={() => deleteArtifact(artifact)}>
-              删除
-            </button>
-          )}
-        </div>
-      </div>
-    );
   };
 
   return (
     <div>
       {message && <div className="alert alert-info py-2">{message}</div>}
-
-      {artifacts.length === 0 ? (
-        <div className="pl-empty">暂无附件</div>
-      ) : (
-        <div className="pl-artifact-grid">{artifacts.map(renderArtifactCard)}</div>
-      )}
-
-      {previewArtifact && (
-        <div ref={previewRef} className="pl-card mt-3">
-          <div className="d-flex justify-content-between align-items-center mb-2">
-            <h6 className="mb-0">附件预览：{previewArtifact.attachmentName}</h6>
-            <button className="btn btn-sm btn-outline-secondary" onClick={closePreview}>
-              关闭预览
-            </button>
-          </div>
-          {isPreviewLoading ? (
-            <div>预览加载中...</div>
-          ) : (
-            <>
-              {previewMime.startsWith("image/") && <img src={previewUrl} alt="artifact-preview" style={{ maxWidth: "100%" }} />}
-              {previewMime.includes("pdf") && <iframe title="artifact-pdf-preview" src={previewUrl} style={{ width: "100%", height: "600px" }} />}
-              {previewMime.startsWith("video/") && <video controls src={previewUrl} style={{ width: "100%" }} />}
-              {previewMime.startsWith("audio/") && <audio controls src={previewUrl} style={{ width: "100%" }} />}
-              {previewMime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" && (
-                <div className="pl-docx-preview border rounded p-3 bg-white">
-                  <div dangerouslySetInnerHTML={{ __html: previewDocxHtml }} />
-                </div>
-              )}
-              {!previewMime.startsWith("image/") &&
-                !previewMime.includes("pdf") &&
-                !previewMime.startsWith("video/") &&
-                !previewMime.startsWith("audio/") &&
-                previewMime !== "application/vnd.openxmlformats-officedocument.wordprocessingml.document" && <div>当前文件类型不支持内嵌预览，请使用下载。</div>}
-            </>
-          )}
+      <div className="form-group mb-0">
+        <div
+          className={`pl-file-drop-zone ${dragActive ? "is-dragover" : ""}`}
+          onClick={() => fileInputRef.current && fileInputRef.current.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+            handleUploadFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+          }}
+        >
+          {isUploading ? "正在解析并上传..." : "拖拽 .docx 文件到这里，或点击选择文件以覆盖当前内容"}
         </div>
-      )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".docx"
+          className="d-none"
+          onChange={(e) => handleUploadFile(e.target.files[0])}
+        />
+        <small className="form-text text-muted">上传的文件将替换当前的 WHY/WHAT/HOW 及分课时设计内容，此操作无法撤销。</small>
+      </div>
     </div>
   );
 };
@@ -219,17 +114,18 @@ const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }
 // admin-only 管理 leaf) drives a single-section content pane on the right, replacing the old
 // waterfall of every card stacked vertically (and the react-tabs 课时 block) with one section
 // visible at a time.
+// 课程设计文件 isn't listed here -- like 分课时设计, it's rendered as its own
+// hardcoded sidebar subgroup (see below) rather than a flat leaf, since it
+// holds three commands (上传/下载/预览) instead of one section's content.
 const PLAN_SECTIONS_ONLINE = [
   { key: "basic", label: "基本信息" },
   { key: "why", label: "WHY · 学习目标" },
   { key: "what", label: "WHAT · 项目简介" },
   { key: "how", label: "HOW · 活动设计" },
-  { key: "files", label: "课程设计文件" },
   { key: "reviews", label: "整体点评" },
 ];
 const PLAN_SECTIONS_UPLOAD = [
   { key: "basic", label: "基本信息" },
-  { key: "files", label: "课程设计文件" },
   { key: "reviews", label: "整体点评" },
 ];
 
@@ -241,13 +137,6 @@ const PlanDetail = (props) => {
   const [metaForm, setMetaForm] = useState(null);
   const [isEditingMeta, setIsEditingMeta] = useState(false);
   const [formData, setFormData] = useState({ ...EMPTY_WHY_WHAT_HOW, lessons: [] });
-  const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
-  // Bumped after a successful generateDoc so the 课程设计文件 ArtifactPanel (whose
-  // artifact list it doesn't otherwise share any state with) remounts and
-  // re-fetches -- without this the newly generated file never appears until an
-  // unrelated re-render happens to remount the panel (e.g. switching tabs away
-  // and back).
-  const [filesRefreshKey, setFilesRefreshKey] = useState(0);
   const [curatorNote, setCuratorNote] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
   // planLessons (分课时设计, nested under 计划) starts collapsed, unlike plan/
@@ -255,7 +144,11 @@ const PlanDetail = (props) => {
   // one level deeper, so expanding it by default would make the plan section
   // of the sidebar as tall as the whole 实施 tree before a teacher's even
   // looked at it.
-  const [expandedGroups, setExpandedGroups] = useState({ plan: true, execution: true, planLessons: false });
+  const [expandedGroups, setExpandedGroups] = useState({ plan: true, execution: true, planLessons: false, designDoc: true });
+  // "" | "download" | "preview" -- disables the matching 课程设计文件 sidebar
+  // leaf while its one-shot action (see downloadDesignDoc/openDesignDocPreview
+  // below) is in flight, since neither one ever becomes the selected panel.
+  const [designDocWorking, setDesignDocWorking] = useState("");
   const [selected, setSelected] = useState({ type: "plan", key: "basic" });
 
   const toggleGroup = (name) => setExpandedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -287,14 +180,12 @@ const PlanDetail = (props) => {
   // Always editable for the owner/admin, regardless of status (submitting for
   // review no longer locks the plan) -- previously gated on plan.status ===
   // "draft", which made it read-only the moment a teacher clicked 提交待点评.
-  // Staleness of the generated doc / existing reviews relative to later edits
-  // is now surfaced as an "out of sync" badge instead (see planUpdatedAt below).
   // Editing a plan's content is owner-only, no admin bypass -- managers can
   // suspend/promote/leave notes (see the 管理员操作 card below) but not edit
-  // case content, even one they don't own (matches plan.controller.js#update
-  // and #generateDoc, which enforce the same rule server-side). A suspended
-  // plan is additionally locked against edits even for its owner, until an
-  // admin unsuspends it.
+  // case content, even one they don't own (matches plan.controller.js#update,
+  // which enforces the same rule server-side). A suspended plan is
+  // additionally locked against edits even for its owner, until an admin
+  // unsuspends it.
   const canEditPlan = isOwner && !(plan && plan.suspended);
 
   const goBack = () => props.history.push("/plans");
@@ -359,17 +250,68 @@ const PlanDetail = (props) => {
     }
   };
 
-  const generateDoc = async () => {
-    setIsGeneratingDoc(true);
+  // 课程设计文件's 下载/预览 leaves (see the sidebar below) act immediately on
+  // click rather than selecting into a right-hand panel -- both hit
+  // GET /plans/:id/design-doc (plan.controller.js#renderDoc), which renders
+  // the plan's *current* content into a .docx on the fly and streams it
+  // back; nothing is ever persisted, so there's no generated copy to track.
+  const designDocFileName = () => `${(plan && plan.title) || "乡土课程设计方案"}.docx`;
+
+  const fetchDesignDocBuffer = async () => {
+    const resp = await PlanDataService.downloadDesignDoc(planId);
+    return resp.data;
+  };
+
+  const downloadDesignDoc = async () => {
     setMessage("");
+    setDesignDocWorking("download");
     try {
-      await PlanDataService.generateDoc(planId);
-      setMessage("课程设计文件已生成，可在下方“课程设计文件”列表中下载。");
-      setFilesRefreshKey((k) => k + 1);
-    } catch (err) {
-      setMessage(err?.response?.data?.message || "生成课程设计文件失败。");
+      const data = await fetchDesignDocBuffer();
+      const url = window.URL.createObjectURL(
+        new Blob([data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", designDocFileName());
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.log(e);
+      setMessage("下载失败。");
     } finally {
-      setIsGeneratingDoc(false);
+      setDesignDocWorking("");
+    }
+  };
+
+  // Opens a blank window synchronously, before the first await, so the
+  // browser attributes it to this click and doesn't treat it as a
+  // popup-blocked async open -- then fills it in once the doc's rendered.
+  // Same pattern as lesson-file-manager.component.js's openPreview.
+  const openDesignDocPreview = async () => {
+    setMessage("");
+    setDesignDocWorking("preview");
+    const win = window.open("", "_blank");
+    if (win) win.document.write(`<title>预览：${designDocFileName()}</title><body>预览加载中...</body>`);
+    try {
+      const data = await fetchDesignDocBuffer();
+      const result = await mammoth.convertToHtml({ arrayBuffer: data });
+      if (win) {
+        win.document.open();
+        win.document.write(
+          `<!doctype html><html><head><meta charset="utf-8"><title>预览：${designDocFileName()}</title>` +
+            `<style>body{max-width:800px;margin:24px auto;padding:0 16px;font-family:sans-serif;line-height:1.6;}</style>` +
+            `</head><body>${result.value || "<p>文档内容为空。</p>"}</body></html>`
+        );
+        win.document.close();
+      }
+    } catch (e) {
+      console.log(e);
+      setMessage("预览失败。");
+      if (win) win.close();
+    } finally {
+      setDesignDocWorking("");
     }
   };
 
@@ -629,22 +571,10 @@ const PlanDetail = (props) => {
     if (selected.type === "plan" && selected.key === "files") {
       return (
         <div className="pl-card">
-          <div className="d-flex justify-content-between align-items-center mb-2">
-            <h6 className="mb-0">课程设计文件{plan.planMode !== "online" ? "（上传）" : ""}</h6>
-            {plan.planMode === "online" && (
-              <button className="btn btn-outline-primary btn-sm" type="button" onClick={generateDoc} disabled={isGeneratingDoc}>
-                {isGeneratingDoc ? "生成中..." : "生成课程设计文件"}
-              </button>
-            )}
+          <div className="mb-2">
+            <h6 className="mb-0">上传课程设计文件</h6>
           </div>
-          <ArtifactPanel
-            key={filesRefreshKey}
-            planId={planId}
-            lessonIndex={null}
-            category="课程设计文件"
-            canEdit={canEditPlan}
-            planUpdatedAt={plan.updatedAt}
-          />
+          <DesignDocUploadPanel planId={planId} onUploaded={retrievePlan} />
         </div>
       );
     }
@@ -839,8 +769,57 @@ const PlanDetail = (props) => {
                       )}
                     </div>
                   )}
+                  {/* 课程设计文件: three one-off commands, not a section with its own
+                      content, so it's a subgroup of leaf buttons rather than a single
+                      selectable leaf. 上传 is the only one that actually switches the
+                      right-hand panel (to DesignDocUploadPanel, see the "files" render
+                      branch above) -- 下载/预览 fire immediately from here (see
+                      downloadDesignDoc/openDesignDocPreview) and leave whatever's
+                      currently selected on screen untouched. 上传 is owner-only
+                      (it overwrites the plan's content), 下载/预览 are open to anyone
+                      who can already view this plan, matching plan.controller.js
+                      #renderDoc's visibility check. */}
+                  <div className="pl-explorer-subgroup">
+                    <button
+                      type="button"
+                      className="pl-explorer-folder pl-explorer-subfolder"
+                      onClick={() => toggleGroup("designDoc")}
+                    >
+                      <i className={`fas fa-chevron-${expandedGroups.designDoc ? "down" : "right"} pl-explorer-chevron`}></i>
+                      课程设计文件
+                    </button>
+                    {expandedGroups.designDoc && (
+                      <div className="pl-explorer-children pl-explorer-children-nested">
+                        {canEditPlan && (
+                          <button
+                            type="button"
+                            className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === "files" ? "is-active" : ""}`}
+                            onClick={() => select("plan", "files")}
+                          >
+                            上传
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="pl-explorer-leaf"
+                          onClick={downloadDesignDoc}
+                          disabled={designDocWorking === "download"}
+                        >
+                          {designDocWorking === "download" ? "下载中..." : "下载"}
+                        </button>
+                        <button
+                          type="button"
+                          className="pl-explorer-leaf"
+                          onClick={openDesignDocPreview}
+                          disabled={designDocWorking === "preview"}
+                        >
+                          {designDocWorking === "preview" ? "生成中..." : "预览"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   {planSections
-                    .filter((s) => ["files", "reviews"].includes(s.key))
+                    .filter((s) => ["reviews"].includes(s.key))
                     .map((s) => (
                       <button
                         key={s.key}

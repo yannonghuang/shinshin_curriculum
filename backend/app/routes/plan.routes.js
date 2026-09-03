@@ -25,6 +25,10 @@ module.exports = function (app) {
   app.put("/api/plans/:id/unsuspend", [authJwt.verifyToken, authJwt.isAdmin], plans.unsuspend);
   app.delete("/api/plans/:id", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.delete);
 
-  // Online-fill -> downloadable .docx, registered as a 课程设计文件 artifact.
-  app.post("/api/plans/:id/generate-doc", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.generateDoc);
+  // Online-fill -> .docx, rendered on the fly and streamed back (never
+  // persisted) -- backs the 课程设计文件 panel's 下载/预览 commands.
+  // attachUserIfPresent, like GET /api/plans/:id: viewing is open to the
+  // owner/admin/expert or, for a public 优秀案例, anyone -- see
+  // plan.controller.js#renderDoc's visibility check.
+  app.get("/api/plans/:id/design-doc", [authJwt.attachUserIfPresent], plans.renderDoc);
 };
