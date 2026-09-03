@@ -1,4 +1,5 @@
 const fs = require("fs");
+const planDocGenerator = require("../services/planDocGenerator");
 const db = require("../models");
 const Plan = db.plan;
 const User = db.user;
@@ -534,41 +535,40 @@ exports.delete = async (req, res) => {
   }
 };
 
-// Online-fill -> downloadable file. Renders `planFormData` via
-// services/planDocGenerator.js and registers the resulting .docx as an
-// artifacts row through the same code path manual uploads use
-// (artifact.controller.js's registerArtifactFile).
-exports.generateDoc = async (req, res) => {
+// Online-fill -> .docx, rendered on request via services/planDocGenerator.js
+// and streamed straight back. Nothing is persisted -- no Artifact row, no
+// file on disk -- so this always reflects the plan's *current* content and
+// there's no stale generated-file copy to track or clean up. Backs the
+// 课程设计文件 panel's 下载/预览 commands (both hit this same endpoint; the
+// frontend decides whether to save the response or render it inline) as
+// well as any other reader who just wants "the plan as a document".
+exports.renderDoc = async (req, res) => {
   try {
     const plan = await Plan.findByPk(req.params.id);
     if (!plan) {
       return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
     }
 
-    // Owner-only, like update's content fields -- generating the doc renders
-    // the plan's own WHY/WHAT/HOW content, so it's an authoring action, not
-    // a management one; no admin bypass.
-    if (plan.teacherId !== req.userId) {
-      return res.status(403).send({ message: "只能为本人创建的乡土课程设计生成文件。" });
+    // Same visibility rule as findOne -- rendering the doc is a read action
+    // available to whoever can already view the plan (owner/admin/expert, or
+    // anyone for a public 优秀案例), not owner-only.
+    if (!plan.isExcellentCase) {
+      const isOwner = !!(req.userId && plan.teacherId === req.userId);
+      const requesterIsAdmin = req.userId ? await isAdminRequester(req.userId) : false;
+      const requesterIsExpert = req.userId ? await isExpertRequester(req.userId) : false;
+      if (!isOwner && !requesterIsAdmin && !requesterIsExpert) {
+        return res.status(403).send({ message: "无权查看该乡土课程设计。" });
+      }
     }
-
-    const planDocGenerator = require("../services/planDocGenerator");
-    const artifactController = require("./artifact.controller");
 
     const buffer = await planDocGenerator.generatePlanDocx(plan);
     const fileName = `${plan.title || "乡土课程设计方案"}.docx`;
 
-    const artifact = await artifactController.registerArtifactFile({
-      planId: plan.id,
-      lessonIndex: null,
-      category: "课程设计文件",
-      description: "系统自动生成的课程设计方案文档",
-      buffer,
-      originalName: fileName,
-      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    res.set({
+      "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
     });
-
-    return res.send(artifact);
+    return res.send(buffer);
   } catch (err) {
     return res.status(500).send({
       message: err.message || `生成乡土课程设计 id=${req.params.id} 的课程设计文件时发生错误。`,

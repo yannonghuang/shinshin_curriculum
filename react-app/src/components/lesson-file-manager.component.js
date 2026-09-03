@@ -8,10 +8,11 @@ import FolderDataService from "../services/folder.service";
 // style: whole panel is the drop target, real user-created folders, list/icon
 // views, multi-select group actions) -- see folder.model.js/folder.controller.js
 // for the backend side. Deliberately NOT reused for the plan-level 课程设计文件
-// panel (ArtifactPanel, in plan-detail.component.js): that one only ever holds
-// the single doc generated from the plan's own online content, no folders, no
-// upload at all (allowUpload=false) -- a real file browser there would be
-// solving a problem that panel doesn't have.
+// commands (plan-detail.component.js's 上传/下载/预览 sidebar subgroup and its
+// DesignDocUploadPanel): there's no stored file or folder there at all -- 下载/
+// 预览 render the plan's own online content into a .docx on the fly, and 上传
+// means "replace the online content", not "add a file" -- a real file browser
+// would be solving a problem that panel doesn't have.
 //
 // Folders replace category (实施记录文件/课件PPT/图片/视频) as the browsing/
 // organizing structure -- category is kept only as per-file metadata (still
