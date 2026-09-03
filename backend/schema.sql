@@ -61,6 +61,7 @@ CREATE TABLE plans (   -- 乡土课程计划
   planned_lesson_count INT NULL,       -- 预计课时 -> drives lesson tab count
   plan_mode ENUM('upload','online') NOT NULL,
   plan_form_data JSON NULL,            -- structured WHY/WHAT/HOW template answers when plan_mode='online'
+  execution_form_data JSON NULL,       -- structured per-课时 实施记录 template answers, keyed by lesson index (see plan.model.js)
   status ENUM('draft','submitted','reviewed') NOT NULL DEFAULT 'draft',
   is_excellent_case TINYINT(1) NOT NULL DEFAULT 0,
   curator_note VARCHAR(1024) NULL,

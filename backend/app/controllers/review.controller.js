@@ -1,6 +1,7 @@
 const childProcess = require("child_process");
 const mammoth = require("mammoth");
 const planDocGenerator = require("../services/planDocGenerator");
+const lessonExecutionDocGenerator = require("../services/lessonExecutionDocGenerator");
 
 const db = require("../models");
 const Review = db.review;
@@ -154,11 +155,32 @@ const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => {
   };
 
   if (lessonIndex) {
+    lines.push(`\n本次点评针对第 ${lessonIndex} 课时的乡土课程实施记录。`);
+
+    // 实施记录 (the online-fill form, see 课程实施文件's 上传/下载/预览 --
+    // plan.controller.js#renderExecutionDoc) is preferred over 支撑材料
+    // (uploaded files) when both exist: render the same on-the-fly .docx
+    // 课程实施文件's 下载/预览 would produce and read that back as the
+    // primary section, same pattern as the plan-level planFormData branch
+    // below, then still append 支撑材料 as secondary/supplementary context
+    // rather than discarding it outright.
+    const record = lessonExecutionDocGenerator.findExecutionRecord(plan, lessonIndex);
+    const hasRecord = lessonExecutionDocGenerator.hasExecutionRecordContent(record);
+    if (hasRecord) {
+      try {
+        const buffer = await lessonExecutionDocGenerator.generateExecutionDocx(plan, lessonIndex);
+        const docText = (await mammoth.extractRawText({ buffer })).value.trim();
+        lines.push("以下是该课时的实施记录（在线填写，优先参考）：");
+        lines.push(docText || "（文档内容为空）");
+      } catch (e) {
+        console.error("AI 点评：生成课时实施记录文档失败。", e.message);
+      }
+    }
+
     if (artifacts && artifacts.length > 0) {
-      await appendArtifactSection(`\n本次点评针对第 ${lessonIndex} 课时的乡土课程实施记录。`, "该课时已上传的实施记录文件：");
-    } else {
-      lines.push(`\n本次点评针对第 ${lessonIndex} 课时的乡土课程实施记录。`);
-      lines.push("该课时暂无已上传的实施记录文件。");
+      await appendArtifactSection("", hasRecord ? "补充上传的支撑材料：" : "该课时已上传的支撑材料：");
+    } else if (!hasRecord) {
+      lines.push("该课时暂无实施记录或已上传的支撑材料文件。");
     }
   } else if (plan.planFormData) {
     // Render the same on-the-fly .docx the 课程设计文件 panel's 下载/预览

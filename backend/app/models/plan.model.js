@@ -38,6 +38,13 @@ module.exports = (sequelize, Sequelize) => {
       planFormData: {
         type: Sequelize.JSON,
       },
+      // Structured per-课时 实施记录 template answers, keyed by lesson index
+      // -- a sparse array like planFormData.lessons, e.g.
+      // [{ index: 1, lessonGoals: "...", ... }]. See
+      // services/lessonExecutionDocGenerator.js for the shape.
+      executionFormData: {
+        type: Sequelize.JSON,
+      },
       status: {
         type: Sequelize.ENUM("draft", "submitted", "reviewed"),
         allowNull: false,

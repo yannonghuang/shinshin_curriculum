@@ -116,3 +116,39 @@ export const WHY_WHAT_HOW_FIELD_LABELS = [
 // renders plan.planFormData.lessons (an array of these, keyed by `index`) back
 // into "第二部分：分课时设计" when generating a plan's 课程设计文件.
 export const EMPTY_LESSON = { title: "", content: "" };
+
+// The online-fill 实施记录 form's field shape, matching
+// curriculum_template/课时实施记录模板.docx's structure -- flat (no
+// why/what/how-style section nesting), unlike the plan's own template.
+// Shared between plan-detail.component.js (the 实施记录 form itself, and
+// 课程实施文件's 上传 command) and backend/app/services/
+// lessonExecutionDocGenerator.js (which renders it back into a .docx for
+// 课程实施文件's 下载/预览 and AI review). Stored on plan.executionFormData
+// as a sparse array keyed by lesson index, mirroring planFormData.lessons:
+// [{ index: 1, lessonGoals: "...", ... }].
+//
+// Note: the template's last field label ("观察和反思") is literally cut off
+// mid-word in the source .docx ("观察和反") -- this spells it out in full,
+// the assumed intended wording.
+export const EMPTY_EXECUTION_RECORD = {
+  lessonGoals: "",
+  materialsPreparation: "",
+  evidenceToCollect: "",
+  teacherActions: "",
+  studentActions: "",
+  processOutcomes: "",
+  observationReflection: "",
+};
+
+// [field, label] pairs in the template's document order -- label is the
+// exact Chinese heading/field-name text to search for in extracted docx
+// text (see utils/planDocExtract.js's extractExecutionRecordFromText).
+export const EXECUTION_RECORD_FIELD_LABELS = [
+  ["lessonGoals", "本课时目标"],
+  ["materialsPreparation", "所需材料及准备"],
+  ["evidenceToCollect", "需要收集的学习证据"],
+  ["teacherActions", "教师做了什么"],
+  ["studentActions", "学生做了什么"],
+  ["processOutcomes", "过程和成果"],
+  ["observationReflection", "观察和反思"],
+];

@@ -1,5 +1,6 @@
 const fs = require("fs");
 const planDocGenerator = require("../services/planDocGenerator");
+const lessonExecutionDocGenerator = require("../services/lessonExecutionDocGenerator");
 const db = require("../models");
 const Plan = db.plan;
 const User = db.user;
@@ -318,6 +319,7 @@ exports.update = async (req, res) => {
       plannedLessonCount,
       planMode,
       planFormData,
+      executionFormData,
       status,
       isExcellentCase,
       curatorNote,
@@ -336,9 +338,18 @@ exports.update = async (req, res) => {
     // may not edit a plan's actual case content, even one they don't own.
     const requesterIsAdmin = await isAdminRequester(req.userId, t);
     const isOwner = data.teacherId === req.userId;
-    const editingContent = [title, theme, grade, year, season, plannedLessonCount, planMode, planFormData, status].some(
-      (v) => v !== undefined
-    );
+    const editingContent = [
+      title,
+      theme,
+      grade,
+      year,
+      season,
+      plannedLessonCount,
+      planMode,
+      planFormData,
+      executionFormData,
+      status,
+    ].some((v) => v !== undefined);
 
     if (editingContent) {
       if (!isOwner) {
@@ -418,6 +429,10 @@ exports.update = async (req, res) => {
 
     if (planFormData !== undefined) {
       payload.planFormData = planFormData;
+    }
+
+    if (executionFormData !== undefined) {
+      payload.executionFormData = executionFormData;
     }
 
     if (status !== undefined) {
@@ -572,6 +587,46 @@ exports.renderDoc = async (req, res) => {
   } catch (err) {
     return res.status(500).send({
       message: err.message || `生成乡土课程设计 id=${req.params.id} 的课程设计文件时发生错误。`,
+    });
+  }
+};
+
+// Same on-the-fly, nothing-persisted shape as renderDoc above, but for one
+// 课时's 实施记录 (services/lessonExecutionDocGenerator.js) instead of the
+// plan's own WHY/WHAT/HOW. Backs the 课程实施文件 panel's 下载/预览 commands.
+exports.renderExecutionDoc = async (req, res) => {
+  try {
+    const plan = await Plan.findByPk(req.params.id);
+    if (!plan) {
+      return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
+    }
+
+    const lessonIndex = Number(req.params.lessonIndex);
+    if (!Number.isInteger(lessonIndex) || lessonIndex <= 0) {
+      return res.status(422).send({ message: "课时序号无效。" });
+    }
+
+    // Same visibility rule as renderDoc/findOne.
+    if (!plan.isExcellentCase) {
+      const isOwner = !!(req.userId && plan.teacherId === req.userId);
+      const requesterIsAdmin = req.userId ? await isAdminRequester(req.userId) : false;
+      const requesterIsExpert = req.userId ? await isExpertRequester(req.userId) : false;
+      if (!isOwner && !requesterIsAdmin && !requesterIsExpert) {
+        return res.status(403).send({ message: "无权查看该乡土课程设计。" });
+      }
+    }
+
+    const buffer = await lessonExecutionDocGenerator.generateExecutionDocx(plan, lessonIndex);
+    const fileName = `${plan.title || "乡土课程设计方案"}-课时${lessonIndex}-实施记录.docx`;
+
+    res.set({
+      "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    });
+    return res.send(buffer);
+  } catch (err) {
+    return res.status(500).send({
+      message: err.message || `生成乡土课程设计 id=${req.params.id} 第 ${req.params.lessonIndex} 课时的实施文件时发生错误。`,
     });
   }
 };

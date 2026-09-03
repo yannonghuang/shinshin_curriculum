@@ -50,6 +50,18 @@ class PlanDataService {
       responseType: "arraybuffer",
     });
   }
+
+  // Same on-the-fly, nothing-persisted shape as downloadDesignDoc above, but
+  // for one 课时's 实施记录 -- used by 课程实施文件's 下载/预览 commands.
+  downloadExecutionDoc(id, lessonIndex) {
+    const user = JSON.parse(localStorage.getItem("user"));
+    return http.get(`/plans/${id}/lessons/${lessonIndex}/execution-doc`, {
+      headers: {
+        "x-access-token": user && user.accessToken ? user.accessToken : null,
+      },
+      responseType: "arraybuffer",
+    });
+  }
 }
 
 export default new PlanDataService();

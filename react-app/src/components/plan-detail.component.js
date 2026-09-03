@@ -5,8 +5,21 @@ import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import ReviewList from "./review-list.component";
 import LessonFileManager from "./lesson-file-manager.component";
-import { PLAN_THEMES, PLAN_GRADES, EMPTY_WHY_WHAT_HOW, EMPTY_LESSON } from "../constants/plan-options";
-import { extractWhyWhatHowFromText, extractLessonsFromText, buildPlanFormData } from "../utils/planDocExtract";
+import {
+  PLAN_THEMES,
+  PLAN_GRADES,
+  EMPTY_WHY_WHAT_HOW,
+  EMPTY_LESSON,
+  EMPTY_EXECUTION_RECORD,
+  EXECUTION_RECORD_FIELD_LABELS,
+} from "../constants/plan-options";
+import {
+  extractWhyWhatHowFromText,
+  extractLessonsFromText,
+  buildPlanFormData,
+  extractExecutionRecordFromText,
+  buildExecutionRecordData,
+} from "../utils/planDocExtract";
 import "../curriculum.css";
 
 const mergeFormData = (data) => ({
@@ -200,6 +213,178 @@ const DesignDocPanel = ({ planId, plan, canEdit, onContentReplaced }) => {
   );
 };
 
+// Per-课时 课程实施文件 panel -- same 上传/下载/预览 pattern as DesignDocPanel
+// above, scoped to one lesson's 实施记录 (plan.executionFormData) instead of
+// the plan's own WHY/WHAT/HOW. 下载/预览 both hit
+// GET /plans/:id/lessons/:lessonIndex/execution-doc
+// (plan.controller.js#renderExecutionDoc), rendered on the fly from the
+// lesson's current 实施记录 entry and never persisted. 上传 parses a
+// dropped/picked .docx client-side (extractExecutionRecordFromText -- no
+// table in this template, unlike the plan's) and overwrites just this
+// lesson's entry in plan.executionFormData, gated behind an explicit
+// confirm, same as DesignDocPanel's 上传.
+const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onContentReplaced }) => {
+  const [message, setMessage] = useState("");
+  const [working, setWorking] = useState(""); // "" | "download" | "preview"
+  const [showUpload, setShowUpload] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const fileName = () => `${(plan && plan.title) || "乡土课程设计方案"}-课时${lessonIndex}-实施记录.docx`;
+
+  const fetchExecutionDocBuffer = async () => {
+    const resp = await PlanDataService.downloadExecutionDoc(planId, lessonIndex);
+    return resp.data;
+  };
+
+  const handleDownload = async () => {
+    setMessage("");
+    setWorking("download");
+    try {
+      const data = await fetchExecutionDocBuffer();
+      const url = window.URL.createObjectURL(
+        new Blob([data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", fileName());
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.log(e);
+      setMessage("下载失败。");
+    } finally {
+      setWorking("");
+    }
+  };
+
+  const handlePreview = async () => {
+    setMessage("");
+    setWorking("preview");
+    const win = window.open("", "_blank");
+    if (win) win.document.write(`<title>预览：${fileName()}</title><body>预览加载中...</body>`);
+    try {
+      const data = await fetchExecutionDocBuffer();
+      const result = await mammoth.convertToHtml({ arrayBuffer: data });
+      if (win) {
+        win.document.open();
+        win.document.write(
+          `<!doctype html><html><head><meta charset="utf-8"><title>预览：${fileName()}</title>` +
+            `<style>body{max-width:800px;margin:24px auto;padding:0 16px;font-family:sans-serif;line-height:1.6;}</style>` +
+            `</head><body>${result.value || "<p>文档内容为空。</p>"}</body></html>`
+        );
+        win.document.close();
+      }
+    } catch (e) {
+      console.log(e);
+      setMessage("预览失败。");
+      if (win) win.close();
+    } finally {
+      setWorking("");
+    }
+  };
+
+  const handleUploadFile = async (file) => {
+    if (!file) return;
+    const ext = (file.name || "").toLowerCase().split(".").pop();
+    if (ext !== "docx") {
+      setMessage("仅支持上传 .docx 文件。");
+      return;
+    }
+    if (!window.confirm("上传新文件将覆盖本课时当前的实施记录内容，且无法撤销，确定继续吗？")) {
+      return;
+    }
+    setMessage("");
+    setIsUploading(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const textResult = await mammoth.extractRawText({ arrayBuffer });
+      const text = textResult.value || "";
+
+      const extracted = extractExecutionRecordFromText(text);
+      if (Object.keys(extracted).length === 0) {
+        setMessage("未能从文件中识别到有效内容，请确认文件是按课时实施记录模板填写的 .docx。");
+        return;
+      }
+      const record = buildExecutionRecordData(extracted);
+      const existing = Array.isArray(plan && plan.executionFormData) ? plan.executionFormData : [];
+      const newExecutionFormData = existing.some((r) => Number(r.index) === Number(lessonIndex))
+        ? existing.map((r) => (Number(r.index) === Number(lessonIndex) ? { ...record, index: lessonIndex } : r))
+        : [...existing, { ...record, index: lessonIndex }];
+      await PlanDataService.update(planId, { executionFormData: newExecutionFormData });
+      setMessage("课程实施文件已上传，实施记录已更新。");
+      setShowUpload(false);
+      if (onContentReplaced) onContentReplaced();
+    } catch (e) {
+      console.log(e);
+      setMessage((e && e.response && e.response.data && e.response.data.message) || "上传失败，请确认文件格式。");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  return (
+    <div>
+      {message && <div className="alert alert-info py-2">{message}</div>}
+
+      <div className="mb-2">
+        {canEdit && (
+          <button
+            className={`btn btn-sm mr-2 ${showUpload ? "btn-primary" : "btn-outline-primary"}`}
+            type="button"
+            onClick={() => setShowUpload((v) => !v)}
+          >
+            上传
+          </button>
+        )}
+        <button className="btn btn-outline-primary btn-sm mr-2" type="button" onClick={handleDownload} disabled={working === "download"}>
+          {working === "download" ? "下载中..." : "下载"}
+        </button>
+        <button className="btn btn-outline-primary btn-sm" type="button" onClick={handlePreview} disabled={working === "preview"}>
+          {working === "preview" ? "生成中..." : "预览"}
+        </button>
+      </div>
+      <div className="text-muted small mb-3">
+        “下载”“预览”均根据本课时的当前实施记录实时生成，不保存文件，每次都反映最新内容；预览将在新窗口中打开。
+      </div>
+
+      {showUpload && canEdit && (
+        <div className="form-group">
+          <label>上传课程实施文件（将覆盖本课时当前的实施记录）</label>
+          <div
+            className={`pl-file-drop-zone ${dragActive ? "is-dragover" : ""}`}
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+              handleUploadFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+            }}
+          >
+            {isUploading ? "正在解析并上传..." : "拖拽 .docx 文件到这里，或点击选择文件以覆盖当前内容"}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".docx"
+            className="d-none"
+            onChange={(e) => handleUploadFile(e.target.files[0])}
+          />
+          <small className="form-text text-muted">上传的文件将替换本课时当前的实施记录内容，此操作无法撤销。</small>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Migrated from shinshin's case-detail.component.js, with the online-fill WHY/WHAT/HOW form
 // (matching curriculum_template/乡土课程设计方案模版.docx's structure). Layout: a file-explorer
 // style split -- a collapsible left nav tree (计划/its sections, 实施/its 课时 segments each
@@ -228,6 +413,10 @@ const PlanDetail = (props) => {
   const [metaForm, setMetaForm] = useState(null);
   const [isEditingMeta, setIsEditingMeta] = useState(false);
   const [formData, setFormData] = useState({ ...EMPTY_WHY_WHAT_HOW, lessons: [] });
+  // Sparse array of 实施记录 entries, one per 课时, keyed by `index` -- same
+  // shape as formData.lessons (see onLessonFieldChange), just plan-level
+  // execution-record data instead of design content.
+  const [executionFormData, setExecutionFormData] = useState([]);
   const [curatorNote, setCuratorNote] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
   // planLessons (分课时设计, nested under 计划) starts collapsed, unlike plan/
@@ -247,6 +436,7 @@ const PlanDetail = (props) => {
       const resp = await PlanDataService.get(planId);
       setPlan(resp.data);
       setFormData(mergeFormData(resp.data.planFormData));
+      setExecutionFormData(Array.isArray(resp.data.executionFormData) ? resp.data.executionFormData : []);
       setCuratorNote(resp.data.curatorNote || "");
     } catch (e) {
       console.log(e);
@@ -322,6 +512,34 @@ const PlanDetail = (props) => {
         : [...prev.lessons, { ...EMPTY_LESSON, index: lessonIndex, [field]: value }];
       return { ...prev, lessons };
     });
+  };
+
+  // executionFormData is a sparse array of 实施记录 entries, same shape as
+  // formData.lessons (see onLessonFieldChange above) -- creates an entry on
+  // first edit rather than requiring every lesson slot pre-populated.
+  const onExecutionFieldChange = (lessonIndex, field, value) => {
+    setExecutionFormData((prev) =>
+      prev.some((r) => Number(r.index) === lessonIndex)
+        ? prev.map((r) => (Number(r.index) === lessonIndex ? { ...r, [field]: value } : r))
+        : [...prev, { ...EMPTY_EXECUTION_RECORD, index: lessonIndex, [field]: value }]
+    );
+  };
+
+  // Same 保存草稿/提交待点评 split as saveFormData above -- 提交待点评 bumps
+  // the plan's own `status` (there's no separate per-课时 status field; a
+  // 课时's 实施记录 form just gets the same submit action every other
+  // section already has, reusing the same plan-level 待点评 queue).
+  const saveExecutionRecord = async (submitStatus) => {
+    try {
+      await PlanDataService.update(planId, {
+        executionFormData,
+        status: submitStatus || undefined,
+      });
+      setMessage(submitStatus === "submitted" ? "实施记录已提交。" : "实施记录已保存。");
+      retrievePlan();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "保存失败。");
+    }
   };
 
   const saveFormData = async (submitStatus) => {
@@ -659,13 +877,70 @@ const PlanDetail = (props) => {
       );
     }
 
+    // 课时N under 实施 splits into four leaves (see the sidebar below),
+    // following the same "online form + on-the-fly 上传/下载/预览 doc panel"
+    // pattern 计划's own 课程设计文件 uses -- executionRecord is the form,
+    // executionDoc is the doc panel, and the other two are today's
+    // LessonFileManager/ReviewList, just no longer combined into one pane.
+    if (selected.type === "executionRecord") {
+      const n = selected.key;
+      const record = executionFormData.find((r) => Number(r.index) === n) || EMPTY_EXECUTION_RECORD;
+      return (
+        <div className="pl-card pl-why-what-how">
+          <h6>实施记录 · 课时 {n}</h6>
+          {EXECUTION_RECORD_FIELD_LABELS.map(([field, label]) => (
+            <div className="form-group" key={field}>
+              <label>{label}</label>
+              <textarea
+                className="form-control"
+                rows="2"
+                value={record[field] || ""}
+                disabled={!canEditPlan}
+                onChange={(e) => onExecutionFieldChange(n, field, e.target.value)}
+              />
+            </div>
+          ))}
+          {canEditPlan && (
+            <div className="d-flex mt-2">
+              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveExecutionRecord()}>
+                保存草稿
+              </button>
+              <button className="btn btn-primary" type="button" onClick={() => saveExecutionRecord("submitted")}>
+                提交待点评
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (selected.type === "executionDoc") {
+      const n = selected.key;
+      return (
+        <div className="pl-card">
+          <div className="mb-2">
+            <h6 className="mb-0">课程实施文件 · 课时 {n}</h6>
+          </div>
+          <LessonExecutionDocPanel planId={planId} lessonIndex={n} plan={plan} canEdit={canEditPlan} onContentReplaced={retrievePlan} />
+        </div>
+      );
+    }
+
     if (selected.type === "execution") {
       const n = selected.key;
       return (
         <div className="pl-card">
-          <h6>课时 {n}</h6>
+          <h6>支撑材料 · 课时 {n}</h6>
           <LessonFileManager planId={planId} lessonIndex={n} canEdit={canEditPlan} />
-          <hr />
+        </div>
+      );
+    }
+
+    if (selected.type === "executionReview") {
+      const n = selected.key;
+      return (
+        <div className="pl-card">
+          <h6>点评 · 课时 {n}</h6>
           <ReviewList planId={planId} lessonIndex={n} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
         </div>
       );
@@ -814,15 +1089,57 @@ const PlanDetail = (props) => {
               </button>
               {expandedGroups.execution && (
                 <div className="pl-explorer-children">
+                  {/* Each 课时N is its own subgroup (same shape as 分课时设计's
+                      above), four leaves: 实施记录 (the online-fill form),
+                      课程实施文件 (its on-the-fly 上传/下载/预览 doc panel,
+                      mirroring 课程设计文件), then today's 支撑材料/点评
+                      (LessonFileManager/ReviewList), just no longer combined
+                      into one pane. No key seeding needed for the dynamic
+                      `exec_${n}` toggle -- expandedGroups[key] reads as
+                      collapsed (falsy) for any key not yet clicked. */}
                   {lessons.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      className={`pl-explorer-leaf ${selected.type === "execution" && selected.key === n ? "is-active" : ""}`}
-                      onClick={() => select("execution", n)}
-                    >
-                      课时 {n}
-                    </button>
+                    <div className="pl-explorer-subgroup" key={n}>
+                      <button
+                        type="button"
+                        className="pl-explorer-folder pl-explorer-subfolder"
+                        onClick={() => toggleGroup(`exec_${n}`)}
+                      >
+                        <i className={`fas fa-chevron-${expandedGroups[`exec_${n}`] ? "down" : "right"} pl-explorer-chevron`}></i>
+                        课时 {n}
+                      </button>
+                      {expandedGroups[`exec_${n}`] && (
+                        <div className="pl-explorer-children pl-explorer-children-nested">
+                          <button
+                            type="button"
+                            className={`pl-explorer-leaf ${selected.type === "executionRecord" && selected.key === n ? "is-active" : ""}`}
+                            onClick={() => select("executionRecord", n)}
+                          >
+                            实施记录
+                          </button>
+                          <button
+                            type="button"
+                            className={`pl-explorer-leaf ${selected.type === "executionDoc" && selected.key === n ? "is-active" : ""}`}
+                            onClick={() => select("executionDoc", n)}
+                          >
+                            课程实施文件
+                          </button>
+                          <button
+                            type="button"
+                            className={`pl-explorer-leaf ${selected.type === "execution" && selected.key === n ? "is-active" : ""}`}
+                            onClick={() => select("execution", n)}
+                          >
+                            支撑材料
+                          </button>
+                          <button
+                            type="button"
+                            className={`pl-explorer-leaf ${selected.type === "executionReview" && selected.key === n ? "is-active" : ""}`}
+                            onClick={() => select("executionReview", n)}
+                          >
+                            点评
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   ))}
                   {lessons.length === 0 && <div className="pl-explorer-empty">尚未设置预计课时</div>}
                 </div>

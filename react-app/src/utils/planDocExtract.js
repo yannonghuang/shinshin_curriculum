@@ -1,4 +1,10 @@
-import { PLAN_GRADES, EMPTY_WHY_WHAT_HOW, WHY_WHAT_HOW_FIELD_LABELS } from "../constants/plan-options";
+import {
+  PLAN_GRADES,
+  EMPTY_WHY_WHAT_HOW,
+  WHY_WHAT_HOW_FIELD_LABELS,
+  EMPTY_EXECUTION_RECORD,
+  EXECUTION_RECORD_FIELD_LABELS,
+} from "../constants/plan-options";
 
 // Shared by plans-list.component.js (seeding a brand-new plan from an
 // uploaded .docx) and plan-detail.component.js (the 课程设计文件 panel's 上传
@@ -72,8 +78,12 @@ const HARD_SECTION_BOUNDARIES = ["WHY", "WHAT", "HOW", "活动设计", "探究�
 // whichever position comes next -- boundaryLabels (if any) are extra stop
 // points that cap content but never become a field's own value, for callers
 // with no other way to bound a field whose neighbor is missing or empty.
-const extractFieldsFromBlock = (text, boundaryLabels = []) => {
-  const fieldPositions = WHY_WHAT_HOW_FIELD_LABELS.map(([path, label]) => ({ path, ...findLabel(text, label) })).filter(
+// fieldLabels is a [path, label] pairs array (WHY_WHAT_HOW_FIELD_LABELS or
+// EXECUTION_RECORD_FIELD_LABELS) -- generalized so this same position-based
+// extraction works for both the plan's table-shaped template and the
+// 实施记录 template's flat one.
+const extractFieldsFromBlock = (text, fieldLabels, boundaryLabels = []) => {
+  const fieldPositions = fieldLabels.map(([path, label]) => ({ path, ...findLabel(text, label) })).filter(
     (p) => p.idx != null
   );
   const boundaryPositions = boundaryLabels
@@ -143,11 +153,11 @@ const tableRowTexts = (html) => {
 // matched in more than one row, the first (in document order) wins.
 export const extractWhyWhatHowFromText = (text, html) => {
   const rowTexts = html && tableRowTexts(html);
-  if (!rowTexts || !rowTexts.length) return extractFieldsFromBlock(text, HARD_SECTION_BOUNDARIES);
+  if (!rowTexts || !rowTexts.length) return extractFieldsFromBlock(text, WHY_WHAT_HOW_FIELD_LABELS, HARD_SECTION_BOUNDARIES);
 
   const result = {};
   for (const rowText of rowTexts) {
-    const rowResult = extractFieldsFromBlock(rowText);
+    const rowResult = extractFieldsFromBlock(rowText, WHY_WHAT_HOW_FIELD_LABELS);
     for (const [path, value] of Object.entries(rowResult)) {
       if (!(path in result)) result[path] = value;
     }
@@ -163,6 +173,16 @@ export const buildPlanFormData = (extracted, lessons) => {
   }
   return data;
 };
+
+// curriculum_template/课时实施记录模板.docx is a flat run of labeled
+// paragraphs with no table at all (unlike the plan's template), so this is
+// just extractFieldsFromBlock over the whole document -- no
+// tableRowTexts/HARD_SECTION_BOUNDARIES fallback dance needed, and no
+// section nesting in the resulting paths (EXECUTION_RECORD_FIELD_LABELS'
+// paths are bare field names, not "section.field").
+export const extractExecutionRecordFromText = (text) => extractFieldsFromBlock(text, EXECUTION_RECORD_FIELD_LABELS);
+
+export const buildExecutionRecordData = (extracted) => ({ ...EMPTY_EXECUTION_RECORD, ...extracted });
 
 // Leading-whitespace class used by the Part 2 regexes below (not \s -- \s also
 // matches a newline, which would let e.g. "第一课时：" with nothing else on the

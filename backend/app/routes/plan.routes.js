@@ -31,4 +31,8 @@ module.exports = function (app) {
   // owner/admin/expert or, for a public 优秀案例, anyone -- see
   // plan.controller.js#renderDoc's visibility check.
   app.get("/api/plans/:id/design-doc", [authJwt.attachUserIfPresent], plans.renderDoc);
+
+  // Same on-the-fly, nothing-persisted shape as design-doc above, but for
+  // one 课时's 实施记录 -- backs the 课程实施文件 panel's 下载/预览 commands.
+  app.get("/api/plans/:id/lessons/:lessonIndex/execution-doc", [authJwt.attachUserIfPresent], plans.renderExecutionDoc);
 };
