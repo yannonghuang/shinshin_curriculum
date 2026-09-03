@@ -5,7 +5,8 @@ import PlanDataService from "../services/plan.service";
 import ArtifactDataService from "../services/artifact.service";
 import AuthService from "../services/auth.service";
 import ReviewList from "./review-list.component";
-import { PLAN_THEMES, PLAN_GRADES, ARTIFACT_CATEGORIES_LESSON_LEVEL, EMPTY_WHY_WHAT_HOW, EMPTY_LESSON } from "../constants/plan-options";
+import LessonFileManager from "./lesson-file-manager.component";
+import { PLAN_THEMES, PLAN_GRADES, EMPTY_WHY_WHAT_HOW, EMPTY_LESSON } from "../constants/plan-options";
 import "../curriculum.css";
 
 const mergeFormData = (data) => ({
@@ -14,17 +15,6 @@ const mergeFormData = (data) => ({
   how: { ...EMPTY_WHY_WHAT_HOW.how, ...(data && data.how) },
   lessons: Array.isArray(data && data.lessons) ? data.lessons : [],
 });
-
-// Extension -> lesson-level category, used to auto-file a dropped batch of
-// mixed files into 实施记录文件/课件PPT/图片/视频 without asking the user to
-// sort them first. Catch-all is 实施记录文件 (docs, pdfs, anything else).
-const inferCategoryFromFilename = (filename) => {
-  const ext = (filename || "").toLowerCase().split(".").pop();
-  if (["mp4", "mov", "avi", "mkv", "webm", "flv", "wmv", "m4v"].includes(ext)) return "视频";
-  if (["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "heic"].includes(ext)) return "图片";
-  if (["ppt", "pptx"].includes(ext)) return "课件PPT";
-  return "实施记录文件";
-};
 
 const ARTIFACT_ICONS = {
   视频: "fas fa-file-video",
@@ -39,27 +29,21 @@ const iconClassForArtifact = (artifact) => {
   return ARTIFACT_ICONS[artifact.category] || "fas fa-file";
 };
 
-// Embedded artifact upload/list panel. Two modes: a fixed single `category`
-// (the plan-level 课程设计文件 panel -- every upload is tagged with it, no
-// choice needed) or, when `category` is omitted (every 课时's panel), an
-// auto-categorizing mode -- one shared drag-drop zone takes any mix of
-// files at once, each auto-filed into 实施记录文件/课件PPT/图片/视频 by
-// extension (inferCategoryFromFilename), and the list below groups them
-// into a labeled card per category instead of one flat table.
+// Embedded artifact list panel -- always a fixed single `category`. Currently
+// only ever used for the plan-level 课程设计文件 panel: every generated doc is
+// tagged with that category, uploads are disabled entirely (see the
+// "生成课程设计文件" button above it in the "files" section below -- that
+// category is meant to hold only the doc generated from the plan's own online
+// content, never an arbitrary manually dropped file), so this is just a
+// preview/download/delete list, no drop-zone/file-picker at all. For an
+// actual mini file system (folders, drag-and-drop, multi-select) see
+// lesson-file-manager.component.js, used for each 课时's own panel instead.
 // planUpdatedAt (optional): when provided, any 课程设计文件 artifact generated/uploaded
 // before the plan's last edit is flagged "内容已更新，文档可能已过时" -- the doc's content
 // is derived from planFormData at generation time and doesn't auto-regenerate on later edits.
-// allowUpload (default true): the plan-level 课程设计文件 panel passes false -- that
-// category is meant to hold only the doc generated from the plan's own online
-// content (see the "生成课程设计文件" button above it), never an arbitrary manually
-// dropped file, so no drop-zone/file-picker is rendered for it at all.
-const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt, allowUpload = true }) => {
+const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt }) => {
   const [artifacts, setArtifacts] = useState([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(null);
-  const [isDragOver, setIsDragOver] = useState(false);
   const [message, setMessage] = useState("");
-  const fileInputRef = useRef(null);
   const previewRef = useRef(null);
   const [previewArtifact, setPreviewArtifact] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -71,7 +55,7 @@ const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt, 
     try {
       const resp = await ArtifactDataService.getByPlan(planId, lessonIndex);
       const list = Array.isArray(resp.data) ? resp.data : resp.data.rows || resp.data.artifacts || [];
-      setArtifacts(category ? list.filter((a) => a.category === category) : list);
+      setArtifacts(list.filter((a) => a.category === category));
     } catch (e) {
       console.log(e);
       setMessage("加载附件列表失败。");
@@ -87,33 +71,6 @@ const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt, 
       if (previewUrl) window.URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
-
-  const uploadFiles = async (fileList) => {
-    const files = Array.from(fileList || []);
-    if (files.length === 0) return;
-    setMessage("");
-    setIsUploading(true);
-    setUploadProgress(0);
-    try {
-      for (let index = 0; index < files.length; index += 1) {
-        const formData = new FormData();
-        formData.append("description", "");
-        formData.append("category", category || inferCategoryFromFilename(files[index].name));
-        if (lessonIndex !== undefined && lessonIndex !== null) formData.append("lessonIndex", lessonIndex);
-        formData.append("file", files[index]);
-        await ArtifactDataService.create(planId, formData);
-        setUploadProgress(Math.round(((index + 1) * 100) / files.length));
-      }
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      setMessage(`已上传 ${files.length} 个文件。`);
-      retrieveArtifacts();
-    } catch (err) {
-      setMessage(err?.response?.data?.message || "上传失败。");
-    } finally {
-      setIsUploading(false);
-      setTimeout(() => setUploadProgress(null), 600);
-    }
-  };
 
   const downloadArtifact = async (artifact) => {
     try {
@@ -214,53 +171,12 @@ const ArtifactPanel = ({ planId, lessonIndex, category, canEdit, planUpdatedAt, 
 
   return (
     <div>
-      {canEdit && allowUpload && (
-        <>
-          <div
-            className={`pl-file-drop-zone mb-3 ${isDragOver ? "is-dragover" : ""}`}
-            onClick={() => fileInputRef.current && fileInputRef.current.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              if (!isUploading) setIsDragOver(true);
-            }}
-            onDragLeave={() => setIsDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDragOver(false);
-              if (!isUploading) uploadFiles(e.dataTransfer?.files);
-            }}
-          >
-            {isUploading
-              ? `上传中...${uploadProgress !== null ? uploadProgress + "%" : ""}`
-              : category
-              ? "拖拽文件到这里，或点击选择文件（支持多选）"
-              : "拖拽文件到这里，或点击选择文件（支持多选，将按类型自动归类）"}
-          </div>
-          <input ref={fileInputRef} type="file" multiple className="d-none" onChange={(e) => uploadFiles(e.target.files)} disabled={isUploading} />
-        </>
-      )}
-
       {message && <div className="alert alert-info py-2">{message}</div>}
 
-      {category ? (
-        artifacts.length === 0 ? (
-          <div className="pl-empty">暂无附件</div>
-        ) : (
-          <div className="pl-artifact-grid">{artifacts.map(renderArtifactCard)}</div>
-        )
-      ) : artifacts.length === 0 ? (
+      {artifacts.length === 0 ? (
         <div className="pl-empty">暂无附件</div>
       ) : (
-        ARTIFACT_CATEGORIES_LESSON_LEVEL.map((cat) => {
-          const items = artifacts.filter((a) => a.category === cat);
-          if (items.length === 0) return null;
-          return (
-            <div key={cat} className="pl-artifact-group">
-              <h6 className="pl-artifact-group-title">{cat}</h6>
-              <div className="pl-artifact-grid">{items.map(renderArtifactCard)}</div>
-            </div>
-          );
-        })
+        <div className="pl-artifact-grid">{artifacts.map(renderArtifactCard)}</div>
       )}
 
       {previewArtifact && (
@@ -728,7 +644,6 @@ const PlanDetail = (props) => {
             category="课程设计文件"
             canEdit={canEditPlan}
             planUpdatedAt={plan.updatedAt}
-            allowUpload={false}
           />
         </div>
       );
@@ -797,7 +712,7 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card">
           <h6>课时 {n}</h6>
-          <ArtifactPanel planId={planId} lessonIndex={n} canEdit={canEditPlan} />
+          <LessonFileManager planId={planId} lessonIndex={n} canEdit={canEditPlan} />
           <hr />
           <ReviewList planId={planId} lessonIndex={n} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
         </div>

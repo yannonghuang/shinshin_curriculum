@@ -8,6 +8,7 @@ const util = require("util");
 const db = require("../models");
 const Artifact = db.artifact;
 const Plan = db.plan;
+const Folder = db.folder;
 
 const ARTIFACT_CATEGORIES = ["课程设计文件", "实施记录文件", "课件PPT", "图片", "视频"];
 const LESSON_FOLDER_REGEX = /^lesson-(\d+)$/;
@@ -36,6 +37,31 @@ const normalizeLessonIndex = (lessonIndex) => {
 const lessonFolderName = (lessonIndex) => {
   const n = normalizeLessonIndex(lessonIndex);
   return n ? `lesson-${n}` : null;
+};
+
+// Undefined -> "leave as-is" (caller decides the default); null/""/"root" ->
+// root of that 课时's file space; else must be an existing folder id. Mirrors
+// folder.controller.js's own normalizeParentFolderId -- kept as a separate
+// copy rather than a shared import since the two controllers' validation
+// context (which planId/lessonIndex a folder must belong to) differs.
+const normalizeFolderId = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null || value === "" || value === "root") return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : NaN;
+};
+
+// Validates folderId (if not null) belongs to the same plan+lesson the
+// artifact is/will be filed under -- a folder from a different 课时 (or a
+// nonexistent one) is never a valid target. Returns an error message string,
+// or null if valid.
+const validateFolderId = async (folderId, planId, lessonIndex) => {
+  if (!folderId) return null;
+  const folder = await Folder.findByPk(folderId);
+  if (!folder || folder.planId !== planId || folder.lessonIndex !== lessonIndex) {
+    return "目标文件夹不存在，或不属于同一课时的文件空间。";
+  }
+  return null;
 };
 
 const getArtifactStorageDirectory = (planId, category, lessonIndex) => {
@@ -185,6 +211,11 @@ exports.create = async (req, res) => {
       });
     }
 
+    const folderId = normalizeFolderId(req.body.folderId);
+    if (Number.isNaN(folderId)) {
+      return res.status(422).send({ message: "folderId 无效。" });
+    }
+
     const singleFile = req.files && req.files.file && req.files.file[0];
     const multiFiles = req.files && req.files.files ? req.files.files : [];
 
@@ -211,11 +242,23 @@ exports.create = async (req, res) => {
       return res.status(403).send({ message: "只能为本人创建的乡土课程设计上传附件。" });
     }
 
+    if (folderId) {
+      const folderError = await validateFolderId(folderId, planId, lessonIndex);
+      if (folderError) {
+        if (singleFile && fs.existsSync(singleFile.path)) fs.unlinkSync(singleFile.path);
+        for (const f of multiFiles) {
+          if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+        }
+        return res.status(422).send({ message: folderError });
+      }
+    }
+
     const createOne = async (file) => {
       const attachmentPath = moveIntoArtifactDirectory(planId, category, lessonIndex, file);
       return Artifact.create({
         planId,
         lessonIndex,
+        folderId: folderId || null,
         description,
         category,
         type: inferArtifactType(file.originalname),
@@ -650,6 +693,23 @@ exports.update = async (req, res) => {
       return res.status(422).send({
         message: "附件分类无效，必须是 课程设计文件/实施记录文件/课件PPT/图片/视频 之一。",
       });
+    }
+
+    // "Move into folder" -- folderId is purely a DB-level grouping (see
+    // folder.model.js), so this never touches the physical file, unlike
+    // category/lessonIndex changes below.
+    const folderId = normalizeFolderId(req.body.folderId);
+    if (Number.isNaN(folderId)) {
+      if (singleFile && fs.existsSync(singleFile.path)) fs.unlinkSync(singleFile.path);
+      return res.status(422).send({ message: "folderId 无效。" });
+    }
+    if (folderId !== undefined) {
+      const folderError = await validateFolderId(folderId, artifact.planId, payload.lessonIndex);
+      if (folderError) {
+        if (singleFile && fs.existsSync(singleFile.path)) fs.unlinkSync(singleFile.path);
+        return res.status(422).send({ message: folderError });
+      }
+      payload.folderId = folderId;
     }
 
     const oldPath = artifact.attachmentPath;

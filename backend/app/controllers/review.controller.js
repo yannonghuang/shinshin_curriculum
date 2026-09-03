@@ -1,3 +1,6 @@
+const childProcess = require("child_process");
+const mammoth = require("mammoth");
+
 const db = require("../models");
 const Review = db.review;
 const Plan = db.plan;
@@ -49,7 +52,84 @@ exports.create = async (req, res) => {
   }
 };
 
-const buildAiReviewPrompt = (plan, lessonIndex, artifacts) => {
+// Which uploaded artifact's actual *content* (not just its filename) gets
+// read into an AI review prompt, in order of precedence: Word > PPT > photos
+// > videos. The AI review model (see llmClient.js) is text-only -- no vision
+// support -- so only Word/PPT can really be read; a photo or video "wins" the
+// precedence over a lower tier that isn't present, but never contributes
+// extracted text of its own, matching the deliberate text-only scope here
+// (adding real image analysis would mean switching to a vision-capable
+// DashScope model for this call, a separate decision). Only the modern
+// XML-based formats (.docx/.pptx) are extractable; a legacy .doc/.ppt in the
+// winning tier still counts toward that tier -- so its presence doesn't fall
+// through to a lower type -- it just contributes no text of its own.
+const WORD_EXTS = ["docx"];
+const PPT_EXTS = ["pptx"];
+const MAX_EXTRACTED_CHARS = 6000; // keeps the prompt bounded regardless of how many/how large the winning tier's files are
+
+const extractDocxText = async (filePath) => {
+  const result = await mammoth.extractRawText({ path: filePath });
+  return (result.value || "").trim();
+};
+
+// .pptx is a zip of per-slide XML files; each text run lives in an <a:t>
+// element. Shells out to the same `unzip` binary artifact.controller.js's
+// bulkCreateFromZip already depends on, rather than adding a pptx-parsing npm
+// package for one regex's worth of extraction. `slide*.xml`'s wildcard is
+// matched by unzip itself (no shell involved, so no glob-injection risk).
+const extractPptxText = (filePath) => {
+  let xml;
+  try {
+    xml = childProcess.execFileSync("unzip", ["-p", filePath, "ppt/slides/slide*.xml"], { stdio: ["ignore", "pipe", "ignore"] }).toString("utf8");
+  } catch (e) {
+    return ""; // not a real zip, or no slides matched -- fall through to "no text extracted"
+  }
+  return [...xml.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]).join(" ").trim();
+};
+
+const extractArtifactText = async (artifact) => {
+  const ext = (artifact.type || "").toLowerCase();
+  try {
+    if (ext === "docx") return await extractDocxText(artifact.attachmentPath);
+    if (ext === "pptx") return extractPptxText(artifact.attachmentPath);
+  } catch (e) {
+    console.error("AI 点评文本提取失败:", artifact.attachmentPath, e.message);
+  }
+  return "";
+};
+
+// Picks the highest-precedence tier with at least one artifact present, and
+// extracts as much of its files' text as fits in MAX_EXTRACTED_CHARS
+// (truncating the last file included, if any, rather than dropping it
+// entirely). Returns null if there are no artifacts at all.
+const buildPrecedenceExtract = async (artifacts) => {
+  const tiers = [
+    { label: "Word 文档", match: (a) => WORD_EXTS.includes((a.type || "").toLowerCase()) },
+    { label: "PPT 课件", match: (a) => PPT_EXTS.includes((a.type || "").toLowerCase()) },
+    { label: "照片", match: (a) => a.category === "图片" },
+    { label: "视频", match: (a) => a.category === "视频" },
+  ];
+  for (const tier of tiers) {
+    const matched = artifacts.filter(tier.match);
+    if (matched.length === 0) continue;
+
+    const parts = [];
+    let used = 0;
+    for (const artifact of matched) {
+      const text = await extractArtifactText(artifact);
+      if (!text) continue;
+      const remaining = MAX_EXTRACTED_CHARS - used;
+      if (remaining <= 0) break;
+      const slice = text.length > remaining ? `${text.slice(0, remaining)}……（内容过长，已截断）` : text;
+      parts.push(`【${artifact.attachmentName}】\n${slice}`);
+      used += slice.length;
+    }
+    return { tierLabel: tier.label, matchedCount: matched.length, extractedCount: parts.length, text: parts.join("\n\n") };
+  }
+  return null;
+};
+
+const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => {
   const systemPrompt =
     "你是乡土课程教学专家，请对以下课程设计/实施记录整体做点评，从目标达成、内容设计、可操作性、创新性等维度给出优点、不足和改进建议，用中文回复，200-500字。";
 
@@ -59,24 +139,31 @@ const buildAiReviewPrompt = (plan, lessonIndex, artifacts) => {
   if (plan.grade) lines.push(`年级：${plan.grade}`);
   if (plan.plannedLessonCount) lines.push(`预计课时：${plan.plannedLessonCount}`);
 
+  const appendArtifactSection = async (introLine, listIntro) => {
+    lines.push(introLine);
+    lines.push(listIntro);
+    for (const a of artifacts) {
+      lines.push(`- [${a.category}] ${a.attachmentName}${a.description ? "：" + a.description : ""}`);
+    }
+    const extract = await buildPrecedenceExtract(artifacts);
+    if (extract && extract.text) {
+      lines.push(`\n以下是优先级最高的一类已上传文件（${extract.tierLabel}，共 ${extract.matchedCount} 个，已提取 ${extract.extractedCount} 个的文字内容）：`);
+      lines.push(extract.text);
+    }
+  };
+
   if (lessonIndex) {
-    lines.push(`\n本次点评针对第 ${lessonIndex} 课时的乡土课程实施记录。`);
     if (artifacts && artifacts.length > 0) {
-      lines.push("该课时已上传的实施记录文件：");
-      for (const a of artifacts) {
-        lines.push(`- [${a.category}] ${a.attachmentName}${a.description ? "：" + a.description : ""}`);
-      }
+      await appendArtifactSection(`\n本次点评针对第 ${lessonIndex} 课时的乡土课程实施记录。`, "该课时已上传的实施记录文件：");
     } else {
+      lines.push(`\n本次点评针对第 ${lessonIndex} 课时的乡土课程实施记录。`);
       lines.push("该课时暂无已上传的实施记录文件。");
     }
   } else if (plan.planFormData) {
     lines.push("\n以下是该课程设计方案的在线填写内容（JSON）：");
     lines.push(JSON.stringify(plan.planFormData, null, 2));
   } else if (artifacts && artifacts.length > 0) {
-    lines.push("\n该课程设计未使用在线表单填写，已上传的课程设计文件：");
-    for (const a of artifacts) {
-      lines.push(`- [${a.category}] ${a.attachmentName}${a.description ? "：" + a.description : ""}`);
-    }
+    await appendArtifactSection("", "该课程设计未使用在线表单填写，已上传的课程设计文件：");
   } else {
     lines.push("\n该课程设计暂无在线表单内容或上传文件。");
   }
@@ -115,7 +202,7 @@ exports.createAiReview = async (req, res) => {
       artifacts = await Artifact.findAll({ where: { planId, lessonIndex: null } });
     }
 
-    const { systemPrompt, userContent } = buildAiReviewPrompt(plan, lessonIndex, artifacts);
+    const { systemPrompt, userContent } = await buildAiReviewPrompt(plan, lessonIndex, artifacts);
 
     const result = await llmClient.llmChat({
       systemPrompt,
