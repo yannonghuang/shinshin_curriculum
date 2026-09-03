@@ -17,6 +17,18 @@ export const PLAN_THEMES = [
 
 export const PLAN_GRADES = ["一年级", "二年级", "三年级", "四年级", "五年级", "六年级"];
 
+// 学期 -- alongside year, drives the manager/expert plan list's year-学期 ->
+// teacher navigation (plans-hierarchy.component.js). Chinese school terms:
+// 秋季学期 roughly Aug-Jan, 春季学期 roughly Feb-Jul.
+export const PLAN_SEASONS = ["秋季", "春季"];
+
+// Defaults a new plan's 学期 the same way its 年份 already defaults to the
+// current calendar year (see plans-list.component.js's openCreateEditor).
+export const currentSeason = () => {
+  const month = new Date().getMonth() + 1; // 1-12
+  return month >= 2 && month <= 7 ? "春季" : "秋季";
+};
+
 export const PLAN_MODES = [
   { value: "upload", label: "上传文件" },
   { value: "online", label: "在线填写" },

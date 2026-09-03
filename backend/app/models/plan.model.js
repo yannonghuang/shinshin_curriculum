@@ -25,6 +25,9 @@ module.exports = (sequelize, Sequelize) => {
         type: Sequelize.INTEGER,
         allowNull: false,
       },
+      season: {
+        type: Sequelize.ENUM("秋季", "春季"), // nullable -- see models/index.js's PLAN_SEASONS comment
+      },
       plannedLessonCount: {
         type: Sequelize.INTEGER,
       },

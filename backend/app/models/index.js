@@ -185,4 +185,12 @@ db.PLAN_THEMES = [
 
 db.GRADE_OPTIONS = ["一年级", "二年级", "三年级", "四年级", "五年级", "六年级"];
 
+// 学期 -- alongside plans.year, drives the manager/expert plan list's
+// year-学期 -> teacher navigation (plans-hierarchy.component.js). Optional at
+// the DB level (existing rows predate this field, left NULL rather than
+// guessed retroactively) -- new plans always get one, defaulted client-side
+// to the current 学期 the same way year already defaults to the current
+// calendar year (see plan-options.js's currentSeason()).
+db.PLAN_SEASONS = ["秋季", "春季"];
+
 module.exports = db;

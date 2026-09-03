@@ -1,19 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import mammoth from "mammoth/mammoth.browser";
 import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import Pagination from "@material-ui/lab/Pagination";
-import { PLAN_THEMES, PLAN_GRADES, EMPTY_WHY_WHAT_HOW, WHY_WHAT_HOW_FIELD_LABELS } from "../constants/plan-options";
+import PlanCard from "./plan-card.component";
+import PlansHierarchy from "./plans-hierarchy.component";
+import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, currentSeason, EMPTY_WHY_WHAT_HOW, WHY_WHAT_HOW_FIELD_LABELS } from "../constants/plan-options";
 import "../curriculum.css";
-
-const STATUS_LABELS = { draft: "草稿", submitted: "已提交", reviewed: "已点评" };
 
 const emptyForm = {
   title: "",
   theme: "",
   grade: "",
   year: "",
+  season: "",
   plannedLessonCount: "",
 };
 
@@ -294,6 +294,13 @@ const PlansList = (props) => {
   // toggle to offer them either (removed; previously shown to admin only).
   const effectiveMineOnly = mineOnly || (!excellentOnly && !statusFilter && AuthService.isTeacher());
 
+  // Manager's bare /plans and expert's /plans?status=submitted both land
+  // here, and both get the year-学期 -> teacher explorer (plans-hierarchy.
+  // component.js) instead of this component's own flat search/paginate/grid
+  // -- a teacher's own list (effectiveMineOnly) and the public 优秀案例
+  // gallery (excellentOnly) are unaffected, they keep the flat view.
+  const isManagerOrExpertView = (AuthService.isAdmin() || AuthService.isExpert()) && !excellentOnly && !effectiveMineOnly;
+
   const isOwnerOf = (item) => AuthService.isTeacher() && String(item.teacherId) === String(currentUserId());
   // Editing a plan's content is owner-only, no admin bypass -- managers can
   // suspend/delete/promote/leave notes (see below), but not edit case content.
@@ -301,6 +308,10 @@ const PlansList = (props) => {
   const canDeleteItem = (item) => AuthService.isAdmin() || isOwnerOf(item);
 
   const retrieveAll = useCallback(async () => {
+    // The hierarchy view (see isManagerOrExpertView) fetches its own data
+    // independently -- this component's own paginated fetch would just be
+    // wasted work when its result is never rendered.
+    if (isManagerOrExpertView) return;
     try {
       // No pagination UI in the mine=true view (a teacher's own plan count is
       // small by nature) -- fetch a generous single page instead of paging.
@@ -322,7 +333,7 @@ const PlansList = (props) => {
       console.log(e);
       setMessage("加载课程设计数据失败。");
     }
-  }, [page, pageSize, keyword, searchYear, searchTheme, searchGrade, effectiveMineOnly, statusFilter, excellentOnly]);
+  }, [page, pageSize, keyword, searchYear, searchTheme, searchGrade, effectiveMineOnly, statusFilter, excellentOnly, isManagerOrExpertView]);
 
   useEffect(() => {
     retrieveAll();
@@ -342,6 +353,7 @@ const PlansList = (props) => {
         theme: form.theme || null,
         grade: form.grade || null,
         year: Number(form.year),
+        season: form.season || null,
         plannedLessonCount: form.plannedLessonCount ? Number(form.plannedLessonCount) : null,
         // Always 'online' -- 从文件导入 (see showFileImport) is only ever how a
         // plan gets its initial content, never a persisted state, so every plan
@@ -417,7 +429,7 @@ const PlansList = (props) => {
 
   const openCreateEditor = () => {
     setEditingId(null);
-    setForm({ ...emptyForm, year: String(new Date().getFullYear()), theme: searchTheme });
+    setForm({ ...emptyForm, year: String(new Date().getFullYear()), season: currentSeason(), theme: searchTheme });
     setShowFileImport(false);
     setUploadFile(null);
     setUploadStatus("");
@@ -442,6 +454,7 @@ const PlansList = (props) => {
       theme: item.theme || "",
       grade: item.grade || "",
       year: item.year ? String(item.year) : "",
+      season: item.season || "",
       plannedLessonCount: item.plannedLessonCount ? String(item.plannedLessonCount) : "",
     });
     setShowFileImport(false);
@@ -517,10 +530,18 @@ const PlansList = (props) => {
         </div>
       ) : (
         <h4>
-          {heading}（总数：{totalItems}）
+          {heading}
+          {/* totalItems tracks this component's own paginated fetch, which
+              isManagerOrExpertView skips entirely (see retrieveAll) -- the
+              hierarchy view's own tree conveys scale instead. */}
+          {!isManagerOrExpertView && `（总数：${totalItems}）`}
         </h4>
       )}
 
+      {isManagerOrExpertView ? (
+        <PlansHierarchy statusFilter={statusFilter} />
+      ) : (
+        <>
       {/* A teacher's own plans list is small by nature -- search/filter/pagination
           are noise there, not a tool; every other view (admin's 全部, the public
           gallery, the expert queue) keeps them since those lists can be long. */}
@@ -608,63 +629,16 @@ const PlansList = (props) => {
       ) : (
         <div className="pl-plan-grid">
           {plans.map((item) => (
-            <div className="pl-plan-card" key={item.id}>
-              {item.isExcellentCase && <span className="pl-plan-card-excellent">优秀案例</span>}
-              {item.suspended && <span className="pl-plan-card-suspended">已停用</span>}
-              <div className="pl-plan-card-head">
-                <div className="pl-plan-card-badge">
-                  <i className="fas fa-seedling"></i>
-                </div>
-                <div>
-                  <h6 className="pl-plan-card-title">{item.title}</h6>
-                  <div className="pl-plan-card-year">{item.year || "-"} 年</div>
-                </div>
-              </div>
-
-              <div className="pl-plan-card-tags">
-                {item.theme && <span className="pl-tag">{item.theme}</span>}
-                <span className={`pl-plan-card-status status-${item.status || "draft"}`}>
-                  {STATUS_LABELS[item.status] || STATUS_LABELS.draft}
-                </span>
-              </div>
-
-              <div className="pl-plan-card-meta">
-                <span>
-                  <i className="fas fa-graduation-cap"></i> {item.grade || "年级未定"}
-                </span>
-                <span>
-                  <i className="fas fa-clock"></i> {item.plannedLessonCount ? `${item.plannedLessonCount} 课时` : "课时未定"}
-                </span>
-              </div>
-
-              <div className="pl-plan-card-footer">
-                <Link className="btn btn-link p-0" to={`/plans/${item.id}`}>
-                  查看详情
-                </Link>
-                <div>
-                  {AuthService.isAdmin() && (
-                    <button className="btn btn-link p-0 mr-2" onClick={() => toggleExcellent(item)}>
-                      {item.isExcellentCase ? "取消优秀案例" : "设为优秀案例"}
-                    </button>
-                  )}
-                  {AuthService.isAdmin() && (
-                    <button className="btn btn-link p-0 mr-2" onClick={() => toggleSuspend(item)}>
-                      {item.suspended ? "启用" : "停用"}
-                    </button>
-                  )}
-                  {canEditItem(item) && (
-                    <button className="btn btn-link p-0 mr-2" onClick={() => onEdit(item)}>
-                      编辑
-                    </button>
-                  )}
-                  {canDeleteItem(item) && (
-                    <button className="btn btn-link p-0 text-danger" onClick={() => onDelete(item)}>
-                      删除
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+            <PlanCard
+              key={item.id}
+              item={item}
+              canEdit={canEditItem(item)}
+              canDelete={canDeleteItem(item)}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onToggleExcellent={toggleExcellent}
+              onToggleSuspend={toggleSuspend}
+            />
           ))}
         </div>
       )}
@@ -697,6 +671,8 @@ const PlansList = (props) => {
           />
         </>
       )}
+        </>
+      )}
 
       {canCreate && isEditorOpen && (
         <div className="pl-drawer-layer">
@@ -725,6 +701,21 @@ const PlansList = (props) => {
                   onChange={onChange}
                   required
                 />
+              </div>
+              <div className="form-group">
+                <label>学期</label>
+                {/* No blank/required option -- season is nullable at the
+                    backend (existing plans predate this field), always
+                    defaulted to the current 学期 for a new plan (see
+                    openCreateEditor), so there's nothing meaningful for a
+                    blank choice to represent here. */}
+                <select className="form-control" name="season" value={form.season} onChange={onChange}>
+                  {PLAN_SEASONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="form-group">
                 <label>乡土主题</label>

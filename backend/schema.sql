@@ -57,6 +57,7 @@ CREATE TABLE plans (   -- 乡土课程计划
   theme VARCHAR(255) NULL,             -- one of the 11 乡土主题 values, migrated taxonomy
   grade VARCHAR(32) NULL,              -- 一年级..六年级
   year INT NOT NULL,
+  season ENUM('秋季','春季') NULL,      -- 学期 -- nullable (pre-existing rows), new plans always get one client-side
   planned_lesson_count INT NULL,       -- 预计课时 -> drives lesson tab count
   plan_mode ENUM('upload','online') NOT NULL,
   plan_form_data JSON NULL,            -- structured WHY/WHAT/HOW template answers when plan_mode='online'
