@@ -960,3 +960,180 @@
   border-top: 1px solid var(--pl-line);
   font-size: 13px;
 }
+
+/* LessonFileManager (lesson-file-manager.component.js) -- a mini cloud file
+   system for one 课时's 实施记录 space. The whole panel (toolbar + list/grid,
+   not a separate boxed-off zone) is the drop target -- .is-dragover highlights
+   the entire thing with a dashed border, matching .pl-file-drop-zone's
+   language but applied to the full area instead of a small button-like box. */
+.pl-fm {
+  border: 2px dashed transparent;
+  border-radius: 10px;
+  padding: 4px;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.pl-fm.is-dragover {
+  border-color: var(--pl-accent);
+  background: var(--pl-accent-soft);
+}
+
+.pl-fm-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pl-fm-breadcrumb {
+  font-size: 14px;
+  color: var(--pl-muted);
+}
+
+.pl-fm-breadcrumb .btn-link {
+  color: var(--pl-text);
+  font-weight: 600;
+}
+
+.pl-fm-toolbar-actions {
+  display: flex;
+  align-items: center;
+}
+
+.pl-fm-new-folder-form {
+  margin-bottom: 10px;
+}
+
+.pl-fm-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--pl-accent-soft);
+  border: 1px solid var(--pl-line);
+  border-radius: 8px;
+  padding: 6px 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--pl-text);
+}
+
+.pl-fm-empty {
+  color: var(--pl-muted);
+  text-align: center;
+  padding: 40px 16px;
+  border: 2px dashed var(--pl-line);
+  border-radius: 10px;
+}
+
+.pl-fm-folder-glyph {
+  color: #e0a940;
+}
+
+.pl-fm-checkbox {
+  cursor: pointer;
+}
+
+.pl-fm-table {
+  margin-bottom: 0;
+}
+
+.pl-fm-name-cell {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--pl-text);
+}
+
+.pl-fm-name-cell:hover {
+  color: var(--pl-accent);
+}
+
+.pl-fm-table tr.is-selected {
+  background: var(--pl-accent-soft);
+}
+
+.pl-fm-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.pl-fm-icon-item {
+  position: relative;
+  background: var(--pl-panel);
+  border: 1px solid var(--pl-line);
+  border-radius: 10px;
+  padding: 14px 8px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.pl-fm-icon-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(29, 111, 83, 0.1);
+}
+
+.pl-fm-icon-item.is-selected {
+  border-color: var(--pl-accent);
+  background: var(--pl-accent-soft);
+}
+
+.pl-fm-icon-item .pl-fm-checkbox {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+}
+
+.pl-fm-icon-glyph {
+  font-size: 32px;
+  color: var(--pl-accent);
+  display: block;
+  margin: 4px 0 8px;
+}
+
+.pl-fm-icon-name {
+  font-size: 12px;
+  color: var(--pl-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-fm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 26, 20, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+}
+
+.pl-fm-modal {
+  background: var(--pl-panel);
+  border-radius: 12px;
+  padding: 20px;
+  width: 420px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.pl-fm-modal-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--pl-line);
+  border-radius: 8px;
+}
+
+.pl-fm-modal-row {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.pl-fm-modal-row:hover {
+  background: var(--pl-accent-soft);
+}

@@ -31,6 +31,7 @@ app.get("/", (req, res) => {
 require("./app/routes/auth.routes")(app);
 require("./app/routes/plan.routes")(app);
 require("./app/routes/artifact.routes")(app);
+require("./app/routes/folder.routes")(app);
 require("./app/routes/review.routes")(app);
 require("./app/routes/learning-material.routes")(app);
 

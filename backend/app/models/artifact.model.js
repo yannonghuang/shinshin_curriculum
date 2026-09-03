@@ -14,6 +14,9 @@ module.exports = (sequelize, Sequelize) => {
       lessonIndex: {
         type: Sequelize.INTEGER, // NULL = plan-level file; 1..N = that lesson's tab
       },
+      folderId: {
+        type: Sequelize.BIGINT, // NULL = root of that 课时's file space; see folder.model.js
+      },
       category: {
         type: Sequelize.STRING(64),
         allowNull: false, // '课程设计文件' | '实施记录文件' | '课件PPT' | '图片' | '视频'

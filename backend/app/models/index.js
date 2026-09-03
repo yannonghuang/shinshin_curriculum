@@ -37,6 +37,7 @@ db.role = require("./role.model.js")(sequelize, Sequelize);
 db.user = require("./user.model.js")(sequelize, Sequelize);
 db.plan = require("./plan.model.js")(sequelize, Sequelize);
 db.artifact = require("./artifact.model.js")(sequelize, Sequelize);
+db.folder = require("./folder.model.js")(sequelize, Sequelize);
 db.review = require("./review.model.js")(sequelize, Sequelize);
 db.learningMaterial = require("./learning-material.model.js")(sequelize, Sequelize);
 
@@ -82,6 +83,44 @@ db.plan.hasMany(db.artifact, {
 db.artifact.belongsTo(db.plan, {
   foreignKey: "planId",
   onDelete: "CASCADE",
+});
+
+// plan -> folders
+db.plan.hasMany(db.folder, {
+  foreignKey: "planId",
+  as: "Folders",
+  onDelete: "CASCADE",
+  hooks: true,
+});
+db.folder.belongsTo(db.plan, {
+  foreignKey: "planId",
+  onDelete: "CASCADE",
+});
+
+// folder -> folder (self-referencing parent/children -- see folder.controller.js's
+// recursive delete, which walks this in JS to clean up physical files first;
+// this CASCADE only cleans up the folder *rows* once that's done)
+db.folder.hasMany(db.folder, {
+  foreignKey: "parentFolderId",
+  as: "Children",
+  onDelete: "CASCADE",
+});
+db.folder.belongsTo(db.folder, {
+  foreignKey: "parentFolderId",
+  as: "Parent",
+});
+
+// folder -> artifacts (SET NULL, not CASCADE -- folder.controller.js#delete
+// explicitly removes each contained artifact, row and physical file, before
+// deleting the folder itself; this is just a safety net, not the primary path)
+db.folder.hasMany(db.artifact, {
+  foreignKey: "folderId",
+  as: "Artifacts",
+  onDelete: "SET NULL",
+});
+db.artifact.belongsTo(db.folder, {
+  foreignKey: "folderId",
+  onDelete: "SET NULL",
 });
 
 // plan -> reviews

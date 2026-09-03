@@ -70,10 +70,27 @@ CREATE TABLE plans (   -- 乡土课程计划
   CONSTRAINT fk_plans_teacher FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE folders (   -- user-created folders, scoped to one 课时's 实施记录 file space
+                          -- (mini-cloud-file-system view -- see plan-detail.component.js's
+                          -- lesson-file-manager.component.js); never plan-level, no folders
+                          -- under 课程设计文件.
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  plan_id BIGINT NOT NULL,
+  lesson_index INT NOT NULL,
+  parent_folder_id BIGINT NULL,        -- NULL = root of that 课时's file space
+  name VARCHAR(255) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_folders_plan FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+  CONSTRAINT fk_folders_parent FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE TABLE artifacts (   -- both 课程设计 files and per-课时 实施记录 files
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   plan_id BIGINT NOT NULL,
   lesson_index INT NULL,               -- NULL = plan-level (课程设计文件); 1..N = that lesson's tab
+  folder_id BIGINT NULL,               -- NULL = root of that 课时's file space; only meaningful
+                                        -- when lesson_index IS NOT NULL (see folders table)
   category VARCHAR(64) NOT NULL,       -- '课程设计文件' | '实施记录文件' | '课件PPT' | '图片' | '视频'
   description VARCHAR(1024) NULL,
   attachment_path VARCHAR(1024) NOT NULL,
@@ -83,7 +100,8 @@ CREATE TABLE artifacts (   -- both 课程设计 files and per-课时 实施记�
   type VARCHAR(64) NOT NULL,           -- lowercased file extension
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_artifacts_plan FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+  CONSTRAINT fk_artifacts_plan FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+  CONSTRAINT fk_artifacts_folder FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE reviews (   -- 评价乡土课程计划 + 评价乡土课程实施记录, expert or AI
