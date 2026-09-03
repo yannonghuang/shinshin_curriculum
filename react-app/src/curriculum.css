@@ -1039,6 +1039,21 @@
   margin-bottom: 0;
 }
 
+/* Bootstrap's base .table puts a border-top on every td/th -- a real file
+   browser reads as a plain list, not a spreadsheet, so this strips all of
+   that back out and relies on hover/is-selected background instead. */
+.pl-fm-table td,
+.pl-fm-table th {
+  border: none;
+}
+
+.pl-fm-table thead th {
+  border-bottom: 1px solid var(--pl-line);
+  color: var(--pl-muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+
 .pl-fm-name-cell {
   cursor: pointer;
   font-weight: 600;
@@ -1091,6 +1106,17 @@
   color: var(--pl-accent);
   display: block;
   margin: 4px 0 8px;
+}
+
+/* Icon-view "nail view" for photos/videos -- a real thumbnail of the file's
+   own content instead of a generic file-type glyph. */
+.pl-fm-thumb {
+  width: 100%;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: var(--pl-bg);
 }
 
 .pl-fm-icon-name {
