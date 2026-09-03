@@ -8,6 +8,7 @@ const Op = db.Sequelize.Op;
 
 const PLAN_THEMES = db.PLAN_THEMES;
 const GRADE_OPTIONS = db.GRADE_OPTIONS;
+const PLAN_SEASONS = db.PLAN_SEASONS;
 const PLAN_MODES = ["upload", "online"];
 const PLAN_STATUSES = ["draft", "submitted", "reviewed"];
 
@@ -62,6 +63,7 @@ exports.getOptions = (req, res) => {
   return res.send({
     themes: PLAN_THEMES,
     grades: GRADE_OPTIONS,
+    seasons: PLAN_SEASONS,
     planModes: PLAN_MODES,
     statuses: PLAN_STATUSES,
   });
@@ -75,6 +77,7 @@ exports.create = async (req, res) => {
       theme,
       grade,
       year,
+      season,
       plannedLessonCount,
       planMode,
       planFormData,
@@ -96,6 +99,11 @@ exports.create = async (req, res) => {
     if (theme !== undefined && theme !== null && theme !== "" && !PLAN_THEMES.includes(theme)) {
       await t.rollback();
       return res.status(422).send({ message: "乡土主题 无效。" });
+    }
+
+    if (season !== undefined && season !== null && season !== "" && !PLAN_SEASONS.includes(season)) {
+      await t.rollback();
+      return res.status(422).send({ message: "学期 无效，必须是 秋季 或 春季。" });
     }
 
     if (grade !== undefined && grade !== null && grade !== "" && !GRADE_OPTIONS.includes(grade)) {
@@ -126,6 +134,7 @@ exports.create = async (req, res) => {
         theme: theme || null,
         grade: grade || null,
         year: parsedYear,
+        season: season || null,
         plannedLessonCount: parsedLessonCount,
         planMode,
         planFormData: planMode === "online" ? planFormData || {} : null,
@@ -146,7 +155,7 @@ exports.create = async (req, res) => {
 
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, theme, grade, year, teacherId, isExcellentCase, status, mine } = req.query;
+    const { page, size, keyword, theme, grade, year, season, teacherId, isExcellentCase, status, mine } = req.query;
     const { limit, offset } = getPagination(page, size);
 
     const parsedYear = parseYear(year);
@@ -198,6 +207,7 @@ exports.findAll = async (req, res) => {
         theme ? { theme: { [Op.eq]: `${theme}` } } : null,
         grade ? { grade: { [Op.eq]: `${grade}` } } : null,
         parsedYear ? { year: { [Op.eq]: parsedYear } } : null,
+        season ? { season: { [Op.eq]: `${season}` } } : null,
         effectiveTeacherId ? { teacherId: { [Op.eq]: `${effectiveTeacherId}` } } : null,
         status ? { status: { [Op.eq]: `${status}` } } : null,
         restrictToExcellent
@@ -303,6 +313,7 @@ exports.update = async (req, res) => {
       theme,
       grade,
       year,
+      season,
       plannedLessonCount,
       planMode,
       planFormData,
@@ -324,7 +335,7 @@ exports.update = async (req, res) => {
     // may not edit a plan's actual case content, even one they don't own.
     const requesterIsAdmin = await isAdminRequester(req.userId, t);
     const isOwner = data.teacherId === req.userId;
-    const editingContent = [title, theme, grade, year, plannedLessonCount, planMode, planFormData, status].some(
+    const editingContent = [title, theme, grade, year, season, plannedLessonCount, planMode, planFormData, status].some(
       (v) => v !== undefined
     );
 
@@ -377,6 +388,14 @@ exports.update = async (req, res) => {
         return res.status(422).send({ message: "年份无效，必须是 1900-2100 的整数。" });
       }
       payload.year = parsedYear;
+    }
+
+    if (season !== undefined) {
+      if (season !== null && season !== "" && !PLAN_SEASONS.includes(season)) {
+        await t.rollback();
+        return res.status(422).send({ message: "学期 无效，必须是 秋季 或 春季。" });
+      }
+      payload.season = season || null;
     }
 
     if (plannedLessonCount !== undefined) {
