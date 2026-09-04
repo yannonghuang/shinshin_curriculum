@@ -104,12 +104,19 @@ docker image prune -f
 # everything past the newest $KEEP_IMAGE_VERSIONS. Removing by repo:tag
 # rather than bare ID (confirmed necessary against the real registry: two
 # commits that didn't touch backend/frontend source produce byte-identical
-# layers, so their SHA tags share one image ID -- `docker rmi <id>` then
-# refuses with "referenced in multiple repositories", meaning multiple
-# tags, until every one of that ID's tags is removed individually). Not
-# -f: an image still referenced by a container (shouldn't happen right
+# layers, so their SHA tags share one image ID -- plain "docker rmi <id>"
+# then refuses with "referenced in multiple repositories", meaning
+# multiple tags, until every one of that ID's tags is removed individually.
+# Not -f: an image still referenced by a container (shouldn't happen right
 # after up -d, but just in case) fails soft here rather than aborting the
 # whole deploy.
+#
+# Note: this whole heredoc is unquoted (<<EOF, not <<'EOF') because it
+# needs local expansion of $BACKEND_IMAGE etc. -- so no line in it may
+# contain a backtick. One snuck into an earlier draft of this comment and
+# silently broke local parsing of the block (harmlessly here, since the
+# resulting syntax error just made the substitution a no-op, but don't
+# rely on that).
 for repo in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
   old_ids=\$(docker images "\$repo" --format '{{.ID}}' | awk '!seen[\$0]++' | tail -n +"\$(($KEEP_IMAGE_VERSIONS + 1))")
   for id in \$old_ids; do
