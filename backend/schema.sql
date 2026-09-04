@@ -85,9 +85,8 @@ CREATE TABLE plans (   -- 乡土课程计划
   execution_template_version_id BIGINT NULL, -- template_versions row this plan's 实施记录-equivalent form is pinned to, stamped at creation
   status ENUM('draft','submitted','reviewed') NOT NULL DEFAULT 'draft',
   is_excellent_case TINYINT(1) NOT NULL DEFAULT 0,
-  curator_note VARCHAR(1024) NULL,
   suspended TINYINT(1) NOT NULL DEFAULT 0,  -- admin-only stop; hidden from public/other-teacher views, still visible read-only to the owning teacher and fully to admin
-  content_version_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- bumped only by actual content edits, not curatorNote/isExcellentCase/suspend -- see plan.model.js
+  content_version_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- bumped only by actual content edits, not isExcellentCase/suspend -- see plan.model.js
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_plans_teacher FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE,

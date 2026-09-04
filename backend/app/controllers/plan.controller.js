@@ -342,7 +342,6 @@ exports.update = async (req, res) => {
       executionFormData,
       status,
       isExcellentCase,
-      curatorNote,
     } = req.body;
 
     const data = await Plan.findByPk(id, { transaction: t });
@@ -463,19 +462,14 @@ exports.update = async (req, res) => {
       payload.status = status;
     }
 
-    // 优秀案例 flagging + curator note are admin-only, even though writes to
-    // a plan are otherwise gated at the route level as isTeacherOrAdmin.
-    if (isExcellentCase !== undefined || curatorNote !== undefined) {
+    // 优秀案例 flagging is admin-only, even though writes to a plan are
+    // otherwise gated at the route level as isTeacherOrAdmin.
+    if (isExcellentCase !== undefined) {
       if (!requesterIsAdmin) {
         await t.rollback();
-        return res.status(403).send({ message: "只有管理员可以设置优秀案例标记或点评备注。" });
+        return res.status(403).send({ message: "只有管理员可以设置优秀案例标记。" });
       }
-      if (isExcellentCase !== undefined) {
-        payload.isExcellentCase = isExcellentCase === true || isExcellentCase === "true" || isExcellentCase === "1";
-      }
-      if (curatorNote !== undefined) {
-        payload.curatorNote = curatorNote;
-      }
+      payload.isExcellentCase = isExcellentCase === true || isExcellentCase === "true" || isExcellentCase === "1";
     }
 
     if (Object.keys(payload).length > 0) {

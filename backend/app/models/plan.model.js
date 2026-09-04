@@ -66,9 +66,6 @@ module.exports = (sequelize, Sequelize) => {
         allowNull: false,
         defaultValue: false,
       },
-      curatorNote: {
-        type: Sequelize.STRING(1024),
-      },
       suspended: {
         type: Sequelize.BOOLEAN,
         allowNull: false,
@@ -78,7 +75,7 @@ module.exports = (sequelize, Sequelize) => {
       // content changes (title/theme/.../planFormData/status) -- deliberately
       // NOT the same as the plain `updated_at` column, which MySQL's ON
       // UPDATE CURRENT_TIMESTAMP bumps for every write, including an admin's
-      // curatorNote/isExcellentCase/suspend toggle. Reviews snapshot this
+      // isExcellentCase/suspend toggle. Reviews snapshot this
       // value at creation time (reviews.plan_version_at) so two reviews with
       // an identical snapshot were both written in the same interval between
       // consecutive content edits -- see review-list.component.js's grouping.

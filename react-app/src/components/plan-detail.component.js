@@ -453,7 +453,6 @@ const PlanDetail = (props) => {
   // shape as formData.lessons (see onLessonFieldChange), just plan-level
   // execution-record data instead of design content.
   const [executionFormData, setExecutionFormData] = useState([]);
-  const [curatorNote, setCuratorNote] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
   // planLessons (分课时设计, nested under 计划) starts collapsed, unlike plan/
   // execution -- it can hold as many leaves as 实施's own 课时 list, and it's
@@ -473,7 +472,6 @@ const PlanDetail = (props) => {
       setPlan(resp.data);
       setFormData(mergeFormData(resp.data.planFormData, resp.data.PlanTemplateVersion && resp.data.PlanTemplateVersion.schemaJson));
       setExecutionFormData(Array.isArray(resp.data.executionFormData) ? resp.data.executionFormData : []);
-      setCuratorNote(resp.data.curatorNote || "");
     } catch (e) {
       console.log(e);
       setPlan(null);
@@ -596,16 +594,6 @@ const PlanDetail = (props) => {
         status: submitStatus || undefined,
       });
       setMessage(submitStatus === "submitted" ? "课程设计方案已提交。" : "课程设计方案已保存。");
-      retrievePlan();
-    } catch (err) {
-      setMessage(err?.response?.data?.message || "保存失败。");
-    }
-  };
-
-  const saveCurator = async () => {
-    try {
-      await PlanDataService.update(planId, { curatorNote });
-      setMessage("管理员备注已保存。");
       retrievePlan();
     } catch (err) {
       setMessage(err?.response?.data?.message || "保存失败。");
@@ -924,7 +912,7 @@ const PlanDetail = (props) => {
               </button>
             </div>
           </div>
-          <div className="form-group">
+          <div className="form-group mb-0">
             <label>停用状态</label>
             <div>
               <button className="btn btn-outline-secondary btn-sm" type="button" onClick={toggleSuspend}>
@@ -932,13 +920,11 @@ const PlanDetail = (props) => {
               </button>
             </div>
           </div>
-          <div className="form-group">
-            <label>管理员备注</label>
-            <textarea className="form-control" rows="2" value={curatorNote} onChange={(e) => setCuratorNote(e.target.value)} />
-          </div>
-          <button className="btn btn-primary btn-sm" type="button" onClick={saveCurator}>
-            保存备注
-          </button>
+          {/* 管理员备注 (curatorNote) retired -- it duplicated 管理员点评 (see
+              整体点评/WHY/WHAT/HOW's ReviewList, reviewerType='admin') with
+              none of its benefits (no history, no attribution, and it was
+              leaking to any viewer via the plan API despite the UI only
+              ever showing it here). Leave a 管理员点评 review instead. */}
         </div>
       );
     }
