@@ -10,4 +10,5 @@ COPY . .
 
 ENV NODE_ENV=production
 EXPOSE 8080
+ENTRYPOINT ["sh", "docker-entrypoint.sh"]
 CMD ["node", "server.js"]

@@ -14,13 +14,18 @@ app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 const db = require("./app/models");
 
+// Schema is owned by sequelize-cli migrations now (run by
+// docker-entrypoint.sh before this process starts) -- sync() would fight
+// them by auto-creating tables outside migration tracking. Just verify the
+// connection actually works, failing fast the same way sync() incidentally
+// did.
 db.sequelize
-  .sync()
+  .authenticate()
   .then(() => {
-    console.log("Database synced.");
+    console.log("Database connection established.");
   })
   .catch((err) => {
-    console.error("Failed to sync database:", err.message);
+    console.error("Failed to connect to database:", err.message);
   });
 
 // simple route

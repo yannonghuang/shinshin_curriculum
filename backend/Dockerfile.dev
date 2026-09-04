@@ -8,4 +8,8 @@ COPY package.json package-lock.json* ./
 RUN npm install
 
 EXPOSE 8080
+# docker-entrypoint.sh isn't copied into this image (only package.json is,
+# above) -- it arrives via docker-compose.yml's ./backend:/app bind mount,
+# already present by the time this entrypoint runs at container start.
+ENTRYPOINT ["sh", "docker-entrypoint.sh"]
 CMD ["npm", "run", "dev"]

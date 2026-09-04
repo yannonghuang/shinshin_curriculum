@@ -251,6 +251,15 @@ IMAGE_TAG=<previous-good-sha> docker compose -f docker-compose.yml -f docker-com
   `db_data` volume — if you'd previously started the stack once without it
   present, wipe the volume once (`docker compose down -v` on the VM, matches
   the same caveat documented in `deploy.md` for local dev) and redeploy.
+- **`backend` container won't start / keeps restarting after a deploy that
+  included a schema change**: `backend/docker-entrypoint.sh` runs
+  `npx sequelize-cli db:migrate` before the app starts (see `deploy.md`'s
+  "Changing the schema after that") and fails the container on purpose if a
+  migration errors, rather than run the new code against a half-migrated
+  schema. `docker compose -f docker-compose.yml -f docker-compose.prod.yml
+  logs backend` on the VM shows which migration failed. Fix and redeploy, or
+  set `SKIP_MIGRATIONS=true` in the VM's `.env` temporarily to get the app
+  running again while you fix the migration by hand — remove it once fixed.
 - **Images pull but the app 500s on AI review**: `.env` on the VM needs a
   real `DASHSCOPE_API_KEY` — the deploy script never sets this, only the
   one-time manual `.env` in §4 does.

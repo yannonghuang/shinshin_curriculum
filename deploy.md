@@ -95,24 +95,50 @@ docker compose down -v
 image auto-runs `backend/schema.sql` (mounted into
 `/docker-entrypoint-initdb.d/`) against the `shinshin_curriculum` database —
 this creates every table **and** seeds the three roles (`admin`/`teacher`/`expert`).
-This only happens once, on an empty volume. If you edit `schema.sql` later,
-either:
-- `docker compose down -v` (destroys all data, cleanest for dev), or
-- apply the change manually: `docker compose exec db mysql -u root -p"$DB_ROOT_PASSWORD" "$DB_NAME" < backend/schema.sql` won't work for `ALTER`-style changes to existing tables — write the specific `ALTER TABLE`/`CREATE TABLE IF NOT EXISTS` statements you need and run them the same way.
+This only happens once, on an empty volume — `schema.sql` is a fresh-install
+bootstrap only, not something you edit to make an ongoing schema change (see
+below for that). To force it to re-apply from scratch: `docker compose down
+-v` (destroys all data, cleanest for a true clean slate).
 
-The backend's own startup (`db.sequelize.sync()` in `server.js`) also runs on
-every boot — it only creates tables that don't exist yet, so it's a safe
-no-op once `schema.sql` has already created everything.
+### Changing the schema after that
+
+Every schema change past the initial bootstrap is a **migration**, not an
+edit to `schema.sql`. `backend/docker-entrypoint.sh` runs
+`npx sequelize-cli db:migrate` automatically on every backend container
+start — local dev, a manual ECS deploy, or an automatic one — before the app
+itself starts, so a migration you commit just works the next time the
+container restarts. No more SSH-in-and-`ALTER TABLE`-by-hand.
+
+To make a change:
+```
+docker compose exec backend npx sequelize-cli migration:generate --name add-foo-to-bar
+```
+writes a timestamped file into `backend/migrations/`; fill in its `up()`
+(and a matching `down()`) using the `queryInterface` API, same as any
+Sequelize migration. Restart the backend container to apply it locally
+(`docker compose restart backend`, or it happens automatically next time you
+`docker compose up`); `docker compose exec backend npm run migrate:status` /
+`npm run migrate:undo` are also available. Commit the migration file with
+the model change it supports — it ships with the code and applies itself.
+
+If a migration fails to apply on container start, the backend container
+won't start (fail fast, rather than run against a half-migrated schema) —
+fix the migration and restart, or set `SKIP_MIGRATIONS=true` on the backend
+service temporarily to get the app running again while you fix it by hand.
+
+The backend's own startup no longer calls `db.sequelize.sync()` (removed —
+it would fight the migrations above by auto-creating tables outside their
+tracking); it just verifies the DB connection via `authenticate()`.
 
 ## Production
 
 This section covers running the prod compose stack yourself, on any host.
 For deploying to a specific cloud target (build, push to a registry, deploy
-to a VM, all from your own machine), see `ALIYUN_DEPLOY.md` — it targets
-Alibaba Cloud (ACR + ECS) via `scripts/deploy-aliyun.sh`, building on the
-same `docker-compose.prod.yml` described here. GitHub only ever holds
-source in that setup — the deploy script talks to Alibaba Cloud directly,
-not GitHub Actions.
+to a VM), see `ALIYUN_DEPLOY.md` — it targets Alibaba Cloud (ACR + ECS) via
+`scripts/deploy-aliyun.sh`, building on the same `docker-compose.prod.yml`
+described here. That script can be run by hand from your own machine, or
+(§10) via a GitHub Actions workflow — either way it's the same script and
+the same deploy.
 
 ```
 cp .env.example .env   # if you haven't already — use real production values this time
