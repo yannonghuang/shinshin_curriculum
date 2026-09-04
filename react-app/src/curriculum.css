@@ -950,7 +950,6 @@
 
 .pl-fm-name-cell {
   cursor: pointer;
-  font-weight: 600;
   color: var(--pl-text);
 }
 

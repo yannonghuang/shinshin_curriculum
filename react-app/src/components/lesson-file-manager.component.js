@@ -56,6 +56,21 @@ const iconClassForArtifact = (artifact) => {
   return ARTIFACT_ICONS[artifact.category] || "fas fa-file";
 };
 
+// Per-file-type icon color (folder's own #e0a940 yellow, set via
+// .pl-fm-folder-glyph, is the model this follows) -- extension wins over
+// category so e.g. a .pdf filed under 实施记录文件 still reads as a PDF, not
+// a generic document. Applied as an inline style (list view has no
+// .pl-fm-icon-glyph to hook a per-type CSS class onto, and this keeps both
+// views' coloring in exactly one place) rather than baking a fixed color
+// into iconClassForArtifact's FontAwesome class, since the icon *shape* and
+// its *color* are independent concerns.
+const ARTIFACT_TYPE_COLORS = { pdf: "#e2574c", doc: "#2b579a", docx: "#2b579a", xls: "#217346", xlsx: "#217346" };
+const ARTIFACT_CATEGORY_COLORS = { 视频: "#e5533c", 图片: "#00897b", 课件PPT: "#d24726" };
+const iconColorForArtifact = (artifact) => {
+  const type = (artifact.type || "").toLowerCase();
+  return ARTIFACT_TYPE_COLORS[type] || ARTIFACT_CATEGORY_COLORS[artifact.category] || "#6c7a89";
+};
+
 // download is a public (no-auth) GET route (artifact.routes.js), so this can
 // be used directly as an <img>/<video> src or a window.open target -- no need
 // to fetch-as-blob first the way the old inline preview did.
@@ -245,6 +260,18 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
     () => artifacts.filter((a) => (a.folderId || null) === (currentFolderId || null)),
     [artifacts, currentFolderId]
   );
+
+  // Drives the header checkbox replacing the old standalone "全选" button --
+  // checked once every item in the current folder is selected, and toggles
+  // between selectAll/clearSelection rather than only ever selecting.
+  const allSelected =
+    childFolders.length + childArtifacts.length > 0 &&
+    selectedFolderIds.size === childFolders.length &&
+    selectedArtifactIds.size === childArtifacts.length;
+  const toggleSelectAll = () => {
+    if (allSelected) clearSelection();
+    else selectAll();
+  };
 
   const toggleFolderSelection = (id) => {
     setSelectedFolderIds((prev) => {
@@ -519,7 +546,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
       // fetching the whole file.
       return <video className="pl-fm-thumb" src={artifactUrl(artifact.id)} muted preload="metadata" />;
     }
-    return <i className={`${iconClassForArtifact(artifact)} pl-fm-icon-glyph`}></i>;
+    return <i className={`${iconClassForArtifact(artifact)} pl-fm-icon-glyph`} style={{ color: iconColorForArtifact(artifact) }}></i>;
   };
 
   const renderFolderRow = (folder, isIcon) => {
@@ -565,7 +592,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
       <tr key={`file-${artifact.id}`} className={checked ? "is-selected" : ""}>
         <td>{canEdit && renderItemCheckbox(checked, () => toggleArtifactSelection(artifact.id))}</td>
         <td className="pl-fm-name-cell" onClick={() => openPreview(artifact)} title={artifact.attachmentName}>
-          <i className={`${iconClassForArtifact(artifact)} mr-2`}></i>
+          <i className={`${iconClassForArtifact(artifact)} mr-2`} style={{ color: iconColorForArtifact(artifact) }}></i>
           {artifact.attachmentName}
         </td>
         <td>{artifact.type}</td>
@@ -623,7 +650,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
               <>
                 <button
                   type="button"
-                  className="btn btn-sm btn-primary mr-2"
+                  className="btn btn-sm btn-outline-secondary mr-2"
                   onClick={() => fileInputRef.current && fileInputRef.current.click()}
                 >
                   <i className="fas fa-upload mr-1"></i>上传
@@ -634,11 +661,6 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
             {canEdit && !isCreatingFolder && (
               <button type="button" className="btn btn-sm btn-outline-secondary mr-2" onClick={startCreateFolder}>
                 <i className="fas fa-folder-plus mr-1"></i>新建文件夹
-              </button>
-            )}
-            {canEdit && (childFolders.length > 0 || childArtifacts.length > 0) && (
-              <button type="button" className="btn btn-sm btn-outline-secondary mr-2" onClick={selectAll}>
-                全选
               </button>
             )}
             <div className="btn-group btn-group-sm" role="group">
@@ -704,9 +726,6 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
                 删除
               </button>
             )}
-            <button type="button" className="btn btn-sm btn-link text-muted" onClick={clearSelection}>
-              取消选择
-            </button>
           </div>
         )}
 
@@ -723,7 +742,9 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
           <table className="table table-sm table-hover pl-fm-table">
             <thead>
               <tr>
-                <th style={{ width: "32px" }}></th>
+                <th style={{ width: "32px" }}>
+                  {canEdit && (childFolders.length > 0 || childArtifacts.length > 0) && renderItemCheckbox(allSelected, toggleSelectAll)}
+                </th>
                 <th>名称</th>
                 <th style={{ width: "100px" }}>类型</th>
                 <th style={{ width: "100px" }}>大小</th>
