@@ -1,10 +1,4 @@
-import {
-  PLAN_GRADES,
-  EMPTY_WHY_WHAT_HOW,
-  WHY_WHAT_HOW_FIELD_LABELS,
-  EMPTY_EXECUTION_RECORD,
-  EXECUTION_RECORD_FIELD_LABELS,
-} from "../constants/plan-options";
+import { PLAN_GRADES } from "../constants/plan-options";
 
 // Shared by plans-list.component.js (seeding a brand-new plan from an
 // uploaded .docx) and plan-detail.component.js (the 课程设计文件 panel's 上传
@@ -69,7 +63,7 @@ const findLabel = (text, label) => {
 
 // Section/sub-section headings that aren't fields themselves but mark hard
 // content boundaries, used only as a fallback when the upload isn't shaped like
-// the template's table (see extractWhyWhatHowFromText) and there's no row/cell
+// the template's table (see extractSectionsFromText) and there's no row/cell
 // structure to bound content instead.
 const HARD_SECTION_BOUNDARIES = ["WHY", "WHAT", "HOW", "活动设计", "探究与制作", "三、出项", "第二部分：分课时设计"];
 
@@ -78,10 +72,11 @@ const HARD_SECTION_BOUNDARIES = ["WHY", "WHAT", "HOW", "活动设计", "探究�
 // whichever position comes next -- boundaryLabels (if any) are extra stop
 // points that cap content but never become a field's own value, for callers
 // with no other way to bound a field whose neighbor is missing or empty.
-// fieldLabels is a [path, label] pairs array (WHY_WHAT_HOW_FIELD_LABELS or
-// EXECUTION_RECORD_FIELD_LABELS) -- generalized so this same position-based
-// extraction works for both the plan's table-shaped template and the
-// 实施记录 template's flat one.
+// fieldLabels is a [path, label] pairs array, built from a template's
+// schema by extractSectionsFromText below -- generic so this same
+// position-based extraction works for both a table-shaped schema (the
+// plan_design seed) and a flat one (lesson_execution, or any future
+// auto-parsed template).
 const extractFieldsFromBlock = (text, fieldLabels, boundaryLabels = []) => {
   const fieldPositions = fieldLabels.map(([path, label]) => ({ path, ...findLabel(text, label) })).filter(
     (p) => p.idx != null
@@ -130,59 +125,84 @@ const tableRowTexts = (html) => {
   return Array.from(table.querySelectorAll("tr")).map((tr) => Array.from(tr.querySelectorAll("td, th")).map(cellText).join("\n"));
 };
 
-// Best-effort extraction of the WHY/WHAT/HOW body into the same shape the
-// online-fill form uses (EMPTY_WHY_WHAT_HOW), so an uploaded plan renders
-// through the same section-by-section presentation as one filled in online,
-// not just an attached file.
+// Best-effort extraction of a template_versions schema's answers from an
+// uploaded .docx believed to be a filled-in copy of that same template --
+// the generic engine behind both plan_design (multi-section, table-shaped)
+// and lesson_execution (single-section, flat) uploads, replacing what used
+// to be two separate hand-written functions (extractWhyWhatHowFromText,
+// extractExecutionRecordFromText) each hardcoding their own field-label
+// list. `schema` is a template_versions row's schemaJson (see
+// backend/app/services/templateParser.js / schema.sql's seed versions):
+// { sections: [ { key, label, fields: [ { key, label, group } ] } ] }.
 //
-// The template (curriculum_template/乡土课程设计方案模版.docx) is a single table,
-// one field (or a handful of related fields) per row, and real submissions keep
-// that same row layout since authors type directly into the template's cells.
-// So rather than pattern-matching over the entire document flattened into one
-// string, this processes each table row as its own independent block (see
-// tableRowTexts) -- a table row is *by construction* the field boundary the old
-// flat-text approach had to fake with a hardcoded HARD_SECTION_BOUNDARIES list
-// (a field can only ever swallow noise from within its own row/cell now, never
-// bleed into an unrelated section several rows away just because its neighbor
-// label was missing or left empty). A real filled-in document still mixes two
-// styles within a row -- "标签：内容" inline (WHY's四goals) and "标题\n内容段落"
-// (HOW's activities) -- extractFieldsFromBlock's position-based boundary works
-// for both uniformly. Falls back to the old whole-document/HARD_SECTION_BOUNDARIES
-// approach if mammoth can't find a table at all. Fields whose label isn't found
-// are left blank rather than guessed; if the same field label were somehow
-// matched in more than one row, the first (in document order) wins.
-export const extractWhyWhatHowFromText = (text, html) => {
-  const rowTexts = html && tableRowTexts(html);
-  if (!rowTexts || !rowTexts.length) return extractFieldsFromBlock(text, WHY_WHAT_HOW_FIELD_LABELS, HARD_SECTION_BOUNDARIES);
+// Field paths passed to extractFieldsFromBlock are "sectionKey.fieldKey"
+// when there's more than one section (so buildAnswersFromExtracted below
+// can re-nest results the same way plan.planFormData is already shaped --
+// { why: {...}, what: {...}, how: {...} }), or just the bare fieldKey for a
+// single-section schema (matching one 实施记录 entry's existing flat shape).
+//
+// Table-vs-flat handling mirrors the old table-aware function exactly (see
+// its retained reasoning below): a table -> extract per row (a row is by
+// construction a field boundary); no table -> the old whole-document
+// HARD_SECTION_BOUNDARIES fallback. A single-section, non-table schema
+// (lesson_execution) always takes the no-table path, same as before.
+export const extractSectionsFromText = (text, html, schema) => {
+  const sections = (schema && schema.sections) || [];
+  const multiSection = sections.length > 1;
+  const fieldLabels = [];
+  sections.forEach((section) => {
+    (section.fields || []).forEach((field) => {
+      const path = multiSection ? `${section.key}.${field.key}` : field.key;
+      fieldLabels.push([path, field.label]);
+    });
+  });
 
-  const result = {};
-  for (const rowText of rowTexts) {
-    const rowResult = extractFieldsFromBlock(rowText, WHY_WHAT_HOW_FIELD_LABELS);
-    for (const [path, value] of Object.entries(rowResult)) {
-      if (!(path in result)) result[path] = value;
+  const rowTexts = html && tableRowTexts(html);
+  let extracted;
+  if (rowTexts && rowTexts.length) {
+    extracted = {};
+    for (const rowText of rowTexts) {
+      const rowResult = extractFieldsFromBlock(rowText, fieldLabels);
+      for (const [path, value] of Object.entries(rowResult)) {
+        if (!(path in extracted)) extracted[path] = value;
+      }
     }
+  } else {
+    extracted = extractFieldsFromBlock(text, fieldLabels, HARD_SECTION_BOUNDARIES);
   }
-  return result;
+  return buildAnswersFromExtracted(schema, extracted);
 };
 
-export const buildPlanFormData = (extracted, lessons) => {
-  const data = { why: { ...EMPTY_WHY_WHAT_HOW.why }, what: { ...EMPTY_WHY_WHAT_HOW.what }, how: { ...EMPTY_WHY_WHAT_HOW.how }, lessons: lessons || [] };
-  for (const [path, value] of Object.entries(extracted)) {
-    const [section, field] = path.split(".");
-    data[section][field] = value;
-  }
+// Re-nests extractSectionsFromText's flat { path: value } result back into
+// the plan's actual stored-answer shape: { sectionKey: { fieldKey: value } }
+// for a multi-section schema (plan_design), or a flat { fieldKey: value }
+// object for a single-section one (lesson_execution) -- see
+// dynamicDocGenerator.js's sectionAnswers, which reads answers the same way.
+export const buildAnswersFromExtracted = (schema, extracted) => {
+  const sections = (schema && schema.sections) || [];
+  if (sections.length <= 1) return { ...extracted };
+  const data = {};
+  sections.forEach((section) => {
+    data[section.key] = {};
+  });
+  Object.entries(extracted).forEach(([path, value]) => {
+    const [sectionKey, fieldKey] = path.split(".");
+    if (data[sectionKey]) data[sectionKey][fieldKey] = value;
+  });
   return data;
 };
 
-// curriculum_template/课时实施记录模板.docx is a flat run of labeled
-// paragraphs with no table at all (unlike the plan's template), so this is
-// just extractFieldsFromBlock over the whole document -- no
-// tableRowTexts/HARD_SECTION_BOUNDARIES fallback dance needed, and no
-// section nesting in the resulting paths (EXECUTION_RECORD_FIELD_LABELS'
-// paths are bare field names, not "section.field").
-export const extractExecutionRecordFromText = (text) => extractFieldsFromBlock(text, EXECUTION_RECORD_FIELD_LABELS);
-
-export const buildExecutionRecordData = (extracted) => ({ ...EMPTY_EXECUTION_RECORD, ...extracted });
+// True if extractSectionsFromText/buildAnswersFromExtracted's output (or any
+// answers object shaped like it) has at least one non-empty field, across
+// however many sections the schema has -- used to decide whether an upload
+// actually matched anything before overwriting a plan's/课时's content with
+// it (see plan-detail.component.js's 上传 handlers).
+export const hasAnySectionContent = (schema, answers) => {
+  const sections = (schema && schema.sections) || [];
+  const hasValue = (obj) => Object.values(obj || {}).some((v) => v != null && String(v).trim() !== "");
+  if (sections.length > 1) return sections.some((s) => hasValue(answers && answers[s.key]));
+  return hasValue(answers);
+};
 
 // Leading-whitespace class used by the Part 2 regexes below (not \s -- \s also
 // matches a newline, which would let e.g. "第一课时：" with nothing else on the
@@ -198,9 +218,10 @@ const LESSON_HEADING_RE = new RegExp(`^${PART2_LEADING_WS}第[0-9一二三四五
 const PART3_HEADING_RE = new RegExp(`^${PART2_LEADING_WS}第三部分`, "m");
 
 // Best-effort extraction of "第二部分：分课时设计" into the same
-// [{ index, title, content }] shape planDocGenerator.js renders it from (see
-// EMPTY_LESSON). This section lives entirely outside the template's table (see
-// extractWhyWhatHowFromText's table-row approach for Part 1), as a flat run of
+// [{ index, title, content }] shape dynamicDocGenerator.js's caller renders it
+// from (see EMPTY_LESSON). This section lives entirely outside the template's
+// table (see extractSectionsFromText's table-row approach for the field
+// sections), as a flat run of
 // paragraphs with no structure of its own beyond the "第N课时：" headings
 // themselves, so it's handled independently over the whole flattened text
 // rather than through tableRowTexts. Each "第N课时" heading may carry an inline

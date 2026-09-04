@@ -1,11 +1,11 @@
 const fs = require("fs");
-const planDocGenerator = require("../services/planDocGenerator");
-const lessonExecutionDocGenerator = require("../services/lessonExecutionDocGenerator");
+const dynamicDocGenerator = require("../services/dynamicDocGenerator");
 const db = require("../models");
 const Plan = db.plan;
 const User = db.user;
 const Artifact = db.artifact;
 const Review = db.review;
+const TemplateVersion = db.templateVersion;
 const Op = db.Sequelize.Op;
 
 const PLAN_THEMES = db.PLAN_THEMES;
@@ -129,6 +129,18 @@ exports.create = async (req, res) => {
       return res.status(422).send({ message: "状态 无效。" });
     }
 
+    // Pins this plan to whichever template versions are active right now --
+    // never re-resolved later, so a template edit after this plan exists
+    // never changes how it renders/generates (see templateVersion.model.js).
+    const [planTemplateVersion, executionTemplateVersion] = await Promise.all([
+      TemplateVersion.findOne({ where: { templateKey: "plan_design", isActive: true }, transaction: t }),
+      TemplateVersion.findOne({ where: { templateKey: "lesson_execution", isActive: true }, transaction: t }),
+    ]);
+    if (!planTemplateVersion || !executionTemplateVersion) {
+      await t.rollback();
+      return res.status(500).send({ message: "未找到启用的课程设计/实施记录模板，请联系管理员。" });
+    }
+
     const data = await Plan.create(
       {
         teacherId: req.userId,
@@ -140,6 +152,8 @@ exports.create = async (req, res) => {
         plannedLessonCount: parsedLessonCount,
         planMode,
         planFormData: planMode === "online" ? planFormData || {} : null,
+        planTemplateVersionId: planTemplateVersion.id,
+        executionTemplateVersionId: executionTemplateVersion.id,
         status: status || "draft",
       },
       { transaction: t }
@@ -242,6 +256,12 @@ exports.findOne = async (req, res) => {
     const data = await Plan.findByPk(req.params.id, {
       include: [
         { model: User, as: "Teacher", attributes: ["id", "username", "chineseName"] },
+        // The schema each form/doc renders from -- resolved here so the
+        // frontend gets it in the same request that loads the plan, rather
+        // than a second round-trip. Whole row (small JSON blob) is fine to
+        // send as-is, no attributes trim needed.
+        { model: TemplateVersion, as: "PlanTemplateVersion" },
+        { model: TemplateVersion, as: "ExecutionTemplateVersion" },
         {
           model: Artifact,
           as: "Artifacts",
@@ -550,16 +570,20 @@ exports.delete = async (req, res) => {
   }
 };
 
-// Online-fill -> .docx, rendered on request via services/planDocGenerator.js
-// and streamed straight back. Nothing is persisted -- no Artifact row, no
-// file on disk -- so this always reflects the plan's *current* content and
-// there's no stale generated-file copy to track or clean up. Backs the
-// 课程设计文件 panel's 下载/预览 commands (both hit this same endpoint; the
-// frontend decides whether to save the response or render it inline) as
-// well as any other reader who just wants "the plan as a document".
+// Online-fill -> .docx, rendered on request via services/dynamicDocGenerator.js
+// against whichever template_versions row this plan was pinned to at
+// creation (plan.PlanTemplateVersion) and streamed straight back. Nothing
+// is persisted -- no Artifact row, no file on disk -- so this always
+// reflects the plan's *current* content and there's no stale generated-file
+// copy to track or clean up. Backs the 课程设计文件 panel's 下载/预览
+// commands (both hit this same endpoint; the frontend decides whether to
+// save the response or render it inline) as well as any other reader who
+// just wants "the plan as a document".
 exports.renderDoc = async (req, res) => {
   try {
-    const plan = await Plan.findByPk(req.params.id);
+    const plan = await Plan.findByPk(req.params.id, {
+      include: [{ model: TemplateVersion, as: "PlanTemplateVersion" }],
+    });
     if (!plan) {
       return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
     }
@@ -576,7 +600,34 @@ exports.renderDoc = async (req, res) => {
       }
     }
 
-    const buffer = await planDocGenerator.generatePlanDocx(plan);
+    // "第二部分：分课时设计" is freeform per-课时 title+content (see
+    // EMPTY_LESSON) -- not part of the field-template mechanism at all, so
+    // it's composed here as a hardcoded tail rather than driven by any
+    // schema, exactly like the old planDocGenerator.js used to.
+    const lessons = Array.isArray(plan.planFormData && plan.planFormData.lessons) ? plan.planFormData.lessons : [];
+    const lessonCount = plan.plannedLessonCount || lessons.length || 0;
+    const trailingChildren = [dynamicDocGenerator.h1("第二部分：分课时设计")];
+    if (lessonCount > 0) {
+      for (let i = 1; i <= lessonCount; i += 1) {
+        const lesson = lessons.find((l) => Number(l.index) === i) || {};
+        trailingChildren.push(dynamicDocGenerator.h3(`第${dynamicDocGenerator.lessonOrdinal(i)}课时：${lesson.title || ""}`));
+        trailingChildren.push(...dynamicDocGenerator.multiline(lesson.content));
+      }
+    } else {
+      trailingChildren.push(dynamicDocGenerator.plain(""));
+    }
+
+    const buffer = await dynamicDocGenerator.generateDoc({
+      docTitle: "乡土课程设计方案",
+      meta: [
+        ["课程名称", plan.title],
+        ["任教年级", plan.grade],
+        ["预计课时", plan.plannedLessonCount],
+      ],
+      schema: plan.PlanTemplateVersion ? plan.PlanTemplateVersion.schemaJson : { sections: [] },
+      answers: plan.planFormData,
+      trailingChildren,
+    });
     const fileName = `${plan.title || "乡土课程设计方案"}.docx`;
 
     res.set({
@@ -592,11 +643,14 @@ exports.renderDoc = async (req, res) => {
 };
 
 // Same on-the-fly, nothing-persisted shape as renderDoc above, but for one
-// 课时's 实施记录 (services/lessonExecutionDocGenerator.js) instead of the
-// plan's own WHY/WHAT/HOW. Backs the 课程实施文件 panel's 下载/预览 commands.
+// 课时's 实施记录, rendered against plan.ExecutionTemplateVersion instead
+// of the plan's own WHY/WHAT/HOW-equivalent template. Backs the 课程实施
+// 文件 panel's 下载/预览 commands.
 exports.renderExecutionDoc = async (req, res) => {
   try {
-    const plan = await Plan.findByPk(req.params.id);
+    const plan = await Plan.findByPk(req.params.id, {
+      include: [{ model: TemplateVersion, as: "ExecutionTemplateVersion" }],
+    });
     if (!plan) {
       return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
     }
@@ -616,7 +670,13 @@ exports.renderExecutionDoc = async (req, res) => {
       }
     }
 
-    const buffer = await lessonExecutionDocGenerator.generateExecutionDocx(plan, lessonIndex);
+    const records = Array.isArray(plan.executionFormData) ? plan.executionFormData : [];
+    const record = records.find((r) => Number(r.index) === lessonIndex) || {};
+    const buffer = await dynamicDocGenerator.generateDoc({
+      docTitle: `课时实施记录 · 第${lessonIndex}课时`,
+      schema: plan.ExecutionTemplateVersion ? plan.ExecutionTemplateVersion.schemaJson : { sections: [] },
+      answers: record,
+    });
     const fileName = `${plan.title || "乡土课程设计方案"}-课时${lessonIndex}-实施记录.docx`;
 
     res.set({

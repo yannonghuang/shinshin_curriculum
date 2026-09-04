@@ -16,6 +16,7 @@ import PlansList from "./components/plans-list.component";
 import PlanDetail from "./components/plan-detail.component";
 import LearningMaterialsList from "./components/learning-materials-list.component";
 import AdminUsersList from "./components/admin-users-list.component";
+import TemplateAdmin from "./components/template-admin.component";
 
 import AuthService from "./services/auth.service";
 
@@ -93,6 +94,13 @@ class App extends Component {
                     </Link>
                   </li>
                 )}
+                {AuthService.isAdmin() && (
+                  <li className="nav-item">
+                    <Link to="/admin/templates" className="nav-link">
+                      模板管理
+                    </Link>
+                  </li>
+                )}
                 <li className="nav-item">
                   <Link to="/materials" className="nav-link">
                     共享学习材料库
@@ -146,6 +154,7 @@ class App extends Component {
             <Route exact path="/gallery" render={(routeProps) => <PlansList {...routeProps} excellentOnly />} />
             <Route exact path="/materials" component={LearningMaterialsList} />
             <Route exact path="/admin/users" component={AdminUsersList} />
+            <Route exact path="/admin/templates" component={TemplateAdmin} />
             <Route exact path="/plans" component={PlansList} />
             <Route path="/plans/:id" component={PlanDetail} />
           </Switch>

@@ -5,32 +5,65 @@ import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import ReviewList from "./review-list.component";
 import LessonFileManager from "./lesson-file-manager.component";
-import {
-  PLAN_THEMES,
-  PLAN_GRADES,
-  EMPTY_WHY_WHAT_HOW,
-  EMPTY_LESSON,
-  EMPTY_EXECUTION_RECORD,
-  EXECUTION_RECORD_FIELD_LABELS,
-} from "../constants/plan-options";
-import {
-  extractWhyWhatHowFromText,
-  extractLessonsFromText,
-  buildPlanFormData,
-  extractExecutionRecordFromText,
-  buildExecutionRecordData,
-} from "../utils/planDocExtract";
+import { PLAN_THEMES, PLAN_GRADES, EMPTY_LESSON } from "../constants/plan-options";
+import { extractLessonsFromText, extractSectionsFromText, hasAnySectionContent } from "../utils/planDocExtract";
 import "../curriculum.css";
 
-const mergeFormData = (data) => ({
-  why: { ...EMPTY_WHY_WHAT_HOW.why, ...(data && data.why) },
-  what: { ...EMPTY_WHY_WHAT_HOW.what, ...(data && data.what) },
-  how: { ...EMPTY_WHY_WHAT_HOW.how, ...(data && data.how) },
-  lessons: Array.isArray(data && data.lessons) ? data.lessons : [],
-});
+// planFormData is nested by section key when its schema has more than one
+// section (plan_design's seed: why/what/how), or flat when it has exactly
+// one (any future re-uploaded template collapses to one section -- see the
+// dynamic-templates plan) -- matches buildAnswersFromExtracted/
+// dynamicDocGenerator.js's sectionAnswers exactly, so save/render/generate
+// all agree on the same shape. `schema` is plan.PlanTemplateVersion.schemaJson.
+const mergeFormData = (data, schema) => {
+  const sections = (schema && schema.sections) || [];
+  const lessons = Array.isArray(data && data.lessons) ? data.lessons : [];
+  if (sections.length > 1) {
+    const merged = { lessons };
+    sections.forEach((s) => {
+      merged[s.key] = { ...(data && data[s.key]) };
+    });
+    return merged;
+  }
+  return { ...(data || {}), lessons };
+};
+
+// Renders one schema section's fields as labeled textareas, grouping
+// consecutive same-`group` fields under one sub-heading and repeating
+// "{group} · {label}" on each (same convention as HOW's own nested fields
+// and 实施记录's 教学活动流程 -- see dynamicDocGenerator.js's identical
+// grouping logic on the doc-generation side). Shared by every online-fill
+// section (WHY/WHAT/HOW-equivalent and 实施记录-equivalent alike) instead of
+// each hand-rolling its own field list.
+const DynamicSectionFields = ({ fields, values, canEdit, onFieldChange }) => {
+  let lastGroup;
+  return (
+    <>
+      {(fields || []).map((field) => {
+        const isNewGroup = field.group && field.group !== lastGroup;
+        lastGroup = field.group;
+        return (
+          <React.Fragment key={field.key}>
+            {isNewGroup && <h6 className="mt-3 mb-2">{field.group}</h6>}
+            <div className="form-group">
+              <label>{field.group ? `${field.group} · ${field.label}` : field.label}</label>
+              <textarea
+                className="form-control"
+                rows="2"
+                value={(values && values[field.key]) || ""}
+                disabled={!canEdit}
+                onChange={(e) => onFieldChange(field.key, e.target.value)}
+              />
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </>
+  );
+};
 
 // Plan-level 课程设计文件 panel, reached from a single sidebar leaf (see
-// PLAN_SECTIONS_ONLINE/UPLOAD below). All three commands are shown at once:
+// PLAN_SECTIONS below). All three commands are shown at once:
 // 下载/预览 act immediately on click; 上传 just toggles the drop-zone/browse
 // UI open rather than acting itself, since it needs a file first. Nothing is
 // materialized server-side for any of the three -- 下载/预览 both hit
@@ -135,13 +168,14 @@ const DesignDocPanel = ({ planId, plan, canEdit, onContentReplaced }) => {
       const text = textResult.value || "";
       const html = htmlResult.value || "";
 
-      const bodyExtracted = extractWhyWhatHowFromText(text, html);
+      const schema = (plan && plan.PlanTemplateVersion && plan.PlanTemplateVersion.schemaJson) || { sections: [] };
+      const bodyExtracted = extractSectionsFromText(text, html, schema);
       const lessons = extractLessonsFromText(text);
-      if (Object.keys(bodyExtracted).length === 0 && lessons.length === 0) {
+      if (!hasAnySectionContent(schema, bodyExtracted) && lessons.length === 0) {
         setMessage("未能从文件中识别到有效内容，请确认文件是按课程设计方案模版填写的 .docx。");
         return;
       }
-      const newFormData = buildPlanFormData(bodyExtracted, lessons);
+      const newFormData = { ...bodyExtracted, lessons };
       await PlanDataService.update(planId, { planFormData: newFormData });
       setMessage("课程设计文件已上传，在线内容已更新。");
       setShowUpload(false);
@@ -219,8 +253,8 @@ const DesignDocPanel = ({ planId, plan, canEdit, onContentReplaced }) => {
 // GET /plans/:id/lessons/:lessonIndex/execution-doc
 // (plan.controller.js#renderExecutionDoc), rendered on the fly from the
 // lesson's current 实施记录 entry and never persisted. 上传 parses a
-// dropped/picked .docx client-side (extractExecutionRecordFromText -- no
-// table in this template, unlike the plan's) and overwrites just this
+// dropped/picked .docx client-side (extractSectionsFromText, driven by
+// plan.ExecutionTemplateVersion's schema) and overwrites just this
 // lesson's entry in plan.executionFormData, gated behind an explicit
 // confirm, same as DesignDocPanel's 上传.
 const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onContentReplaced }) => {
@@ -301,15 +335,19 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onContent
     setIsUploading(true);
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const textResult = await mammoth.extractRawText({ arrayBuffer });
+      const [textResult, htmlResult] = await Promise.all([
+        mammoth.extractRawText({ arrayBuffer }),
+        mammoth.convertToHtml({ arrayBuffer }),
+      ]);
       const text = textResult.value || "";
+      const html = htmlResult.value || "";
 
-      const extracted = extractExecutionRecordFromText(text);
-      if (Object.keys(extracted).length === 0) {
+      const schema = (plan && plan.ExecutionTemplateVersion && plan.ExecutionTemplateVersion.schemaJson) || { sections: [] };
+      const record = extractSectionsFromText(text, html, schema);
+      if (!hasAnySectionContent(schema, record)) {
         setMessage("未能从文件中识别到有效内容，请确认文件是按课时实施记录模板填写的 .docx。");
         return;
       }
-      const record = buildExecutionRecordData(extracted);
       const existing = Array.isArray(plan && plan.executionFormData) ? plan.executionFormData : [];
       const newExecutionFormData = existing.some((r) => Number(r.index) === Number(lessonIndex))
         ? existing.map((r) => (Number(r.index) === Number(lessonIndex) ? { ...record, index: lessonIndex } : r))
@@ -391,15 +429,13 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onContent
 // admin-only 管理 leaf) drives a single-section content pane on the right, replacing the old
 // waterfall of every card stacked vertically (and the react-tabs 课时 block) with one section
 // visible at a time.
-const PLAN_SECTIONS_ONLINE = [
-  { key: "basic", label: "基本信息" },
-  { key: "why", label: "WHY · 学习目标" },
-  { key: "what", label: "WHAT · 项目简介" },
-  { key: "how", label: "HOW · 活动设计" },
-  { key: "files", label: "课程设计文件" },
-  { key: "reviews", label: "整体点评" },
-];
-const PLAN_SECTIONS_UPLOAD = [
+// WHY/WHAT/HOW-equivalent leaves aren't listed here -- they're driven
+// entirely by plan.PlanTemplateVersion.schemaJson.sections at render time
+// (see the "planSection" branch and the sidebar below), same as
+// 分课时设计/实施记录 already were section content, not a fixed list. Both
+// online and upload-mode plans get the same static leaves; only the
+// schema-driven sections and 分课时设计 are gated to planMode === "online".
+const PLAN_SECTIONS = [
   { key: "basic", label: "基本信息" },
   { key: "files", label: "课程设计文件" },
   { key: "reviews", label: "整体点评" },
@@ -412,7 +448,7 @@ const PlanDetail = (props) => {
   const [message, setMessage] = useState("");
   const [metaForm, setMetaForm] = useState(null);
   const [isEditingMeta, setIsEditingMeta] = useState(false);
-  const [formData, setFormData] = useState({ ...EMPTY_WHY_WHAT_HOW, lessons: [] });
+  const [formData, setFormData] = useState({ lessons: [] });
   // Sparse array of 实施记录 entries, one per 课时, keyed by `index` -- same
   // shape as formData.lessons (see onLessonFieldChange), just plan-level
   // execution-record data instead of design content.
@@ -435,7 +471,7 @@ const PlanDetail = (props) => {
     try {
       const resp = await PlanDataService.get(planId);
       setPlan(resp.data);
-      setFormData(mergeFormData(resp.data.planFormData));
+      setFormData(mergeFormData(resp.data.planFormData, resp.data.PlanTemplateVersion && resp.data.PlanTemplateVersion.schemaJson));
       setExecutionFormData(Array.isArray(resp.data.executionFormData) ? resp.data.executionFormData : []);
       setCuratorNote(resp.data.curatorNote || "");
     } catch (e) {
@@ -496,8 +532,15 @@ const PlanDetail = (props) => {
     }
   };
 
-  const onFormFieldChange = (section, field, value) => {
-    setFormData((prev) => ({ ...prev, [section]: { ...prev[section], [field]: value } }));
+  // Mirrors mergeFormData's multi-vs-single-section branching: nested-by-
+  // section-key when the plan's schema has more than one section (the seed
+  // WHY/WHAT/HOW), flat when it has exactly one (any future re-uploaded
+  // template collapses to one -- see the dynamic-templates plan).
+  const onFormFieldChange = (sectionKey, field, value) => {
+    const sections = (plan && plan.PlanTemplateVersion && plan.PlanTemplateVersion.schemaJson && plan.PlanTemplateVersion.schemaJson.sections) || [];
+    setFormData((prev) =>
+      sections.length > 1 ? { ...prev, [sectionKey]: { ...prev[sectionKey], [field]: value } } : { ...prev, [field]: value }
+    );
   };
 
   // formData.lessons is a sparse array of { index, title, content } (see
@@ -516,12 +559,16 @@ const PlanDetail = (props) => {
 
   // executionFormData is a sparse array of 实施记录 entries, same shape as
   // formData.lessons (see onLessonFieldChange above) -- creates an entry on
-  // first edit rather than requiring every lesson slot pre-populated.
+  // first edit rather than requiring every lesson slot pre-populated. No
+  // base "empty record" to spread in (unlike before this became
+  // schema-driven) -- a field missing from a fresh entry just isn't in the
+  // object yet, which DynamicSectionFields already renders as "" (see its
+  // `values && values[field.key]) || ""`).
   const onExecutionFieldChange = (lessonIndex, field, value) => {
     setExecutionFormData((prev) =>
       prev.some((r) => Number(r.index) === lessonIndex)
         ? prev.map((r) => (Number(r.index) === lessonIndex ? { ...r, [field]: value } : r))
-        : [...prev, { ...EMPTY_EXECUTION_RECORD, index: lessonIndex, [field]: value }]
+        : [...prev, { index: lessonIndex, [field]: value }]
     );
   };
 
@@ -609,7 +656,8 @@ const PlanDetail = (props) => {
 
   const lessonCount = plan.plannedLessonCount || 0;
   const lessons = Array.from({ length: lessonCount }, (_, i) => i + 1);
-  const planSections = plan.planMode === "online" ? PLAN_SECTIONS_ONLINE : PLAN_SECTIONS_UPLOAD;
+  const planTemplateSchema = (plan.PlanTemplateVersion && plan.PlanTemplateVersion.schemaJson) || { sections: [] };
+  const planSchemaMultiSection = planTemplateSchema.sections.length > 1;
 
   const renderContent = () => {
     if (selected.type === "plan" && selected.key === "basic") {
@@ -689,27 +737,25 @@ const PlanDetail = (props) => {
       );
     }
 
-    if (selected.type === "plan" && selected.key === "why") {
+    // WHY/WHAT/HOW-equivalent -- one generic branch driven by whichever
+    // sections plan.PlanTemplateVersion.schemaJson has, replacing what used
+    // to be three separate hand-written branches each hardcoding their own
+    // field list. selected.key is a section key (e.g. "why"/"what"/"how"
+    // for the seed template, or "main" for a re-uploaded one -- see the
+    // dynamic-templates plan's "one flat section" limitation for those).
+    if (selected.type === "planSection") {
+      const section = planTemplateSchema.sections.find((s) => s.key === selected.key);
+      if (!section) return null;
+      const values = planSchemaMultiSection ? formData[section.key] || {} : formData;
       return (
         <div className="pl-card pl-why-what-how">
-          <h6>WHY · 学习目标</h6>
-          {[
-            ["cognitiveGoals", "认知思维目标"],
-            ["practicalGoals", "实践技能目标"],
-            ["socialEmotionalGoals", "社会情感目标"],
-            ["otherGoals", "其他目标"],
-          ].map(([field, label]) => (
-            <div className="form-group" key={field}>
-              <label>{label}</label>
-              <textarea
-                className="form-control"
-                rows="2"
-                value={formData.why[field]}
-                disabled={!canEditPlan}
-                onChange={(e) => onFormFieldChange("why", field, e.target.value)}
-              />
-            </div>
-          ))}
+          <h6>{section.label}</h6>
+          <DynamicSectionFields
+            fields={section.fields}
+            values={values}
+            canEdit={canEditPlan}
+            onFieldChange={(field, value) => onFormFieldChange(section.key, field, value)}
+          />
           {canEditPlan && (
             <div className="d-flex mt-2">
               <button className="btn btn-secondary mr-2" type="button" onClick={() => saveFormData()}>
@@ -721,89 +767,13 @@ const PlanDetail = (props) => {
             </div>
           )}
           <hr />
-          <ReviewList planId={planId} lessonIndex={null} sectionKey="WHY" embedded planContentVersionAt={plan.contentVersionAt} />
-        </div>
-      );
-    }
-
-    if (selected.type === "plan" && selected.key === "what") {
-      return (
-        <div className="pl-card pl-why-what-how">
-          <h6>WHAT · 项目简介</h6>
-          {[
-            ["projectIntro", "项目介绍（为什么做这个乡土主题？）"],
-            ["drivingQuestion", "驱动问题（儿童视角）"],
-            ["finalOutcomePersonal", "最终成果 · 个人成果"],
-            ["finalOutcomeTeam", "最终成果 · 团队成果"],
-            ["publicDisplayMethod", "公开展示方式"],
-          ].map(([field, label]) => (
-            <div className="form-group" key={field}>
-              <label>{label}</label>
-              <textarea
-                className="form-control"
-                rows="2"
-                value={formData.what[field]}
-                disabled={!canEditPlan}
-                onChange={(e) => onFormFieldChange("what", field, e.target.value)}
-              />
-            </div>
-          ))}
-          {canEditPlan && (
-            <div className="d-flex mt-2">
-              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveFormData()}>
-                保存草稿
-              </button>
-              <button className="btn btn-primary" type="button" onClick={() => saveFormData("submitted")}>
-                提交待点评
-              </button>
-            </div>
-          )}
-          <hr />
-          <ReviewList planId={planId} lessonIndex={null} sectionKey="WHAT" embedded planContentVersionAt={plan.contentVersionAt} />
-        </div>
-      );
-    }
-
-    if (selected.type === "plan" && selected.key === "how") {
-      return (
-        <div className="pl-card pl-why-what-how">
-          <h6>HOW · 活动设计</h6>
-          {[
-            ["entryActivity", "入项活动（1-2课时）"],
-            ["teacherStudentDiscussion", "师生共议驱动问题"],
-            ["outcomeDisplayDiscussion", "讨论最终成果及展示"],
-            ["requirementsChecklist", "讨论须知清单"],
-            ["knowledgeExploration", "探究与制作 · 知识探究（课时安排）"],
-            ["productMaking", "探究与制作 · 产品制作（课时安排）"],
-            ["reflectionIteration", "探究与制作 · 反思与迭代（课时安排）"],
-            ["finalOutcomeDisplay", "出项 · 最终成果展示"],
-            ["reflectionSummary", "出项 · 复盘反思"],
-            ["materialsNeeded", "需要的材料"],
-            ["resourcesNeeded", "需要链接的资源"],
-          ].map(([field, label]) => (
-            <div className="form-group" key={field}>
-              <label>{label}</label>
-              <textarea
-                className="form-control"
-                rows="2"
-                value={formData.how[field]}
-                disabled={!canEditPlan}
-                onChange={(e) => onFormFieldChange("how", field, e.target.value)}
-              />
-            </div>
-          ))}
-          {canEditPlan && (
-            <div className="d-flex mt-2">
-              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveFormData()}>
-                保存草稿
-              </button>
-              <button className="btn btn-primary" type="button" onClick={() => saveFormData("submitted")}>
-                提交待点评
-              </button>
-            </div>
-          )}
-          <hr />
-          <ReviewList planId={planId} lessonIndex={null} sectionKey="HOW" embedded planContentVersionAt={plan.contentVersionAt} />
+          <ReviewList
+            planId={planId}
+            lessonIndex={null}
+            sectionKey={section.key.toUpperCase()}
+            embedded
+            planContentVersionAt={plan.contentVersionAt}
+          />
         </div>
       );
     }
@@ -884,36 +854,18 @@ const PlanDetail = (props) => {
     // LessonFileManager/ReviewList, just no longer combined into one pane.
     if (selected.type === "executionRecord") {
       const n = selected.key;
-      const record = executionFormData.find((r) => Number(r.index) === n) || EMPTY_EXECUTION_RECORD;
-      // labelPrefix repeats the parent heading on each of its own sub-fields
-      // (e.g. "教学活动流程 · 教师做了什么"), same convention the HOW section
-      // already uses for its own nested fields ("探究与制作 · 知识探究（课时安排）")
-      // -- kept display-only (never written into EXECUTION_RECORD_FIELD_LABELS
-      // itself), since that array's bare label text is also what
-      // extractExecutionRecordFromText searches an uploaded .docx for.
-      const renderExecutionField = ([field, label], labelPrefix) => (
-        <div className="form-group" key={field}>
-          <label>{labelPrefix ? `${labelPrefix} · ${label}` : label}</label>
-          <textarea
-            className="form-control"
-            rows="2"
-            value={record[field] || ""}
-            disabled={!canEditPlan}
-            onChange={(e) => onExecutionFieldChange(n, field, e.target.value)}
-          />
-        </div>
-      );
-      // EXECUTION_RECORD_FIELD_LABELS is flat (see plan-options.js) since
-      // extraction/doc-generation don't need the grouping, but the template
-      // itself nests the last 4 fields under one heading ("4. 教学活动流程"),
-      // so the on-screen form splits at that same boundary (index 3) to show
-      // it -- matching how the docx generator renders it as its own h2.
+      const record = executionFormData.find((r) => Number(r.index) === n) || {};
+      const executionSchema = (plan.ExecutionTemplateVersion && plan.ExecutionTemplateVersion.schemaJson) || { sections: [] };
+      const section = executionSchema.sections[0] || { fields: [] };
       return (
         <div className="pl-card pl-why-what-how">
           <h6>实施记录 · 课时 {n}</h6>
-          {EXECUTION_RECORD_FIELD_LABELS.slice(0, 3).map((entry) => renderExecutionField(entry))}
-          <h6 className="mt-3 mb-2">教学活动流程</h6>
-          {EXECUTION_RECORD_FIELD_LABELS.slice(3).map((entry) => renderExecutionField(entry, "教学活动流程"))}
+          <DynamicSectionFields
+            fields={section.fields}
+            values={record}
+            canEdit={canEditPlan}
+            onFieldChange={(field, value) => onExecutionFieldChange(n, field, value)}
+          />
           {canEditPlan && (
             <div className="d-flex mt-2">
               <button className="btn btn-secondary mr-2" type="button" onClick={() => saveExecutionRecord()}>
@@ -1037,14 +989,25 @@ const PlanDetail = (props) => {
               </button>
               {expandedGroups.plan && (
                 <div className="pl-explorer-children">
-                  {planSections
-                    .filter((s) => ["basic", "why", "what", "how"].includes(s.key))
-                    .map((s) => (
+                  <button
+                    type="button"
+                    className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === "basic" ? "is-active" : ""}`}
+                    onClick={() => select("plan", "basic")}
+                  >
+                    基本信息
+                  </button>
+                  {/* WHY/WHAT/HOW-equivalent leaves, one per
+                      plan.PlanTemplateVersion.schemaJson section -- see the
+                      "planSection" render branch above. Online-only, like
+                      分课时设计 just below (an upload-mode plan has no online
+                      form to fill in). */}
+                  {plan.planMode === "online" &&
+                    planTemplateSchema.sections.map((s) => (
                       <button
                         key={s.key}
                         type="button"
-                        className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === s.key ? "is-active" : ""}`}
-                        onClick={() => select("plan", s.key)}
+                        className={`pl-explorer-leaf ${selected.type === "planSection" && selected.key === s.key ? "is-active" : ""}`}
+                        onClick={() => select("planSection", s.key)}
                       >
                         {s.label}
                       </button>
@@ -1080,18 +1043,16 @@ const PlanDetail = (props) => {
                       )}
                     </div>
                   )}
-                  {planSections
-                    .filter((s) => ["files", "reviews"].includes(s.key))
-                    .map((s) => (
-                      <button
-                        key={s.key}
-                        type="button"
-                        className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === s.key ? "is-active" : ""}`}
-                        onClick={() => select("plan", s.key)}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
+                  {PLAN_SECTIONS.filter((s) => ["files", "reviews"].includes(s.key)).map((s) => (
+                    <button
+                      key={s.key}
+                      type="button"
+                      className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === s.key ? "is-active" : ""}`}
+                      onClick={() => select("plan", s.key)}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>

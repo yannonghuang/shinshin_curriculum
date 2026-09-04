@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mammoth from "mammoth/mammoth.browser";
 import PlanDataService from "../services/plan.service";
+import TemplateDataService from "../services/template.service";
 import AuthService from "../services/auth.service";
 import Pagination from "@material-ui/lab/Pagination";
 import PlanCard from "./plan-card.component";
@@ -9,11 +10,23 @@ import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, currentSeason } from "../consta
 import {
   UPLOAD_FIELD_LABELS,
   extractPlanFieldsFromText,
-  extractWhyWhatHowFromText,
   extractLessonsFromText,
-  buildPlanFormData,
+  extractSectionsFromText,
 } from "../utils/planDocExtract";
 import "../curriculum.css";
+
+// Counts non-empty answers across however many sections a schema has --
+// used only for the "已从文件中识别..." status message below, not for any
+// actual decision (see hasAnySectionContent in planDocExtract.js for the
+// boolean version used elsewhere).
+const countSectionAnswers = (schema, answers) => {
+  const sections = (schema && schema.sections) || [];
+  const hasVal = (v) => v != null && String(v).trim() !== "";
+  if (sections.length > 1) {
+    return sections.reduce((sum, s) => sum + Object.values((answers && answers[s.key]) || {}).filter(hasVal).length, 0);
+  }
+  return Object.values(answers || {}).filter(hasVal).length;
+};
 
 const emptyForm = {
   title: "",
@@ -63,10 +76,12 @@ const PlansList = (props) => {
   // state -- every plan is always planMode='online' (see onSubmit), so it can
   // always be edited section-by-section afterward regardless of how it started.
   // Toggled by a button (see JSX below) rather than tied to any saved field.
-  // The picked file only ever seeds form fields and the WHY/WHAT/HOW body
-  // (best-effort, see extractPlanFieldsFromText/extractWhyWhatHowFromText) --
-  // it's never itself attached as an artifact; 课程设计文件 is populated only by
-  // generating a doc from the plan's (possibly pre-filled) online content.
+  // The picked file only ever seeds form fields and the WHY/WHAT/HOW-
+  // equivalent body (best-effort, see extractPlanFieldsFromText/
+  // extractSectionsFromText, driven by whichever plan_design template is
+  // currently active) -- it's never itself attached as an artifact;
+  // 课程设计文件 is rendered on the fly from the plan's (possibly pre-filled)
+  // online content, never stored (see plan-detail.component.js's DesignDocPanel).
   const [showFileImport, setShowFileImport] = useState(false);
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadDragActive, setUploadDragActive] = useState(false);
@@ -181,6 +196,29 @@ const PlansList = (props) => {
     }
   };
 
+  // Rendered on the fly from whichever template_versions row is currently
+  // active for that key (see template.controller.js#downloadBlank) --
+  // always matches what an admin last published in 模板管理, no static file
+  // in public/ to fall out of sync with it.
+  const downloadTemplateFile = async (templateKey) => {
+    try {
+      const resp = await TemplateDataService.downloadBlank(templateKey);
+      const url = window.URL.createObjectURL(
+        new Blob([resp.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `${templateKey === "plan_design" ? "乡土课程设计方案模版" : "课时实施记录模版"}.docx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.log(e);
+      setMessage("模板下载失败。");
+    }
+  };
+
   const handleUploadFile = async (file) => {
     if (!file) return;
     setUploadFile(file);
@@ -194,7 +232,7 @@ const PlansList = (props) => {
       const arrayBuffer = await file.arrayBuffer();
       const result = await mammoth.extractRawText({ arrayBuffer });
       const text = result.value || "";
-      // Also converted to HTML so extractWhyWhatHowFromText can walk the
+      // Also converted to HTML so extractSectionsFromText can walk the
       // template's actual table structure instead of just the flattened text --
       // see tableRowTexts.
       const htmlResult = await mammoth.convertToHtml({ arrayBuffer });
@@ -204,11 +242,17 @@ const PlansList = (props) => {
       const matchedLabels = Object.keys(extracted).map((k) => UPLOAD_FIELD_LABELS[k]);
       setForm((prev) => ({ ...prev, ...extracted }));
 
-      const bodyExtracted = extractWhyWhatHowFromText(text, html);
-      const bodyFieldCount = Object.keys(bodyExtracted).length;
+      // The currently-active plan_design template -- a brand-new plan has
+      // no PlanTemplateVersion of its own yet (that gets stamped by
+      // plan.controller.js#create moments later, from this same active
+      // version), so this is the only schema available to extract against.
+      const schemaResp = await TemplateDataService.getActive("plan_design");
+      const schema = schemaResp.data.schemaJson;
+      const bodyExtracted = extractSectionsFromText(text, html, schema);
+      const bodyFieldCount = countSectionAnswers(schema, bodyExtracted);
       const lessons = extractLessonsFromText(text);
       const hasOnlineContent = bodyFieldCount > 0 || lessons.length > 0;
-      setUploadFormData(hasOnlineContent ? buildPlanFormData(bodyExtracted, lessons) : null);
+      setUploadFormData(hasOnlineContent ? { ...bodyExtracted, lessons } : null);
 
       const parts = [];
       if (matchedLabels.length > 0) parts.push(matchedLabels.join("、"));
@@ -414,9 +458,12 @@ const PlansList = (props) => {
           <button className="btn btn-primary mr-3" type="button" onClick={openCreateEditor}>
             新增乡土课程设计
           </button>
-          <a href="/templates/乡土课程设计方案模版.docx" download>
+          <button className="btn btn-link p-0 mr-3" type="button" onClick={() => downloadTemplateFile("plan_design")}>
             下载乡土课程设计方案模版
-          </a>
+          </button>
+          <button className="btn btn-link p-0" type="button" onClick={() => downloadTemplateFile("lesson_execution")}>
+            下载乡土课程实施记录模版
+          </button>
         </div>
       )}
 

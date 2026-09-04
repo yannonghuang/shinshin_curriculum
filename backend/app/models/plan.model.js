@@ -40,10 +40,21 @@ module.exports = (sequelize, Sequelize) => {
       },
       // Structured per-课时 实施记录 template answers, keyed by lesson index
       // -- a sparse array like planFormData.lessons, e.g.
-      // [{ index: 1, lessonGoals: "...", ... }]. See
-      // services/lessonExecutionDocGenerator.js for the shape.
+      // [{ index: 1, lessonGoals: "...", ... }]. Field keys come from
+      // whichever schema executionTemplateVersionId points at.
       executionFormData: {
         type: Sequelize.JSON,
+      },
+      // Which template_versions row this plan's WHY/WHAT/HOW-equivalent
+      // form/doc/extraction and its 实施记录-equivalent one are pinned to,
+      // stamped once at creation time (see plan.controller.js#create) --
+      // never re-resolved later, so editing a template doesn't change how
+      // an already-created plan renders. See models/templateVersion.model.js.
+      planTemplateVersionId: {
+        type: Sequelize.BIGINT,
+      },
+      executionTemplateVersionId: {
+        type: Sequelize.BIGINT,
       },
       status: {
         type: Sequelize.ENUM("draft", "submitted", "reviewed"),
