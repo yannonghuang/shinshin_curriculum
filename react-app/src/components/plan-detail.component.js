@@ -885,21 +885,35 @@ const PlanDetail = (props) => {
     if (selected.type === "executionRecord") {
       const n = selected.key;
       const record = executionFormData.find((r) => Number(r.index) === n) || EMPTY_EXECUTION_RECORD;
+      // labelPrefix repeats the parent heading on each of its own sub-fields
+      // (e.g. "教学活动流程 · 教师做了什么"), same convention the HOW section
+      // already uses for its own nested fields ("探究与制作 · 知识探究（课时安排）")
+      // -- kept display-only (never written into EXECUTION_RECORD_FIELD_LABELS
+      // itself), since that array's bare label text is also what
+      // extractExecutionRecordFromText searches an uploaded .docx for.
+      const renderExecutionField = ([field, label], labelPrefix) => (
+        <div className="form-group" key={field}>
+          <label>{labelPrefix ? `${labelPrefix} · ${label}` : label}</label>
+          <textarea
+            className="form-control"
+            rows="2"
+            value={record[field] || ""}
+            disabled={!canEditPlan}
+            onChange={(e) => onExecutionFieldChange(n, field, e.target.value)}
+          />
+        </div>
+      );
+      // EXECUTION_RECORD_FIELD_LABELS is flat (see plan-options.js) since
+      // extraction/doc-generation don't need the grouping, but the template
+      // itself nests the last 4 fields under one heading ("4. 教学活动流程"),
+      // so the on-screen form splits at that same boundary (index 3) to show
+      // it -- matching how the docx generator renders it as its own h2.
       return (
         <div className="pl-card pl-why-what-how">
           <h6>实施记录 · 课时 {n}</h6>
-          {EXECUTION_RECORD_FIELD_LABELS.map(([field, label]) => (
-            <div className="form-group" key={field}>
-              <label>{label}</label>
-              <textarea
-                className="form-control"
-                rows="2"
-                value={record[field] || ""}
-                disabled={!canEditPlan}
-                onChange={(e) => onExecutionFieldChange(n, field, e.target.value)}
-              />
-            </div>
-          ))}
+          {EXECUTION_RECORD_FIELD_LABELS.slice(0, 3).map((entry) => renderExecutionField(entry))}
+          <h6 className="mt-3 mb-2">教学活动流程</h6>
+          {EXECUTION_RECORD_FIELD_LABELS.slice(3).map((entry) => renderExecutionField(entry, "教学活动流程"))}
           {canEditPlan && (
             <div className="d-flex mt-2">
               <button className="btn btn-secondary mr-2" type="button" onClick={() => saveExecutionRecord()}>
