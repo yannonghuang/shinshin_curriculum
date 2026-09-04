@@ -6,9 +6,23 @@
 #   docker compose up --build              # backend + frontend + db
 #   docker compose --profile dev up --build  # + adminer (DB browser UI)
 
+# Docker's default json-file log driver has NO size cap or rotation on its
+# own -- left alone, a long-lived container's stdout/stderr just grows on
+# the host disk forever. Applied to every service below (dev and prod
+# alike -- docker-compose.prod.yml never overrides `logging`, and Compose
+# merges map-type keys like this one across -f files rather than requiring
+# each override file to repeat it). 10MB x 3 files = 30MB cap per service;
+# bump max-file if you actually need to look further back than that.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: mysql:8.0
+    logging: *default-logging
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
       MYSQL_DATABASE: ${DB_NAME:-shinshin_curriculum}
@@ -33,6 +47,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
+    logging: *default-logging
     ports:
       - "8080:8080"
     environment:
@@ -59,6 +74,7 @@ services:
     build:
       context: ./react-app
       dockerfile: Dockerfile.dev
+    logging: *default-logging
     ports:
       - "3000:3000"
     environment:
@@ -77,6 +93,7 @@ services:
   adminer:
     image: adminer:4
     profiles: ["dev"]
+    logging: *default-logging
     ports:
       - "8081:8080"
     depends_on:

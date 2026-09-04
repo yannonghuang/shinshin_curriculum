@@ -77,6 +77,16 @@ ssh -i "$SSH_KEY" "$ECS_USER@$ECS_HOST" "mkdir -p '$ECS_DEPLOY_PATH/backend'"
 scp -i "$SSH_KEY" docker-compose.yml docker-compose.prod.yml "$ECS_USER@$ECS_HOST:$ECS_DEPLOY_PATH/"
 scp -i "$SSH_KEY" backend/schema.sql "$ECS_USER@$ECS_HOST:$ECS_DEPLOY_PATH/backend/schema.sql"
 
+# Every deploy tags a new image with the commit SHA and re-points :latest at
+# it, but never removes the *previous* SHA-tagged image -- 17 old
+# frontend/backend pairs (~380MB each) were already sitting on the ECS disk
+# before this was added, none of it dangling (so plain `docker image prune`
+# never touched it -- that only drops untagged images). KEEP_IMAGE_VERSIONS
+# below controls how many of the most recent builds survive per repo (>=1;
+# default 3 leaves room for a couple of rollbacks); override in
+# deploy-aliyun.env if you want more/less history.
+KEEP_IMAGE_VERSIONS="${KEEP_IMAGE_VERSIONS:-3}"
+
 echo "==> Pulling + restarting on $ECS_HOST"
 # shellcheck disable=SC2087
 ssh -i "$SSH_KEY" "$ECS_USER@$ECS_HOST" bash -s <<EOF
@@ -87,6 +97,25 @@ export IMAGE_TAG="$IMAGE_TAG"
 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
 docker image prune -f
+
+# docker images lists newest-created first by default; dedupe by image ID
+# (a single build's :latest and :<sha> tags share one ID, so counting by ID
+# rather than by tag is what actually keeps N *builds*, not N tags) and drop
+# everything past the newest $KEEP_IMAGE_VERSIONS. Removing by repo:tag
+# rather than bare ID (confirmed necessary against the real registry: two
+# commits that didn't touch backend/frontend source produce byte-identical
+# layers, so their SHA tags share one image ID -- `docker rmi <id>` then
+# refuses with "referenced in multiple repositories", meaning multiple
+# tags, until every one of that ID's tags is removed individually). Not
+# -f: an image still referenced by a container (shouldn't happen right
+# after up -d, but just in case) fails soft here rather than aborting the
+# whole deploy.
+for repo in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
+  old_ids=\$(docker images "\$repo" --format '{{.ID}}' | awk '!seen[\$0]++' | tail -n +"\$(($KEEP_IMAGE_VERSIONS + 1))")
+  for id in \$old_ids; do
+    docker images "\$repo" --format '{{.ID}} {{.Repository}}:{{.Tag}}' | awk -v id="\$id" '\$1==id {print \$2}' | xargs -r docker rmi || true
+  done
+done
 EOF
 
 echo "==> Done. Deployed image tag '$IMAGE_TAG'."
