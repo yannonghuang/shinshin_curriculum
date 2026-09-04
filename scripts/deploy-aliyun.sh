@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Build + push to Alibaba Cloud Container Registry, then deploy to the target
-# ECS VM. Run by hand from your own machine -- see ALIYUN_DEPLOY.md.
-# GitHub only ever holds source; this script (and its local-only
-# deploy-aliyun.env config) is what actually talks to Alibaba Cloud.
+# ECS VM. Either run by hand from your own machine (see ALIYUN_DEPLOY.md §5-6,
+# reading config from the local-only scripts/deploy-aliyun.env) or invoked by
+# the "Deploy to ECS" GitHub Actions workflow (ALIYUN_DEPLOY.md §10, config
+# arriving as already-exported env vars sourced from repo secrets instead) --
+# this script accepts either: it sources deploy-aliyun.env if present, then
+# falls through to whatever's already in the environment either way, and only
+# fails if a required var is still unset after that.
 #
 # Usage:
 #   scripts/deploy-aliyun.sh              # tag = current commit's short SHA
@@ -14,16 +18,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 ENV_FILE="scripts/deploy-aliyun.env"
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "Missing $ENV_FILE -- copy scripts/deploy-aliyun.env.example to $ENV_FILE and fill in real values." >&2
-  exit 1
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
 fi
-# shellcheck disable=SC1090
-source "$ENV_FILE"
 
 for var in ACR_REGISTRY ACR_NAMESPACE ACR_USERNAME ACR_PASSWORD ECS_HOST ECS_USER ECS_SSH_KEY_PATH ECS_DEPLOY_PATH; do
   if [[ -z "${!var:-}" ]]; then
-    echo "Missing $var in $ENV_FILE." >&2
+    echo "Missing $var -- set it in $ENV_FILE for a local deploy (copy $ENV_FILE.example to start), or as a workflow secret for the GitHub Actions deploy." >&2
     exit 1
   fi
 done

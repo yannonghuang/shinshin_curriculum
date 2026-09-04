@@ -1,0 +1,49 @@
+name: Deploy to ECS
+
+# Manual only, on purpose -- see ALIYUN_DEPLOY.md §10. sequelize.sync() never
+# alters existing tables, so a schema-changing commit needs its migration run
+# by hand before the new code goes live; auto-deploying on every push to main
+# could restart the backend against a stale schema. Press the button in the
+# Actions tab once the migration (if any) is done.
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to build+deploy (default: this run's commit short SHA)"
+        required: false
+        default: ""
+      keep_versions:
+        description: "Old image builds to keep per repo on the ECS VM after this deploy"
+        required: false
+        default: "3"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up ECS SSH access
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.ECS_SSH_KEY }}" > ~/.ssh/ecs_deploy_key
+          chmod 600 ~/.ssh/ecs_deploy_key
+          ssh-keyscan -H "${{ secrets.ECS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Build, push, and deploy
+        env:
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+          ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+          ECS_SSH_KEY_PATH: /home/runner/.ssh/ecs_deploy_key
+          ECS_DEPLOY_PATH: ${{ secrets.ECS_DEPLOY_PATH }}
+          KEEP_IMAGE_VERSIONS: ${{ github.event.inputs.keep_versions }}
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            ./scripts/deploy-aliyun.sh "${{ github.event.inputs.image_tag }}"
+          else
+            ./scripts/deploy-aliyun.sh
+          fi

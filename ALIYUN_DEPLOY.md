@@ -6,13 +6,17 @@ ECS VM running the existing `docker-compose.prod.yml` stack (see `deploy.md`
 for what that stack is — this document is only about the *cloud* target and
 the deploy script that reaches it; local Docker Compose usage is unchanged).
 
-**By design, GitHub never talks to Alibaba Cloud.** GitHub only ever holds
+**By default, GitHub never talks to Alibaba Cloud.** GitHub only ever holds
 source (`git push` as usual). Building the Docker images, pushing them to
 Alibaba Cloud Container Registry (ACR), and deploying to the ECS VM all
 happen by running `scripts/deploy-aliyun.sh` on your own machine — so the
 only place that ever holds ACR/ECS credentials is your local
 `scripts/deploy-aliyun.env` (gitignored, never committed, never sent to
-GitHub in any form).
+GitHub in any form). §10 below adds an *optional* GitHub Actions workflow
+that runs this same script on a GitHub-hosted runner instead — if you set
+that up, ACR/ECS credentials additionally live as encrypted GitHub Actions
+secrets, a deliberate, opt-in change to the trust model described here. Skip
+§10 entirely to keep the original all-local model intact.
 
 **I can't provision real Alibaba Cloud resources for you** — this is a guide
 to run yourself (Console or `aliyun` CLI), ending with the exact values
@@ -299,3 +303,65 @@ IMAGE_TAG=<previous-good-sha> docker compose -f docker-compose.yml -f docker-com
   If both of those are also clean/not in play, this is an Aliyun-infra-side
   issue beyond what's visible from the console — open a support case with
   Aliyun and hand them the checklist above as repro evidence.
+
+## 10. Optional: deploy via GitHub Actions instead of your own machine
+
+`.github/workflows/deploy-ecs.yml` runs the exact same
+`scripts/deploy-aliyun.sh` (§6) on a GitHub-hosted runner instead of your
+machine — same build, same push, same SSH-in-and-`up -d`, same image
+pruning. The script already supports this: it sources
+`scripts/deploy-aliyun.env` when that file exists (your machine) and
+otherwise falls through to whatever's already in the environment (a CI
+runner, with values injected from repo secrets below) — either way it just
+needs the same eight variables set one way or another.
+
+**Manual trigger only, on purpose** — see the note at the top of the
+workflow file. `sequelize.sync()` never alters existing tables (§9's `db`
+troubleshooting entries and `deploy.md` cover this in more depth), so a
+schema-changing commit needs its migration run by hand against the VM
+*before* the new code goes live. Auto-deploying on every push to `main`
+would risk restarting the backend against a stale schema. Trigger it from
+the repo's **Actions** tab → "Deploy to ECS" → **Run workflow** once any
+needed migration is done.
+
+### One-time setup
+
+Add these as **Settings → Secrets and variables → Actions → Repository
+secrets** — same values as your local `scripts/deploy-aliyun.env` (§5), plus
+one more:
+
+| Secret | Value |
+|---|---|
+| `ACR_REGISTRY` | same as local §5 |
+| `ACR_NAMESPACE` | same as local §5 |
+| `ACR_USERNAME` | same as local §5 |
+| `ACR_PASSWORD` | same as local §5 |
+| `ECS_HOST` | same as local §5 |
+| `ECS_USER` | same as local §5 |
+| `ECS_DEPLOY_PATH` | same as local §5 |
+| `ECS_SSH_KEY` | the **private key file's full contents** (not a path — GitHub has no filesystem to point at). Either reuse the same key from §4's "SSH access" or generate a dedicated one and append its `.pub` half to the VM's `authorized_keys` — a second key is easy to revoke later without touching your own. |
+
+The workflow writes `ECS_SSH_KEY` to a temp file on the runner and points
+`ECS_SSH_KEY_PATH` at it for the script, and runs `ssh-keyscan` against
+`ECS_HOST` before connecting so the (ephemeral, first-connection-every-time)
+runner accepts the VM's host key automatically — trust-on-first-use, same as
+what happens the first time you `ssh` in by hand, not pinned against a known
+fingerprint. Tighten that if you need stronger guarantees than TOFU.
+
+Nothing on the ECS VM itself changes — it still just sees `docker login` +
+`docker compose pull/up`, no idea whether the caller was your laptop or a
+GitHub runner.
+
+### Running it
+
+**Actions** tab → **Deploy to ECS** → **Run workflow**. Two optional inputs,
+both blank/default meaning "same as running the script locally with no
+arguments":
+- **Image tag** — defaults to that run's checked-out commit's short SHA
+  (§6/§8 both apply the same way).
+- **Keep versions** — defaults to `3`, same as `KEEP_IMAGE_VERSIONS` locally.
+
+Since the runner builds from whatever GitHub has for the branch/ref you run
+the workflow against (not your local working tree), this is actually
+stricter than the local flow about one thing: what gets deployed is always
+something that was actually pushed.
