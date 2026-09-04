@@ -14,8 +14,13 @@ module.exports = (sequelize, Sequelize) => {
       lessonIndex: {
         type: Sequelize.INTEGER, // NULL = review of the whole plan; else that lesson
       },
+      // 'admin' is a manager submitting a review through the same form an
+      // expert uses (route-gated as isExpertOrAdmin -- see review.routes.js)
+      // -- distinguished from 'expert' so the UI can badge/label them
+      // differently even though both are human-authored, scored reviews
+      // with a real reviewerId (see review.controller.js#create).
       reviewerType: {
-        type: Sequelize.ENUM("expert", "ai"),
+        type: Sequelize.ENUM("expert", "ai", "admin"),
         allowNull: false,
       },
       reviewerId: {

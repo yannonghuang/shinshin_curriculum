@@ -242,6 +242,8 @@ const ReviewList = (props) => {
                     <td>
                       {review.reviewerType === "ai" ? (
                         <span className="pl-tag-ai">AI点评{review.aiModel ? `（${review.aiModel}）` : ""}</span>
+                      ) : review.reviewerType === "admin" ? (
+                        <span className="pl-tag-admin">管理员点评</span>
                       ) : (
                         <span className="pl-tag-expert">专家点评</span>
                       )}
@@ -249,7 +251,7 @@ const ReviewList = (props) => {
                     {isAggregateView && <td>{review.sectionKey || "整体"}</td>}
                     <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>
                     <td style={{ whiteSpace: "pre-wrap" }}>{review.content}</td>
-                    <td>{review.reviewerType === "ai" ? "AI智能体" : review.reviewer ? review.reviewer.chineseName || review.reviewer.username : "-"}</td>
+                    <td>{review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-"}</td>
                     <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
                     <td>
                       {canDelete(review) ? (

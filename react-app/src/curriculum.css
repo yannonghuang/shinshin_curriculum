@@ -312,6 +312,21 @@
   border: 1px solid #ccebdd;
 }
 
+/* A manager reviewing through the same form an expert uses (reviewerType
+   'admin' -- see review.controller.js#create) -- same shape as
+   .pl-tag-ai/.pl-tag-expert, distinct purple so it doesn't read as an
+   actual domain-expert's review. */
+.pl-tag-admin {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.4;
+  background: #f3e8fd;
+  color: #7c3aed;
+  border: 1px solid #e4d3fb;
+}
+
 /* plan-detail.component.js's file-explorer layout: a collapsible/hide-able left
    nav tree (.pl-explorer-nav, entirely removed from the DOM when hidden -- see
    .pl-explorer-hide-toggle) driving a single-section content pane on the right

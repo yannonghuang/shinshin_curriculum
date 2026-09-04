@@ -45,10 +45,17 @@ exports.create = async (req, res) => {
       return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
+    // The route (isExpertOrAdmin) lets either role through, but the two
+    // shouldn't read as the same "专家点评" badge -- an admin submitting a
+    // review here is a manager's opinion, not a domain expert's, so it's
+    // tagged distinctly (see review.model.js's reviewerType comment). expert
+    // wins if someone happens to hold both roles.
+    const reviewerType = (await isExpertRequester(req.userId)) ? "expert" : "admin";
+
     const data = await Review.create({
       planId,
       lessonIndex: normalizeLessonIndex(req.body.lessonIndex),
-      reviewerType: "expert",
+      reviewerType,
       reviewerId: req.userId,
       sectionKey: sectionKey || null,
       score: score !== undefined && score !== null && score !== "" ? Number(score) : null,
@@ -336,6 +343,13 @@ const isAdminRequester = async (userId) => {
   if (!user) return false;
   const roles = await user.getRoles();
   return roles.some((r) => r.name === "admin");
+};
+
+const isExpertRequester = async (userId) => {
+  const user = await User.findByPk(userId);
+  if (!user) return false;
+  const roles = await user.getRoles();
+  return roles.some((r) => r.name === "expert");
 };
 
 // DELETE /api/reviews/:id (authJwt.verifyToken-gated at the route -- ownership

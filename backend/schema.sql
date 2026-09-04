@@ -133,7 +133,7 @@ CREATE TABLE reviews (   -- 评价乡土课程计划 + 评价乡土课程实施�
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   plan_id BIGINT NOT NULL,
   lesson_index INT NULL,               -- NULL = review of the whole plan; else that lesson
-  reviewer_type ENUM('expert','ai') NOT NULL,
+  reviewer_type ENUM('expert','ai','admin') NOT NULL,  -- 'admin' = a manager reviewing through the same form as an expert (see review.controller.js#create)
   reviewer_id BIGINT NULL,             -- FK users; NULL when reviewer_type='ai'
   section_key VARCHAR(64) NULL,        -- 'WHY'|'WHAT'|'HOW'|free text; expert-only, AI review targets the whole doc
   score DECIMAL(4,1) NULL,
