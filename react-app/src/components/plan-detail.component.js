@@ -781,7 +781,19 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card">
           <h6>整体点评</h6>
-          <ReviewList planId={planId} lessonIndex={null} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
+          <ReviewList
+            planId={planId}
+            lessonIndex={null}
+            embedded
+            planContentVersionAt={plan.contentVersionAt}
+            canTriggerAi={canEditPlan}
+            // Lets the aggregate view's 模块 column jump straight to that
+            // section's own tab -- sectionKey is stored upper-cased (see the
+            // "planSection" branch's own ReviewList, which passes
+            // section.key.toUpperCase()), so this reverses that to match a
+            // schema section's actual key.
+            onSelectSection={(key) => select("planSection", key.toLowerCase())}
+          />
         </div>
       );
     }

@@ -54,13 +54,29 @@ const groupByVersion = (sortedReviews) => {
   return groups;
 };
 
+// Content beyond this length starts collapsed (a truncated preview + a
+// 展开/收起 toggle) -- an AI review in particular can run to several
+// paragraphs, which used to blow up every row's height in a list that's
+// meant to be scannable.
+const CONTENT_PREVIEW_LENGTH = 150;
+
 const ReviewList = (props) => {
-  const { planId, lessonIndex, sectionKey, embedded, planContentVersionAt, canTriggerAi } = props;
+  const { planId, lessonIndex, sectionKey, embedded, planContentVersionAt, canTriggerAi, onSelectSection } = props;
   const [reviews, setReviews] = useState([]);
   const [text, setText] = useState("");
   const [score, setScore] = useState("");
   const [message, setMessage] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [expandedIds, setExpandedIds] = useState(new Set());
+
+  const toggleExpanded = (id) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const isExpertReviewer = AuthService.isExpert() || AuthService.isAdmin();
   const currentUser = AuthService.getCurrentUser();
@@ -74,16 +90,25 @@ const ReviewList = (props) => {
     try {
       const resp = await ReviewDataService.getByPlan(planId, lessonIndex);
       const list = Array.isArray(resp.data) ? resp.data : resp.data.rows || resp.data.reviews || [];
-      // A segment mini-widget only ever shows its own section's reviews --
-      // the aggregate view (no sectionKey prop) shows everything, tagged.
-      const scoped = sectionKey ? list.filter((r) => r.sectionKey === sectionKey) : list;
+      // A segment mini-widget only ever shows its own section's reviews.
+      // The aggregate view passes no lessonIndex to getByPlan (null doesn't
+      // become a query param -- see review.service.js), so the fetch itself
+      // returns every review for the plan, lesson-scoped ones included;
+      // filter those back out here so 整体点评 only ever shows genuine
+      // whole-plan comments plus section reviews, tagged, matching the file
+      // header comment -- a 课时's own reviews stay on that 课时's own tab.
+      const scoped = sectionKey
+        ? list.filter((r) => r.sectionKey === sectionKey)
+        : isAggregateView
+        ? list.filter((r) => r.lessonIndex === null || r.lessonIndex === undefined)
+        : list;
       const sorted = [...scoped].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setReviews(sorted);
     } catch (e) {
       console.log(e);
       setMessage("加载点评列表失败。");
     }
-  }, [planId, lessonIndex, sectionKey]);
+  }, [planId, lessonIndex, sectionKey, isAggregateView]);
 
   useEffect(() => {
     retrieveReviews();
@@ -121,10 +146,11 @@ const ReviewList = (props) => {
     setAiLoading(true);
     setMessage("");
     try {
-      await ReviewDataService.createAi(planId, {
+      const resp = await ReviewDataService.createAi(planId, {
         lessonIndex: lessonIndex !== undefined && lessonIndex !== null ? lessonIndex : undefined,
       });
-      setMessage("AI 点评已生成。");
+      const model = resp && resp.data && resp.data.aiModel;
+      setMessage(`AI 点评已生成${model ? `（${model}）` : ""}。`);
       retrieveReviews();
     } catch (e) {
       setMessage(e?.response?.data?.message || "AI 点评生成失败。");
@@ -237,20 +263,42 @@ const ReviewList = (props) => {
                 </tr>
               </thead>
               <tbody>
-                {group.items.map((review) => (
+                {group.items.map((review) => {
+                  const isLong = review.content && review.content.length > CONTENT_PREVIEW_LENGTH;
+                  const isExpanded = expandedIds.has(review.id);
+                  return (
                   <tr key={review.id}>
                     <td>
                       {review.reviewerType === "ai" ? (
-                        <span className="pl-tag-ai">AI点评{review.aiModel ? `（${review.aiModel}）` : ""}</span>
+                        <span className="pl-tag-ai" title={review.aiModel ? `模型：${review.aiModel}` : undefined}>
+                          AI点评
+                        </span>
                       ) : review.reviewerType === "admin" ? (
                         <span className="pl-tag-admin">管理员点评</span>
                       ) : (
                         <span className="pl-tag-expert">专家点评</span>
                       )}
                     </td>
-                    {isAggregateView && <td>{review.sectionKey || "整体"}</td>}
+                    {isAggregateView && (
+                      <td>
+                        {review.sectionKey && onSelectSection ? (
+                          <button type="button" className="btn btn-link p-0" onClick={() => onSelectSection(review.sectionKey)}>
+                            {review.sectionKey}
+                          </button>
+                        ) : (
+                          review.sectionKey || "整体"
+                        )}
+                      </td>
+                    )}
                     <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>
-                    <td style={{ whiteSpace: "pre-wrap" }}>{review.content}</td>
+                    <td style={{ whiteSpace: "pre-wrap" }}>
+                      {isLong && !isExpanded ? `${review.content.slice(0, CONTENT_PREVIEW_LENGTH)}...` : review.content}
+                      {isLong && (
+                        <button type="button" className="btn btn-link btn-sm p-0 ml-1" onClick={() => toggleExpanded(review.id)}>
+                          {isExpanded ? "收起" : "展开"}
+                        </button>
+                      )}
+                    </td>
                     <td>{review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-"}</td>
                     <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
                     <td>
@@ -258,12 +306,11 @@ const ReviewList = (props) => {
                         <button className="btn btn-link p-0 text-danger" onClick={() => deleteReview(review)}>
                           删除
                         </button>
-                      ) : (
-                        isSectionOrigin(review) && <span className="text-muted small">在 {review.sectionKey} 处编辑</span>
-                      )}
+                      ) : null}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
