@@ -40,6 +40,7 @@ db.artifact = require("./artifact.model.js")(sequelize, Sequelize);
 db.folder = require("./folder.model.js")(sequelize, Sequelize);
 db.review = require("./review.model.js")(sequelize, Sequelize);
 db.learningMaterial = require("./learning-material.model.js")(sequelize, Sequelize);
+db.templateVersion = require("./templateVersion.model.js")(sequelize, Sequelize);
 
 // users <-> roles (many-to-many via user_roles)
 // Explicitly pre-defined (rather than through: "user_roles" as a bare string)
@@ -144,6 +145,30 @@ db.user.hasMany(db.review, {
 db.review.belongsTo(db.user, {
   foreignKey: "reviewerId",
   as: "Reviewer",
+});
+
+// plan -> the two template versions it was created under (pinned at
+// creation time, see plan.controller.js#create) -- separate FKs, not a
+// single generic one, since a plan always needs exactly one of each kind.
+db.plan.belongsTo(db.templateVersion, {
+  foreignKey: "planTemplateVersionId",
+  as: "PlanTemplateVersion",
+});
+db.plan.belongsTo(db.templateVersion, {
+  foreignKey: "executionTemplateVersionId",
+  as: "ExecutionTemplateVersion",
+});
+
+// admin (user, nullable -- NULL for the hand-authored seed versions) ->
+// uploaded template versions
+db.user.hasMany(db.templateVersion, {
+  foreignKey: "createdBy",
+  as: "UploadedTemplateVersions",
+  onDelete: "SET NULL",
+});
+db.templateVersion.belongsTo(db.user, {
+  foreignKey: "createdBy",
+  as: "Uploader",
 });
 
 // uploader (user, nullable) -> learning materials

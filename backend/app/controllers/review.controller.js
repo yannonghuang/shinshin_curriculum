@@ -1,14 +1,25 @@
 const childProcess = require("child_process");
 const mammoth = require("mammoth");
-const planDocGenerator = require("../services/planDocGenerator");
-const lessonExecutionDocGenerator = require("../services/lessonExecutionDocGenerator");
+const dynamicDocGenerator = require("../services/dynamicDocGenerator");
 
 const db = require("../models");
 const Review = db.review;
 const Plan = db.plan;
 const Artifact = db.artifact;
 const User = db.user;
+const TemplateVersion = db.templateVersion;
 const llmClient = require("../services/llmClient");
+
+const findExecutionRecord = (plan, lessonIndex) => {
+  const records = Array.isArray(plan.executionFormData) ? plan.executionFormData : [];
+  return records.find((r) => Number(r.index) === Number(lessonIndex)) || {};
+};
+
+// Schema-agnostic (field keys come from whichever template_versions row is
+// active, not a fixed list) -- any non-empty answer, ignoring the sparse
+// array's own `index` bookkeeping key, counts as "has content".
+const hasAnswerContent = (record) =>
+  Object.entries(record || {}).some(([key, value]) => key !== "index" && value != null && String(value).trim() !== "");
 
 const normalizeLessonIndex = (lessonIndex) => {
   if (lessonIndex === undefined || lessonIndex === null || lessonIndex === "") return null;
@@ -164,11 +175,15 @@ const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => {
     // primary section, same pattern as the plan-level planFormData branch
     // below, then still append 支撑材料 as secondary/supplementary context
     // rather than discarding it outright.
-    const record = lessonExecutionDocGenerator.findExecutionRecord(plan, lessonIndex);
-    const hasRecord = lessonExecutionDocGenerator.hasExecutionRecordContent(record);
+    const record = findExecutionRecord(plan, lessonIndex);
+    const hasRecord = hasAnswerContent(record);
     if (hasRecord) {
       try {
-        const buffer = await lessonExecutionDocGenerator.generateExecutionDocx(plan, lessonIndex);
+        const buffer = await dynamicDocGenerator.generateDoc({
+          docTitle: `课时实施记录 · 第${lessonIndex}课时`,
+          schema: plan.ExecutionTemplateVersion ? plan.ExecutionTemplateVersion.schemaJson : { sections: [] },
+          answers: record,
+        });
         const docText = (await mammoth.extractRawText({ buffer })).value.trim();
         lines.push("以下是该课时的实施记录（在线填写，优先参考）：");
         lines.push(docText || "（文档内容为空）");
@@ -190,7 +205,11 @@ const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => {
     // nothing is persisted here either. Falls back to the raw JSON if
     // rendering/extraction fails for any reason.
     try {
-      const buffer = await planDocGenerator.generatePlanDocx(plan);
+      const buffer = await dynamicDocGenerator.generateDoc({
+        docTitle: "乡土课程设计方案",
+        schema: plan.PlanTemplateVersion ? plan.PlanTemplateVersion.schemaJson : { sections: [] },
+        answers: plan.planFormData,
+      });
       const docText = (await mammoth.extractRawText({ buffer })).value.trim();
       lines.push("\n以下是该课程设计方案文档内容：");
       lines.push(docText || "（文档内容为空）");
@@ -218,7 +237,12 @@ exports.createAiReview = async (req, res) => {
       return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
 
-    const plan = await Plan.findByPk(planId);
+    const plan = await Plan.findByPk(planId, {
+      include: [
+        { model: TemplateVersion, as: "PlanTemplateVersion" },
+        { model: TemplateVersion, as: "ExecutionTemplateVersion" },
+      ],
+    });
     if (!plan) {
       return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
