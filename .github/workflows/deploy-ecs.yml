@@ -1,11 +1,17 @@
 name: Deploy to ECS
 
-# Manual only, on purpose -- see ALIYUN_DEPLOY.md §10. sequelize.sync() never
-# alters existing tables, so a schema-changing commit needs its migration run
-# by hand before the new code goes live; auto-deploying on every push to main
-# could restart the backend against a stale schema. Press the button in the
-# Actions tab once the migration (if any) is done.
+# Auto-deploys on every push to main -- see ALIYUN_DEPLOY.md §10. Originally
+# manual-only, because sequelize.sync() never altered existing tables, so a
+# schema-changing commit needed its migration run by hand before the new
+# code went live. That gap is closed: backend/docker-entrypoint.sh now runs
+# `sequelize-cli db:migrate` automatically on every backend container start,
+# so a migration committed alongside the code just applies itself the moment
+# this workflow restarts the container -- no manual step in between anymore.
+# workflow_dispatch stays available for a manual re-run (e.g. a rollback to
+# an older tag).
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       image_tag:

@@ -324,14 +324,17 @@ otherwise falls through to whatever's already in the environment (a CI
 runner, with values injected from repo secrets below) — either way it just
 needs the same eight variables set one way or another.
 
-**Manual trigger only, on purpose** — see the note at the top of the
-workflow file. `sequelize.sync()` never alters existing tables (§9's `db`
-troubleshooting entries and `deploy.md` cover this in more depth), so a
-schema-changing commit needs its migration run by hand against the VM
-*before* the new code goes live. Auto-deploying on every push to `main`
-would risk restarting the backend against a stale schema. Trigger it from
-the repo's **Actions** tab → "Deploy to ECS" → **Run workflow** once any
-needed migration is done.
+**Runs automatically on every push to `main`.** This was originally
+manual-only: `sequelize.sync()` never altered existing tables, so a
+schema-changing commit needed its migration run by hand against the VM
+*before* the new code went live, and auto-deploying risked restarting the
+backend against a stale schema. That gap is closed — `backend/
+docker-entrypoint.sh` now runs `sequelize-cli db:migrate` automatically on
+every backend container start (see `deploy.md`'s "Changing the schema after
+that" and this file's `backend`-won't-start troubleshooting entry in §9), so
+a migration committed alongside the code applies itself the moment this
+workflow restarts the container. `workflow_dispatch` is still there too, for
+a manual re-run — e.g. redeploying an older tag as a rollback (§8).
 
 ### One-time setup
 
@@ -363,6 +366,11 @@ GitHub runner.
 
 ### Running it
 
+Normally: nothing to do — push to `main` (or merge a PR into it) and the
+workflow builds, pushes, and deploys that commit on its own. Watch it under
+the **Actions** tab.
+
+To run it by hand instead (a rollback, or re-deploying without a new push):
 **Actions** tab → **Deploy to ECS** → **Run workflow**. Two optional inputs,
 both blank/default meaning "same as running the script locally with no
 arguments":
@@ -370,7 +378,7 @@ arguments":
   (§6/§8 both apply the same way).
 - **Keep versions** — defaults to `3`, same as `KEEP_IMAGE_VERSIONS` locally.
 
-Since the runner builds from whatever GitHub has for the branch/ref you run
-the workflow against (not your local working tree), this is actually
-stricter than the local flow about one thing: what gets deployed is always
-something that was actually pushed.
+Since the runner builds from whatever GitHub has for the branch/ref it's
+running against (not your local working tree), this is actually stricter
+than the local flow about one thing: what gets deployed is always something
+that was actually pushed.
