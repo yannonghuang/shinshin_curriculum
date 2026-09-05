@@ -178,7 +178,16 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadReplace }) => {
         return;
       }
       const newFormData = { ...bodyExtracted, lessons };
-      await onUploadReplace({ planFormData: newFormData });
+      // 课时N/分课时设计 tabs are driven by plan.plannedLessonCount, a
+      // separate top-level field -- not by formData.lessons.length. Without
+      // updating it here too, lessons beyond the plan's *existing* count
+      // get extracted and stored just fine but stay invisible, since the
+      // tab list itself never grows to show them (confirmed bug: upload on
+      // an existing plan silently capped at its old 课时 count).
+      await onUploadReplace({
+        planFormData: newFormData,
+        ...(lessons.length > 0 ? { plannedLessonCount: lessons.length } : {}),
+      });
       setMessage("课程设计文件已上传，在线内容已更新。");
       setShowUpload(false);
     } catch (e) {
@@ -454,7 +463,9 @@ const PlanDetail = (props) => {
   const [isLoadingPlan, setIsLoadingPlan] = useState(true);
   const [message, setMessage] = useState("");
   const [metaForm, setMetaForm] = useState(null);
-  const [isEditingMeta, setIsEditingMeta] = useState(false);
+  // 基本信息 is always shown as a live editable form (no separate
+  // view/edit toggle) -- seeded straight from the plan on every
+  // retrievePlan() below.
   const [formData, setFormData] = useState({ lessons: [] });
   // Sparse array of 实施记录 entries, one per 课时, keyed by `index` -- same
   // shape as formData.lessons (see onLessonFieldChange), just plan-level
@@ -491,6 +502,13 @@ const PlanDetail = (props) => {
     try {
       const resp = await PlanDataService.get(planId);
       setPlan(resp.data);
+      setMetaForm({
+        title: resp.data.title || "",
+        theme: resp.data.theme || "",
+        grade: resp.data.grade || "",
+        year: resp.data.year ? String(resp.data.year) : "",
+        plannedLessonCount: resp.data.plannedLessonCount ? String(resp.data.plannedLessonCount) : "",
+      });
       setFormData(mergeFormData(resp.data.planFormData, resp.data.PlanTemplateVersion && resp.data.PlanTemplateVersion.schemaJson));
       setExecutionFormData(Array.isArray(resp.data.executionFormData) ? resp.data.executionFormData : []);
     } catch (e) {
@@ -542,17 +560,6 @@ const PlanDetail = (props) => {
 
   const goBack = () => props.history.push("/plans");
 
-  const startEditMeta = () => {
-    setMetaForm({
-      title: plan.title || "",
-      theme: plan.theme || "",
-      grade: plan.grade || "",
-      year: plan.year ? String(plan.year) : "",
-      plannedLessonCount: plan.plannedLessonCount ? String(plan.plannedLessonCount) : "",
-    });
-    setIsEditingMeta(true);
-  };
-
   const saveMeta = async (e) => {
     e.preventDefault();
     try {
@@ -563,7 +570,6 @@ const PlanDetail = (props) => {
         year: Number(metaForm.year),
         plannedLessonCount: metaForm.plannedLessonCount ? Number(metaForm.plannedLessonCount) : null,
       });
-      setIsEditingMeta(false);
       setMessage("课程设计信息已更新。");
       retrievePlan();
     } catch (err) {
@@ -725,20 +731,20 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card">
           <h6>基本信息</h6>
-          {isEditingMeta ? (
+          {canEditPlan ? (
             <form onSubmit={saveMeta}>
               <div className="form-row">
                 <div className="form-group col-md-4">
                   <label>标题</label>
-                  <input className="form-control" value={metaForm.title} onChange={(e) => setMetaForm((p) => ({ ...p, title: e.target.value }))} required />
+                  <input className="form-control" value={metaForm.title} onChange={(e) => setMetaForm({ ...metaForm, title: e.target.value })} required />
                 </div>
                 <div className="form-group col-md-2">
                   <label>年份</label>
-                  <input className="form-control" type="number" value={metaForm.year} onChange={(e) => setMetaForm((p) => ({ ...p, year: e.target.value }))} required />
+                  <input className="form-control" type="number" value={metaForm.year} onChange={(e) => setMetaForm({ ...metaForm, year: e.target.value })} required />
                 </div>
                 <div className="form-group col-md-3">
                   <label>乡土主题</label>
-                  <select className="form-control" value={metaForm.theme} onChange={(e) => setMetaForm((p) => ({ ...p, theme: e.target.value }))}>
+                  <select className="form-control" value={metaForm.theme} onChange={(e) => setMetaForm({ ...metaForm, theme: e.target.value })}>
                     <option value="">不限</option>
                     {PLAN_THEMES.map((t) => (
                       <option key={t} value={t}>
@@ -749,7 +755,7 @@ const PlanDetail = (props) => {
                 </div>
                 <div className="form-group col-md-3">
                   <label>年级</label>
-                  <select className="form-control" value={metaForm.grade} onChange={(e) => setMetaForm((p) => ({ ...p, grade: e.target.value }))}>
+                  <select className="form-control" value={metaForm.grade} onChange={(e) => setMetaForm({ ...metaForm, grade: e.target.value })}>
                     <option value="">不限</option>
                     {PLAN_GRADES.map((g) => (
                       <option key={g} value={g}>
@@ -767,31 +773,17 @@ const PlanDetail = (props) => {
                   min="1"
                   max="60"
                   value={metaForm.plannedLessonCount}
-                  onChange={(e) => setMetaForm((p) => ({ ...p, plannedLessonCount: e.target.value }))}
+                  onChange={(e) => setMetaForm({ ...metaForm, plannedLessonCount: e.target.value })}
                 />
               </div>
-              <button className="btn btn-primary mr-2" type="submit">
-                保存
-              </button>
-              <button className="btn btn-secondary" type="button" onClick={() => setIsEditingMeta(false)}>
-                取消
+              <button className="btn btn-primary" type="submit">
+                保存草稿
               </button>
             </form>
           ) : (
             <div>
-              <div>
-                <b>填写方式：</b>
-                {plan.planMode === "online" ? "在线填写" : "上传文件"}
-              </div>
-              <div>
-                <b>预计课时：</b>
-                {plan.plannedLessonCount || "-"}
-              </div>
-              {canEditPlan && (
-                <button className="btn btn-link p-0 mt-2" onClick={startEditMeta}>
-                  编辑课程基本信息
-                </button>
-              )}
+              <b>预计课时：</b>
+              {plan.plannedLessonCount || "-"}
             </div>
           )}
         </div>
@@ -1084,7 +1076,12 @@ const PlanDetail = (props) => {
                 className="pl-explorer-folder"
                 onClick={() => {
                   toggleGroup("plan");
-                  select("none");
+                  // 计划 itself has no content of its own -- unlike the other
+                  // structural headers (which go blank), clicking it shows
+                  // 课程设计文件 directly, matching the 课时N -> 实施记录
+                  // shortcut just below in the 实施 group; 课程设计文件 is no
+                  // longer its own leaf (see the filtered leaf list below).
+                  select("plan", "files");
                 }}
               >
                 <i className={`fas fa-chevron-${expandedGroups.plan ? "down" : "right"} pl-explorer-chevron`}></i>
@@ -1149,7 +1146,10 @@ const PlanDetail = (props) => {
                       )}
                     </div>
                   )}
-                  {PLAN_SECTIONS.filter((s) => ["files", "reviews"].includes(s.key)).map((s) => (
+                  {/* 课程设计文件 ("files") is no longer its own leaf -- clicking
+                      计划's own header shows it directly (see that button's
+                      onClick above). */}
+                  {PLAN_SECTIONS.filter((s) => s.key === "reviews").map((s) => (
                     <button
                       key={s.key}
                       type="button"
@@ -1194,9 +1194,10 @@ const PlanDetail = (props) => {
                           toggleGroup(`exec_${n}`);
                           // 课时N itself has no content of its own -- unlike the other
                           // structural headers above (which just go blank), clicking
-                          // this one is the common case of wanting that lesson's
-                          // 实施记录, so show it directly instead.
-                          select("executionRecord", n);
+                          // this one shows 课程实施文件 directly, matching 计划's own
+                          // header -> 课程设计文件 shortcut; 课程实施文件 is no longer
+                          // its own leaf (see the leaf list below).
+                          select("executionDoc", n);
                         }}
                       >
                         <i className={`fas fa-chevron-${expandedGroups[`exec_${n}`] ? "down" : "right"} pl-explorer-chevron`}></i>
@@ -1210,13 +1211,6 @@ const PlanDetail = (props) => {
                             onClick={() => select("executionRecord", n)}
                           >
                             实施记录
-                          </button>
-                          <button
-                            type="button"
-                            className={`pl-explorer-leaf ${selected.type === "executionDoc" && selected.key === n ? "is-active" : ""}`}
-                            onClick={() => select("executionDoc", n)}
-                          >
-                            课程实施文件
                           </button>
                           <button
                             type="button"

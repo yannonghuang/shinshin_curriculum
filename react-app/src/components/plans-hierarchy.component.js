@@ -116,11 +116,6 @@ const PlansHierarchy = ({ statusFilter }) => {
   const canEditItem = (item) => !item.suspended && isOwnerOf(item);
   const canDeleteItem = (item) => AuthService.isAdmin() || isOwnerOf(item);
 
-  const onEdit = () => {
-    // Editing is owner-only (see canEditItem) -- admin/expert, this view's
-    // only audience, are never an owner, so canEdit is always false here and
-    // PlanCard never actually calls this.
-  };
   const onDelete = async (item) => {
     const ok = window.confirm("此操作将永久删除该课程设计及其所有附件与点评，且无法撤销。确定继续吗？");
     if (!ok) return;
@@ -215,7 +210,6 @@ const PlansHierarchy = ({ statusFilter }) => {
                   item={item}
                   canEdit={canEditItem(item)}
                   canDelete={canDeleteItem(item)}
-                  onEdit={onEdit}
                   onDelete={onDelete}
                   onToggleExcellent={toggleExcellent}
                   onToggleSuspend={toggleSuspend}

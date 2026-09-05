@@ -13,7 +13,7 @@ const STATUS_LABELS = { draft: "草稿", submitted: "已提交", reviewed: "已�
 // presentational one; the 优秀案例/停用 admin toggles stay gated on
 // AuthService.isAdmin() directly here since that's a fixed, caller-independent
 // rule, not something either caller needs to vary.
-const PlanCard = ({ item, canEdit, canDelete, onEdit, onDelete, onToggleExcellent, onToggleSuspend }) => (
+const PlanCard = ({ item, canEdit, canDelete, onDelete, onToggleExcellent, onToggleSuspend }) => (
   <div className="pl-plan-card">
     {item.isExcellentCase && <span className="pl-plan-card-excellent">优秀案例</span>}
     {item.suspended && <span className="pl-plan-card-suspended">已停用</span>}
@@ -44,8 +44,12 @@ const PlanCard = ({ item, canEdit, canDelete, onEdit, onDelete, onToggleExcellen
     </div>
 
     <div className="pl-plan-card-footer">
+      {/* Basic-info editing now lives entirely on the plan detail page's own
+          基本信息 leaf -- this link is the sole entry point into a plan, so
+          it reads "编辑" for the owner (same destination either way) rather
+          than offering a separate list-level edit action. */}
       <Link className="btn btn-link p-0" to={`/plans/${item.id}`}>
-        查看详情
+        {canEdit ? "编辑" : "查看详情"}
       </Link>
       <div>
         {AuthService.isAdmin() && (
@@ -56,11 +60,6 @@ const PlanCard = ({ item, canEdit, canDelete, onEdit, onDelete, onToggleExcellen
         {AuthService.isAdmin() && (
           <button className="btn btn-link p-0 mr-2" onClick={() => onToggleSuspend(item)}>
             {item.suspended ? "启用" : "停用"}
-          </button>
-        )}
-        {canEdit && (
-          <button className="btn btn-link p-0 mr-2" onClick={() => onEdit(item)}>
-            编辑
           </button>
         )}
         {canDelete && (

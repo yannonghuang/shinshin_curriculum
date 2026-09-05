@@ -1,41 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import mammoth from "mammoth/mammoth.browser";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import PlanDataService from "../services/plan.service";
 import TemplateDataService from "../services/template.service";
 import AuthService from "../services/auth.service";
 import Pagination from "@material-ui/lab/Pagination";
 import PlanCard from "./plan-card.component";
 import PlansHierarchy from "./plans-hierarchy.component";
-import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, currentSeason } from "../constants/plan-options";
-import {
-  UPLOAD_FIELD_LABELS,
-  extractPlanFieldsFromText,
-  extractLessonsFromText,
-  extractSectionsFromText,
-} from "../utils/planDocExtract";
+import { PLAN_THEMES, PLAN_GRADES } from "../constants/plan-options";
 import "../curriculum.css";
-
-// Counts non-empty answers across however many sections a schema has --
-// used only for the "已从文件中识别..." status message below, not for any
-// actual decision (see hasAnySectionContent in planDocExtract.js for the
-// boolean version used elsewhere).
-const countSectionAnswers = (schema, answers) => {
-  const sections = (schema && schema.sections) || [];
-  const hasVal = (v) => v != null && String(v).trim() !== "";
-  if (sections.length > 1) {
-    return sections.reduce((sum, s) => sum + Object.values((answers && answers[s.key]) || {}).filter(hasVal).length, 0);
-  }
-  return Object.values(answers || {}).filter(hasVal).length;
-};
-
-const emptyForm = {
-  title: "",
-  theme: "",
-  grade: "",
-  year: "",
-  season: "",
-  plannedLessonCount: "",
-};
 
 const currentUserId = () => {
   const user = AuthService.getCurrentUser();
@@ -60,9 +31,6 @@ const PlansList = (props) => {
   const excellentOnly = !!props.excellentOnly;
 
   const [plans, setPlans] = useState([]);
-  const [form, setForm] = useState(emptyForm);
-  const [editingId, setEditingId] = useState(null);
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [keyword, setKeyword] = useState("");
   const [page, setPage] = useState(1);
@@ -72,22 +40,6 @@ const PlansList = (props) => {
   const [searchTheme, setSearchTheme] = useState("");
   const [searchGrade, setSearchGrade] = useState("");
   const [searchYear, setSearchYear] = useState("");
-  // "从文件导入" is purely an initialization convenience, not a persisted plan
-  // state -- every plan is always planMode='online' (see onSubmit), so it can
-  // always be edited section-by-section afterward regardless of how it started.
-  // Toggled by a button (see JSX below) rather than tied to any saved field.
-  // The picked file only ever seeds form fields and the WHY/WHAT/HOW-
-  // equivalent body (best-effort, see extractPlanFieldsFromText/
-  // extractSectionsFromText, driven by whichever plan_design template is
-  // currently active) -- it's never itself attached as an artifact;
-  // 课程设计文件 is rendered on the fly from the plan's (possibly pre-filled)
-  // online content, never stored (see plan-detail.component.js's DesignDocPanel).
-  const [showFileImport, setShowFileImport] = useState(false);
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploadDragActive, setUploadDragActive] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState("");
-  const [uploadFormData, setUploadFormData] = useState(null);
-  const uploadFileInputRef = useRef(null);
 
   // Only teachers author a new plan -- managers/experts manage existing
   // cases (suspend/delete/promote/review) but don't create their own, matching
@@ -152,47 +104,24 @@ const PlansList = (props) => {
     retrieveAll();
   }, [retrieveAll]);
 
-  const onChange = (e) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const onSubmit = async (e) => {
-    e.preventDefault();
+  // 新增乡土课程设计 creates an empty plan immediately (no upfront form) and
+  // takes the user straight into it -- 基本信息 there (manual edit + upload,
+  // see plan-detail.component.js) is now the only place that fills in
+  // title/theme/grade/year/season/预计课时, whether typed by hand or
+  // extracted from an uploaded .docx. title/year/planMode are the only
+  // fields plan.controller.js#create actually requires; the rest default to
+  // null/"draft" server-side.
+  const createEmptyPlan = async () => {
     setMessage("");
     try {
-      const payload = {
-        title: form.title,
-        theme: form.theme || null,
-        grade: form.grade || null,
-        year: Number(form.year),
-        season: form.season || null,
-        plannedLessonCount: form.plannedLessonCount ? Number(form.plannedLessonCount) : null,
-        // Always 'online' -- 从文件导入 (see showFileImport) is only ever how a
-        // plan gets its initial content, never a persisted state, so every plan
-        // stays section-by-section editable regardless of how it started.
+      const resp = await PlanDataService.create({
+        title: "未命名课程设计",
+        year: new Date().getFullYear(),
         planMode: "online",
-      };
-      if (!editingId && uploadFormData) {
-        payload.planFormData = uploadFormData;
-      }
-      if (editingId) {
-        await PlanDataService.update(editingId, payload);
-        setMessage("课程设计更新成功。");
-      } else {
-        await PlanDataService.create(payload);
-        setMessage("课程设计创建成功。");
-      }
-      setEditingId(null);
-      setForm(emptyForm);
-      setShowFileImport(false);
-      setUploadFile(null);
-      setUploadStatus("");
-      setUploadFormData(null);
-      setIsEditorOpen(false);
-      retrieveAll();
+      });
+      props.history.push(`/plans/${resp.data.id}`);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "保存失败。");
+      setMessage(err?.response?.data?.message || "创建失败。");
     }
   };
 
@@ -217,93 +146,6 @@ const PlansList = (props) => {
       console.log(e);
       setMessage("模板下载失败。");
     }
-  };
-
-  const handleUploadFile = async (file) => {
-    if (!file) return;
-    setUploadFile(file);
-    setUploadStatus("正在解析文件...");
-    const ext = (file.name || "").toLowerCase().split(".").pop();
-    if (ext !== "docx") {
-      setUploadStatus("已选择文件；仅支持自动识别 .docx 的内容，其余字段请手动填写。");
-      return;
-    }
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const result = await mammoth.extractRawText({ arrayBuffer });
-      const text = result.value || "";
-      // Also converted to HTML so extractSectionsFromText can walk the
-      // template's actual table structure instead of just the flattened text --
-      // see tableRowTexts.
-      const htmlResult = await mammoth.convertToHtml({ arrayBuffer });
-      const html = htmlResult.value || "";
-
-      const extracted = extractPlanFieldsFromText(text);
-      const matchedLabels = Object.keys(extracted).map((k) => UPLOAD_FIELD_LABELS[k]);
-      setForm((prev) => ({ ...prev, ...extracted }));
-
-      // The currently-active plan_design template -- a brand-new plan has
-      // no PlanTemplateVersion of its own yet (that gets stamped by
-      // plan.controller.js#create moments later, from this same active
-      // version), so this is the only schema available to extract against.
-      const schemaResp = await TemplateDataService.getActive("plan_design");
-      const schema = schemaResp.data.schemaJson;
-      const bodyExtracted = extractSectionsFromText(text, html, schema);
-      const bodyFieldCount = countSectionAnswers(schema, bodyExtracted);
-      const lessons = extractLessonsFromText(text);
-      const hasOnlineContent = bodyFieldCount > 0 || lessons.length > 0;
-      setUploadFormData(hasOnlineContent ? { ...bodyExtracted, lessons } : null);
-
-      const parts = [];
-      if (matchedLabels.length > 0) parts.push(matchedLabels.join("、"));
-      if (bodyFieldCount > 0) parts.push(`课程设计方案 WHY/WHAT/HOW 共 ${bodyFieldCount} 项内容`);
-      if (lessons.length > 0) parts.push(`分课时设计共 ${lessons.length} 课时`);
-      setUploadStatus(
-        parts.length > 0
-          ? `已从文件中识别：${parts.join("；")}${hasOnlineContent ? "，课程设计将以在线填写形式创建" : ""}，请核对后提交。`
-          : "未能从文件中自动识别课程信息，请手动填写。"
-      );
-    } catch (err) {
-      console.log(err);
-      setUploadStatus("文件解析失败，请手动填写课程信息。");
-    }
-  };
-
-  const openCreateEditor = () => {
-    setEditingId(null);
-    setForm({ ...emptyForm, year: String(new Date().getFullYear()), season: currentSeason(), theme: searchTheme });
-    setShowFileImport(false);
-    setUploadFile(null);
-    setUploadStatus("");
-    setUploadFormData(null);
-    setIsEditorOpen(true);
-  };
-
-  const closeEditor = () => {
-    setEditingId(null);
-    setForm(emptyForm);
-    setShowFileImport(false);
-    setUploadFile(null);
-    setUploadStatus("");
-    setUploadFormData(null);
-    setIsEditorOpen(false);
-  };
-
-  const onEdit = (item) => {
-    setEditingId(item.id);
-    setForm({
-      title: item.title || "",
-      theme: item.theme || "",
-      grade: item.grade || "",
-      year: item.year ? String(item.year) : "",
-      season: item.season || "",
-      plannedLessonCount: item.plannedLessonCount ? String(item.plannedLessonCount) : "",
-    });
-    setShowFileImport(false);
-    setUploadFile(null);
-    setUploadStatus("");
-    setUploadFormData(null);
-    setIsEditorOpen(true);
   };
 
   const onDelete = async (item) => {
@@ -455,7 +297,7 @@ const PlansList = (props) => {
 
       {canCreate && (
         <div className={stylishPublic ? "pl-card" : "mb-3"}>
-          <button className="btn btn-primary mr-3" type="button" onClick={openCreateEditor}>
+          <button className="btn btn-primary mr-3" type="button" onClick={createEmptyPlan}>
             新增乡土课程设计
           </button>
           <button className="btn btn-link p-0 mr-3" type="button" onClick={() => downloadTemplateFile("plan_design")}>
@@ -479,7 +321,6 @@ const PlansList = (props) => {
               item={item}
               canEdit={canEditItem(item)}
               canDelete={canDeleteItem(item)}
-              onEdit={onEdit}
               onDelete={onDelete}
               onToggleExcellent={toggleExcellent}
               onToggleSuspend={toggleSuspend}
@@ -519,134 +360,6 @@ const PlansList = (props) => {
         </>
       )}
 
-      {canCreate && isEditorOpen && (
-        <div className="pl-drawer-layer">
-          <button className="pl-drawer-mask" type="button" onClick={closeEditor} aria-label="close editor" />
-          <div className="pl-drawer-panel">
-            <div className="pl-drawer-head">
-              <h5 className="mb-0">{editingId ? "编辑乡土课程设计" : "新增乡土课程设计"}</h5>
-              <button className="btn btn-link p-0" type="button" onClick={closeEditor}>
-                关闭
-              </button>
-            </div>
-            <form onSubmit={onSubmit}>
-              <div className="form-group">
-                <label>标题</label>
-                <input className="form-control" name="title" value={form.title} onChange={onChange} required />
-              </div>
-              <div className="form-group">
-                <label>年份</label>
-                <input
-                  className="form-control"
-                  name="year"
-                  type="number"
-                  min="1900"
-                  max="2100"
-                  value={form.year}
-                  onChange={onChange}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>学期</label>
-                {/* No blank/required option -- season is nullable at the
-                    backend (existing plans predate this field), always
-                    defaulted to the current 学期 for a new plan (see
-                    openCreateEditor), so there's nothing meaningful for a
-                    blank choice to represent here. */}
-                <select className="form-control" name="season" value={form.season} onChange={onChange}>
-                  {PLAN_SEASONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>乡土主题</label>
-                <select className="form-control" name="theme" value={form.theme} onChange={onChange}>
-                  <option value="">请选择主题</option>
-                  {PLAN_THEMES.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>年级</label>
-                <select className="form-control" name="grade" value={form.grade} onChange={onChange}>
-                  <option value="">请选择年级</option>
-                  {PLAN_GRADES.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>预计课时</label>
-                <input
-                  className="form-control"
-                  name="plannedLessonCount"
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={form.plannedLessonCount}
-                  onChange={onChange}
-                />
-              </div>
-              {!editingId && (
-                <div className="form-group">
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary btn-sm"
-                    onClick={() => setShowFileImport((v) => !v)}
-                  >
-                    {showFileImport ? "取消从文件导入" : "从文件导入内容"}
-                  </button>
-                </div>
-              )}
-              {showFileImport && !editingId && (
-                <div className="form-group">
-                  <label>上传乡土课程设计文件（可选，自动识别课程信息）</label>
-                  <div
-                    className={`pl-file-drop-zone ${uploadDragActive ? "is-dragover" : ""}`}
-                    onClick={() => uploadFileInputRef.current && uploadFileInputRef.current.click()}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setUploadDragActive(true);
-                    }}
-                    onDragLeave={() => setUploadDragActive(false)}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setUploadDragActive(false);
-                      handleUploadFile(e.dataTransfer?.files?.[0]);
-                    }}
-                  >
-                    {uploadFile ? uploadFile.name : "拖拽课程设计文件到这里，或点击选择文件"}
-                  </div>
-                  <input
-                    ref={uploadFileInputRef}
-                    type="file"
-                    className="d-none"
-                    onChange={(e) => handleUploadFile(e.target.files[0])}
-                  />
-                  {uploadStatus && <small className="form-text text-muted">{uploadStatus}</small>}
-                </div>
-              )}
-              <div className="d-flex">
-                <button className="btn btn-primary mr-2" type="submit">
-                  {editingId ? "更新" : "新增"}
-                </button>
-                <button className="btn btn-secondary" type="button" onClick={closeEditor}>
-                  取消
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
