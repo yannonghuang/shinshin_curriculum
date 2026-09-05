@@ -5,7 +5,7 @@ import AuthService from "../services/auth.service";
 import Pagination from "@material-ui/lab/Pagination";
 import PlanCard from "./plan-card.component";
 import PlansHierarchy from "./plans-hierarchy.component";
-import { PLAN_THEMES, PLAN_GRADES } from "../constants/plan-options";
+import { PLAN_THEMES, PLAN_GRADES, currentSeason } from "../constants/plan-options";
 import "../curriculum.css";
 
 const currentUserId = () => {
@@ -117,6 +117,7 @@ const PlansList = (props) => {
       const resp = await PlanDataService.create({
         title: "未命名课程设计",
         year: new Date().getFullYear(),
+        season: currentSeason(),
         planMode: "online",
       });
       props.history.push(`/plans/${resp.data.id}`);

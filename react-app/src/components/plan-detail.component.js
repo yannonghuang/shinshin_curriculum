@@ -6,8 +6,13 @@ import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import ReviewList from "./review-list.component";
 import LessonFileManager from "./lesson-file-manager.component";
-import { PLAN_THEMES, PLAN_GRADES, PLAN_STATUSES, EMPTY_LESSON } from "../constants/plan-options";
-import { extractLessonsFromText, extractSectionsFromText, hasAnySectionContent } from "../utils/planDocExtract";
+import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, PLAN_STATUSES, EMPTY_LESSON, currentSeason } from "../constants/plan-options";
+import {
+  extractLessonsFromText,
+  extractSectionsFromText,
+  hasAnySectionContent,
+  extractPlanFieldsFromText,
+} from "../utils/planDocExtract";
 import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
 import "../curriculum.css";
 
@@ -178,15 +183,29 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadReplace }) => {
         return;
       }
       const newFormData = { ...bodyExtracted, lessons };
+      // 课程名称/任教年级 -- best-effort labeled-header extraction (乡土主题 has
+      // no labeled field in the template, so it's never touched here, only
+      // ever filled in by hand). This previously ran nowhere at all despite
+      // existing in planDocExtract.js -- an upload replaced the WHY/WHAT/HOW
+      // content but silently left 标题/年级 untouched (confirmed bug).
+      const extractedFields = extractPlanFieldsFromText(text);
       // 课时N/分课时设计 tabs are driven by plan.plannedLessonCount, a
       // separate top-level field -- not by formData.lessons.length. Without
       // updating it here too, lessons beyond the plan's *existing* count
       // get extracted and stored just fine but stay invisible, since the
       // tab list itself never grows to show them (confirmed bug: upload on
-      // an existing plan silently capped at its old 课时 count).
+      // an existing plan silently capped at its old 课时 count). The actual
+      // parsed 课时 count wins over the document's own claimed "预计课时："
+      // label when both are available.
       await onUploadReplace({
         planFormData: newFormData,
-        ...(lessons.length > 0 ? { plannedLessonCount: lessons.length } : {}),
+        ...(extractedFields.title ? { title: extractedFields.title } : {}),
+        ...(extractedFields.grade ? { grade: extractedFields.grade } : {}),
+        ...(lessons.length > 0
+          ? { plannedLessonCount: lessons.length }
+          : extractedFields.plannedLessonCount
+          ? { plannedLessonCount: Number(extractedFields.plannedLessonCount) }
+          : {}),
       });
       setMessage("课程设计文件已上传，在线内容已更新。");
       setShowUpload(false);
@@ -485,6 +504,10 @@ const PlanDetail = (props) => {
   // happened in this browsing session" flag required.
   const [planDirty, setPlanDirty] = useState(false);
   const [executionDirty, setExecutionDirty] = useState(false);
+  // Same idea as planDirty/executionDirty above, scoped to metaForm (基本信息)
+  // instead -- its own 保存草稿 button (saveMeta) needed the same
+  // disabled-until-edited/re-disabled-after-save behavior as the other panes.
+  const [metaDirty, setMetaDirty] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(false);
   // planLessons (分课时设计, nested under 计划) starts collapsed, unlike plan/
   // execution -- it can hold as many leaves as 实施's own 课时 list, and it's
@@ -507,8 +530,14 @@ const PlanDetail = (props) => {
         theme: resp.data.theme || "",
         grade: resp.data.grade || "",
         year: resp.data.year ? String(resp.data.year) : "",
+        // Falls back to the current 学期 rather than "" -- covers both a
+        // freshly-created plan and an older one from before this field
+        // existed, so the select always shows a sensible value instead of
+        // a blank "不限".
+        season: resp.data.season || currentSeason(),
         plannedLessonCount: resp.data.plannedLessonCount ? String(resp.data.plannedLessonCount) : "",
       });
+      setMetaDirty(false);
       setFormData(mergeFormData(resp.data.planFormData, resp.data.PlanTemplateVersion && resp.data.PlanTemplateVersion.schemaJson));
       setExecutionFormData(Array.isArray(resp.data.executionFormData) ? resp.data.executionFormData : []);
     } catch (e) {
@@ -525,12 +554,12 @@ const PlanDetail = (props) => {
   }, [retrievePlan]);
 
   // Covers actual tab close/refresh/typed-URL navigation -- the in-app
-  // <Prompt> below (same planDirty/executionDirty condition) covers
+  // <Prompt> below (same planDirty/executionDirty/metaDirty condition) covers
   // react-router navigation (返回, browser back/forward) instead, since
   // beforeunload doesn't fire for client-side route changes.
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (!planDirty && !executionDirty) return;
+      if (!planDirty && !executionDirty && !metaDirty) return;
       // Set by e.g. App.js's logOut right before a reload it already got
       // explicit confirmation for via its own push-triggered <Prompt> --
       // this component isn't guaranteed to have unmounted (and torn down
@@ -542,7 +571,7 @@ const PlanDetail = (props) => {
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [planDirty, executionDirty]);
+  }, [planDirty, executionDirty, metaDirty]);
 
   const currentUser = AuthService.getCurrentUser();
   const isOwner = !!(plan && currentUser && String(plan.teacherId) === String(currentUser.id));
@@ -557,8 +586,17 @@ const PlanDetail = (props) => {
   // additionally locked against edits even for its owner, until an admin
   // unsuspends it.
   const canEditPlan = isOwner && !(plan && plan.suspended);
+  // 支撑材料 download is opened up to admins ("manager", the seeded admin
+  // account's persona -- see role.model.js) reviewing a plan they don't own,
+  // unlike upload/move/delete which stay owner-only via canEditPlan above.
+  const canDownloadPlan = canEditPlan || isAdmin;
 
   const goBack = () => props.history.push("/plans");
+
+  const updateMetaForm = (patch) => {
+    setMetaForm((prev) => ({ ...prev, ...patch }));
+    setMetaDirty(true);
+  };
 
   const saveMeta = async (e) => {
     e.preventDefault();
@@ -568,8 +606,10 @@ const PlanDetail = (props) => {
         theme: metaForm.theme || null,
         grade: metaForm.grade || null,
         year: Number(metaForm.year),
+        season: metaForm.season || null,
         plannedLessonCount: metaForm.plannedLessonCount ? Number(metaForm.plannedLessonCount) : null,
       });
+      setMetaDirty(false);
       setMessage("课程设计信息已更新。");
       retrievePlan();
     } catch (err) {
@@ -731,61 +771,80 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card">
           <h6>基本信息</h6>
-          {canEditPlan ? (
-            <form onSubmit={saveMeta}>
-              <div className="form-row">
-                <div className="form-group col-md-4">
-                  <label>标题</label>
-                  <input className="form-control" value={metaForm.title} onChange={(e) => setMetaForm({ ...metaForm, title: e.target.value })} required />
-                </div>
-                <div className="form-group col-md-2">
-                  <label>年份</label>
-                  <input className="form-control" type="number" value={metaForm.year} onChange={(e) => setMetaForm({ ...metaForm, year: e.target.value })} required />
-                </div>
-                <div className="form-group col-md-3">
-                  <label>乡土主题</label>
-                  <select className="form-control" value={metaForm.theme} onChange={(e) => setMetaForm({ ...metaForm, theme: e.target.value })}>
-                    <option value="">不限</option>
-                    {PLAN_THEMES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group col-md-3">
-                  <label>年级</label>
-                  <select className="form-control" value={metaForm.grade} onChange={(e) => setMetaForm({ ...metaForm, grade: e.target.value })}>
-                    <option value="">不限</option>
-                    {PLAN_GRADES.map((g) => (
-                      <option key={g} value={g}>
-                        {g}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+          <form onSubmit={saveMeta}>
+            <div className="form-row">
+              <div className="form-group col-md-3">
+                <label>标题</label>
+                <input
+                  className="form-control"
+                  value={metaForm.title}
+                  onChange={(e) => updateMetaForm({ title: e.target.value })}
+                  disabled={!canEditPlan}
+                  required
+                />
               </div>
-              <div className="form-group">
-                <label>预计课时</label>
+              <div className="form-group col-md-2">
+                <label>年份</label>
                 <input
                   className="form-control"
                   type="number"
-                  min="1"
-                  max="60"
-                  value={metaForm.plannedLessonCount}
-                  onChange={(e) => setMetaForm({ ...metaForm, plannedLessonCount: e.target.value })}
+                  value={metaForm.year}
+                  onChange={(e) => updateMetaForm({ year: e.target.value })}
+                  disabled={!canEditPlan}
+                  required
                 />
               </div>
-              <button className="btn btn-primary" type="submit">
+              <div className="form-group col-md-2">
+                <label>学季</label>
+                <select className="form-control" value={metaForm.season} onChange={(e) => updateMetaForm({ season: e.target.value })} disabled={!canEditPlan}>
+                  {PLAN_SEASONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group col-md-3">
+                <label>乡土主题</label>
+                <select className="form-control" value={metaForm.theme} onChange={(e) => updateMetaForm({ theme: e.target.value })} disabled={!canEditPlan}>
+                  <option value="">不限</option>
+                  {PLAN_THEMES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group col-md-2">
+                <label>年级</label>
+                <select className="form-control" value={metaForm.grade} onChange={(e) => updateMetaForm({ grade: e.target.value })} disabled={!canEditPlan}>
+                  <option value="">不限</option>
+                  {PLAN_GRADES.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="form-group">
+              <label>预计课时</label>
+              <input
+                className="form-control"
+                type="number"
+                min="1"
+                max="60"
+                value={metaForm.plannedLessonCount}
+                onChange={(e) => updateMetaForm({ plannedLessonCount: e.target.value })}
+                disabled={!canEditPlan}
+              />
+            </div>
+            {canEditPlan && (
+              <button className="btn btn-primary" type="submit" disabled={!metaDirty}>
                 保存草稿
               </button>
-            </form>
-          ) : (
-            <div>
-              <b>预计课时：</b>
-              {plan.plannedLessonCount || "-"}
-            </div>
-          )}
+            )}
+          </form>
         </div>
       );
     }
@@ -983,7 +1042,7 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card">
           <h6>支撑材料 · 课时 {n}</h6>
-          <LessonFileManager planId={planId} lessonIndex={n} canEdit={canEditPlan} />
+          <LessonFileManager planId={planId} lessonIndex={n} canEdit={canEditPlan} canDownload={canDownloadPlan} />
         </div>
       );
     }
@@ -1035,7 +1094,7 @@ const PlanDetail = (props) => {
       {/* Covers 返回 above (a plain history.push) and browser back/forward
           while still on this route -- actual tab close/refresh is the
           beforeunload listener set up above instead. */}
-      <Prompt when={planDirty || executionDirty} message="有未保存的内容，确定要离开吗？" />
+      <Prompt when={planDirty || executionDirty || metaDirty} message="有未保存的内容，确定要离开吗？" />
       <div className="pl-hero">
         <div className="mb-2">
           <button type="button" className="btn btn-primary" onClick={goBack}>

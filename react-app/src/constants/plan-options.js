@@ -23,7 +23,8 @@ export const PLAN_GRADES = ["一年级", "二年级", "三年级", "四年级", 
 export const PLAN_SEASONS = ["秋季", "春季"];
 
 // Defaults a new plan's 学期 the same way its 年份 already defaults to the
-// current calendar year (see plans-list.component.js's openCreateEditor).
+// current calendar year (see plans-list.component.js's createEmptyPlan and
+// plan-detail.component.js's metaForm seeding).
 export const currentSeason = () => {
   const month = new Date().getMonth() + 1; // 1-12
   return month >= 2 && month <= 7 ? "春季" : "秋季";
