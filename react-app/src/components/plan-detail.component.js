@@ -5,7 +5,7 @@ import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import ReviewList from "./review-list.component";
 import LessonFileManager from "./lesson-file-manager.component";
-import { PLAN_THEMES, PLAN_GRADES, EMPTY_LESSON } from "../constants/plan-options";
+import { PLAN_THEMES, PLAN_GRADES, PLAN_STATUSES, EMPTY_LESSON } from "../constants/plan-options";
 import { extractLessonsFromText, extractSectionsFromText, hasAnySectionContent } from "../utils/planDocExtract";
 import "../curriculum.css";
 
@@ -435,6 +435,8 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onContent
 // 分课时设计/实施记录 already were section content, not a fixed list. Both
 // online and upload-mode plans get the same static leaves; only the
 // schema-driven sections and 分课时设计 are gated to planMode === "online".
+const PLAN_STATUS_LABELS = Object.fromEntries(PLAN_STATUSES.map((s) => [s.value, s.label]));
+
 const PLAN_SECTIONS = [
   { key: "basic", label: "基本信息" },
   { key: "files", label: "课程设计文件" },
@@ -957,7 +959,7 @@ const PlanDetail = (props) => {
           {plan.suspended && <span className="pl-tag pl-tag-warn ml-2">已停用</span>}
         </h4>
         <p className="pl-subtitle">
-          {plan.theme || "-"} · {plan.grade || "-"} · {plan.year} · 状态：{plan.status}
+          {plan.theme || "-"} · {plan.grade || "-"} · {plan.year} · 状态：{PLAN_STATUS_LABELS[plan.status] || plan.status}
           {plan.isExcellentCase ? " · 优秀案例" : ""}
         </p>
         {plan.suspended && !isAdmin && (
@@ -981,7 +983,14 @@ const PlanDetail = (props) => {
         {!navCollapsed && (
           <div className="pl-explorer-nav">
             <div className="pl-explorer-group">
-              <button type="button" className="pl-explorer-folder" onClick={() => toggleGroup("plan")}>
+              <button
+                type="button"
+                className="pl-explorer-folder"
+                onClick={() => {
+                  toggleGroup("plan");
+                  select("none");
+                }}
+              >
                 <i className={`fas fa-chevron-${expandedGroups.plan ? "down" : "right"} pl-explorer-chevron`}></i>
                 <i className="fas fa-folder-open mr-1"></i> 计划
               </button>
@@ -1019,7 +1028,10 @@ const PlanDetail = (props) => {
                       <button
                         type="button"
                         className="pl-explorer-folder pl-explorer-subfolder"
-                        onClick={() => toggleGroup("planLessons")}
+                        onClick={() => {
+                          toggleGroup("planLessons");
+                          select("none");
+                        }}
                       >
                         <i className={`fas fa-chevron-${expandedGroups.planLessons ? "down" : "right"} pl-explorer-chevron`}></i>
                         分课时设计
@@ -1056,7 +1068,14 @@ const PlanDetail = (props) => {
             </div>
 
             <div className="pl-explorer-group">
-              <button type="button" className="pl-explorer-folder" onClick={() => toggleGroup("execution")}>
+              <button
+                type="button"
+                className="pl-explorer-folder"
+                onClick={() => {
+                  toggleGroup("execution");
+                  select("none");
+                }}
+              >
                 <i className={`fas fa-chevron-${expandedGroups.execution ? "down" : "right"} pl-explorer-chevron`}></i>
                 <i className="fas fa-folder-open mr-1"></i> 实施
               </button>
@@ -1075,7 +1094,14 @@ const PlanDetail = (props) => {
                       <button
                         type="button"
                         className="pl-explorer-folder pl-explorer-subfolder"
-                        onClick={() => toggleGroup(`exec_${n}`)}
+                        onClick={() => {
+                          toggleGroup(`exec_${n}`);
+                          // 课时N itself has no content of its own -- unlike the other
+                          // structural headers above (which just go blank), clicking
+                          // this one is the common case of wanting that lesson's
+                          // 实施记录, so show it directly instead.
+                          select("executionRecord", n);
+                        }}
                       >
                         <i className={`fas fa-chevron-${expandedGroups[`exec_${n}`] ? "down" : "right"} pl-explorer-chevron`}></i>
                         课时 {n}
