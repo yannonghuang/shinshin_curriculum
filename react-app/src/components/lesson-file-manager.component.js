@@ -39,12 +39,15 @@ import FolderDataService from "../services/folder.service";
 // the existing folder, not a new "Folder (2)"); a file with the same name as
 // an existing sibling prompts to replace it (declining skips just that file).
 
-const inferCategoryFromFilename = (filename) => {
+// fallbackCategory covers filetypes with no dedicated bucket (docs, etc.) --
+// "实施记录文件" for the Plan lesson caller, "Word文档" for the materials
+// library caller (see docCategoryLabel prop below).
+const inferCategoryFromFilename = (filename, fallbackCategory = "实施记录文件") => {
   const ext = (filename || "").toLowerCase().split(".").pop();
   if (["mp4", "mov", "avi", "mkv", "webm", "flv", "wmv", "m4v"].includes(ext)) return "视频";
   if (["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "heic"].includes(ext)) return "图片";
   if (["ppt", "pptx"].includes(ext)) return "课件PPT";
-  return "实施记录文件";
+  return fallbackCategory;
 };
 
 const ARTIFACT_ICONS = { 视频: "fas fa-file-video", 图片: "fas fa-file-image", 课件PPT: "fas fa-file-powerpoint" };
@@ -71,11 +74,6 @@ const iconColorForArtifact = (artifact) => {
   return ARTIFACT_TYPE_COLORS[type] || ARTIFACT_CATEGORY_COLORS[artifact.category] || "#6c7a89";
 };
 
-// download is a public (no-auth) GET route (artifact.routes.js), so this can
-// be used directly as an <img>/<video> src or a window.open target -- no need
-// to fetch-as-blob first the way the old inline preview did.
-const artifactUrl = (id) => `/api/artifacts/${id}/download`;
-
 const formatBytes = (bytes) => {
   if (bytes === null || bytes === undefined) return "-";
   const n = Number(bytes);
@@ -91,10 +89,10 @@ const formatBytes = (bytes) => {
 // caller seeds from current state and this mutates in place, so collisions
 // against folders created earlier in the very same batch resolve correctly
 // too, not just against what the server already had.
-const resolveFolder = async (name, parentFolderId, planId, lessonIndex, folderCache) => {
+const resolveFolder = async (name, parentFolderId, planId, lessonIndex, folderCache, folderService) => {
   const existing = folderCache.find((f) => (f.parentFolderId || null) === (parentFolderId || null) && f.name === name);
   if (existing) return existing.id;
-  const created = await FolderDataService.create(planId, { lessonIndex, parentFolderId, name });
+  const created = await folderService.create(planId, { lessonIndex, parentFolderId, name });
   folderCache.push(created.data);
   return created.data.id;
 };
@@ -104,24 +102,24 @@ const resolveFolder = async (name, parentFolderId, planId, lessonIndex, folderCa
 // endpoint, so its id/history carry over) -- declining leaves the existing
 // file untouched and skips this one. Returns the created/updated artifact, or
 // null if skipped. artifactCache is live-mutated the same way folderCache is.
-const uploadOneFile = async (file, folderId, planId, lessonIndex, artifactCache) => {
+const uploadOneFile = async (file, folderId, planId, lessonIndex, artifactCache, artifactService, docCategoryLabel) => {
   const existing = artifactCache.find((a) => (a.folderId || null) === (folderId || null) && a.attachmentName === file.name);
   if (existing) {
     if (!window.confirm(`"${file.name}" 已存在，是否替换？`)) return null;
     const formData = new FormData();
     formData.append("file", file);
-    await ArtifactDataService.update(existing.id, formData);
+    await artifactService.update(existing.id, formData);
     const updated = { ...existing, attachmentSize: file.size, type: (file.name.split(".").pop() || "").toLowerCase() };
     artifactCache[artifactCache.indexOf(existing)] = updated;
     return updated;
   }
   const formData = new FormData();
   formData.append("description", "");
-  formData.append("category", inferCategoryFromFilename(file.name));
+  formData.append("category", inferCategoryFromFilename(file.name, docCategoryLabel));
   formData.append("lessonIndex", lessonIndex);
   if (folderId) formData.append("folderId", folderId);
   formData.append("file", file);
-  const resp = await ArtifactDataService.create(planId, formData);
+  const resp = await artifactService.create(planId, formData);
   const created = Array.isArray(resp.data) ? resp.data[0] : resp.data;
   artifactCache.push(created);
   return created;
@@ -146,7 +144,7 @@ const readAllDirectoryEntries = async (reader) => {
   } while (batch.length > 0);
   return all;
 };
-const walkEntry = async (entry, parentFolderId, planId, lessonIndex, folderCache, out) => {
+const walkEntry = async (entry, parentFolderId, planId, lessonIndex, folderCache, out, folderService) => {
   if (!entry) return;
   if (entry.isFile) {
     const file = await readEntryFile(entry);
@@ -154,13 +152,13 @@ const walkEntry = async (entry, parentFolderId, planId, lessonIndex, folderCache
     return;
   }
   if (entry.isDirectory) {
-    const newFolderId = await resolveFolder(entry.name, parentFolderId, planId, lessonIndex, folderCache);
+    const newFolderId = await resolveFolder(entry.name, parentFolderId, planId, lessonIndex, folderCache, folderService);
     const children = await readAllDirectoryEntries(entry.createReader());
     // Each child folder's own creation depends on its parent already
     // existing, so this can't run in parallel across the tree.
     for (const child of children) {
       // eslint-disable-next-line no-await-in-loop
-      await walkEntry(child, newFolderId, planId, lessonIndex, folderCache, out);
+      await walkEntry(child, newFolderId, planId, lessonIndex, folderCache, out, folderService);
     }
   }
 };
@@ -168,7 +166,23 @@ const walkEntry = async (entry, parentFolderId, planId, lessonIndex, folderCache
 // canDownload gates selection/preview/download only -- upload, move, folder
 // creation, and delete stay canEdit-only (owner-only). Defaults to canEdit so
 // any other caller that doesn't pass it explicitly keeps the old behavior.
-const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit }) => {
+//
+// folderService/artifactService/docCategoryLabel/downloadUrlBase let this
+// same component serve a second owner key beyond Plan lessons -- the
+// materials-library.component.js caller passes topicId as `planId`, null as
+// `lessonIndex`, and the material-*-service.js pair instead of the defaults
+// (see material-folder.service.js/material-artifact.service.js, which mirror
+// FolderDataService/ArtifactDataService's method shapes 1:1).
+const LessonFileManager = ({
+  planId,
+  lessonIndex,
+  canEdit,
+  canDownload = canEdit,
+  folderService = FolderDataService,
+  artifactService = ArtifactDataService,
+  docCategoryLabel = "实施记录文件",
+  downloadUrlBase = "/api/artifacts",
+}) => {
   const [folders, setFolders] = useState([]);
   const [artifacts, setArtifacts] = useState([]);
   const [currentFolderId, setCurrentFolderId] = useState(null);
@@ -185,26 +199,32 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit
   const [moveDialogFolderId, setMoveDialogFolderId] = useState(null); // picker's own current folder
   const fileInputRef = useRef(null);
 
+  // download is a public (no-auth) GET route (artifact.routes.js /
+  // material-artifact.routes.js alike), so this can be used directly as an
+  // <img>/<video> src or a window.open target -- no need to fetch-as-blob
+  // first the way the old inline preview did.
+  const artifactUrl = (id) => `${downloadUrlBase}/${id}/download`;
+
   const refreshFolders = useCallback(async () => {
     try {
-      const resp = await FolderDataService.getByPlan(planId, lessonIndex);
+      const resp = await folderService.getByPlan(planId, lessonIndex);
       setFolders(Array.isArray(resp.data) ? resp.data : []);
     } catch (e) {
       console.log(e);
       setMessage("加载文件夹列表失败。");
     }
-  }, [planId, lessonIndex]);
+  }, [planId, lessonIndex, folderService]);
 
   const refreshArtifacts = useCallback(async () => {
     try {
-      const resp = await ArtifactDataService.getByPlan(planId, lessonIndex);
+      const resp = await artifactService.getByPlan(planId, lessonIndex);
       const list = Array.isArray(resp.data) ? resp.data : resp.data.rows || resp.data.artifacts || [];
       setArtifacts(list);
     } catch (e) {
       console.log(e);
       setMessage("加载附件列表失败。");
     }
-  }, [planId, lessonIndex]);
+  }, [planId, lessonIndex, artifactService]);
 
   const refreshAll = useCallback(async () => {
     await Promise.all([refreshFolders(), refreshArtifacts()]);
@@ -313,7 +333,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit
         // panel sees, and would make the replace-confirm prompts pop up out
         // of order.
         // eslint-disable-next-line no-await-in-loop
-        const result = await uploadOneFile(file, folderId, planId, lessonIndex, artifactCache);
+        const result = await uploadOneFile(file, folderId, planId, lessonIndex, artifactCache, artifactService, docCategoryLabel);
         if (result) uploadedCount += 1;
         setUploadProgress(Math.round(((i + 1) * 100) / toUpload.length));
       }
@@ -359,7 +379,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit
         // either way).
         for (const entry of entries) {
           // eslint-disable-next-line no-await-in-loop
-          await walkEntry(entry, currentFolderId, planId, lessonIndex, folderCache, toUpload);
+          await walkEntry(entry, currentFolderId, planId, lessonIndex, folderCache, toUpload, folderService);
         }
         await uploadResolvedFiles(toUpload);
       } catch (err) {
@@ -392,7 +412,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit
       return;
     }
     try {
-      await FolderDataService.create(planId, { lessonIndex, parentFolderId: currentFolderId, name });
+      await folderService.create(planId, { lessonIndex, parentFolderId: currentFolderId, name });
       setIsCreatingFolder(false);
       setNewFolderName("");
       refreshFolders();
@@ -427,7 +447,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit
     const win = window.open("", "_blank");
     if (win) win.document.write("<title>预览：" + artifact.attachmentName + "</title><body>预览加载中...</body>");
     try {
-      const resp = await ArtifactDataService.download(artifact.id);
+      const resp = await artifactService.download(artifact.id);
       if (isDocx) {
         const result = await mammoth.convertToHtml({ arrayBuffer: resp.data });
         if (win) {
@@ -452,7 +472,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit
 
   const downloadArtifact = async (artifact) => {
     try {
-      const resp = await ArtifactDataService.download(artifact.id);
+      const resp = await artifactService.download(artifact.id);
       const url = window.URL.createObjectURL(new Blob([resp.data], { type: artifact.attachmentMime || "application/octet-stream" }));
       const link = document.createElement("a");
       link.href = url;
@@ -474,7 +494,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit
   // simpler direct-download-per-file behavior below, unchanged.
   const downloadSelectedAsZip = async () => {
     try {
-      const resp = await ArtifactDataService.downloadSelection(planId, {
+      const resp = await artifactService.downloadSelection(planId, {
         lessonIndex,
         artifactIds: Array.from(selectedArtifactIds),
         folderIds: Array.from(selectedFolderIds),
@@ -482,7 +502,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit
       const url = window.URL.createObjectURL(new Blob([resp.data], { type: "application/zip" }));
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", `课时${lessonIndex}-支撑材料.zip`);
+      link.setAttribute("download", lessonIndex ? `课时${lessonIndex}-支撑材料.zip` : "材料.zip");
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -518,11 +538,11 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit
       // elsewhere in this app.
       for (const id of selectedArtifactIds) {
         // eslint-disable-next-line no-await-in-loop
-        await ArtifactDataService.delete(id, true);
+        await artifactService.delete(id, true);
       }
       for (const id of selectedFolderIds) {
         // eslint-disable-next-line no-await-in-loop
-        await FolderDataService.delete(id, true);
+        await folderService.delete(id, true);
       }
       setMessage("删除成功。");
       clearSelection();
@@ -543,11 +563,11 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit
         const formData = new FormData();
         formData.append("folderId", target === null ? "root" : target);
         // eslint-disable-next-line no-await-in-loop
-        await ArtifactDataService.update(id, formData);
+        await artifactService.update(id, formData);
       }
       for (const id of selectedFolderIds) {
         // eslint-disable-next-line no-await-in-loop
-        await FolderDataService.update(id, { parentFolderId: target });
+        await folderService.update(id, { parentFolderId: target });
       }
       setMoveDialogOpen(false);
       clearSelection();

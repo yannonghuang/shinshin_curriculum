@@ -14,7 +14,7 @@ import Register from "./components/register.component";
 import Reset from "./components/reset.component";
 import PlansList from "./components/plans-list.component";
 import PlanDetail from "./components/plan-detail.component";
-import LearningMaterialsList from "./components/learning-materials-list.component";
+import MaterialsLibrary from "./components/materials-library.component";
 import AdminUsersList from "./components/admin-users-list.component";
 import TemplateAdmin from "./components/template-admin.component";
 
@@ -174,7 +174,7 @@ class App extends Component {
             <Route exact path={["/", "/home"]} component={Home} />
             <Route exact path="/profile" component={Profile} />
             <Route exact path="/gallery" render={(routeProps) => <PlansList {...routeProps} excellentOnly />} />
-            <Route exact path="/materials" component={LearningMaterialsList} />
+            <Route exact path="/materials" component={MaterialsLibrary} />
             <Route exact path="/admin/users" component={AdminUsersList} />
             <Route exact path="/admin/templates" component={TemplateAdmin} />
             <Route exact path="/plans" component={PlansList} />

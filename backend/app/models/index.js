@@ -39,8 +39,11 @@ db.plan = require("./plan.model.js")(sequelize, Sequelize);
 db.artifact = require("./artifact.model.js")(sequelize, Sequelize);
 db.folder = require("./folder.model.js")(sequelize, Sequelize);
 db.review = require("./review.model.js")(sequelize, Sequelize);
-db.learningMaterial = require("./learning-material.model.js")(sequelize, Sequelize);
 db.templateVersion = require("./templateVersion.model.js")(sequelize, Sequelize);
+db.materialTopic = require("./material-topic.model.js")(sequelize, Sequelize);
+db.materialLink = require("./material-link.model.js")(sequelize, Sequelize);
+db.materialFolder = require("./material-folder.model.js")(sequelize, Sequelize);
+db.materialArtifact = require("./material-artifact.model.js")(sequelize, Sequelize);
 
 // users <-> roles (many-to-many via user_roles)
 // Explicitly pre-defined (rather than through: "user_roles" as a bare string)
@@ -171,15 +174,62 @@ db.templateVersion.belongsTo(db.user, {
   as: "Uploader",
 });
 
-// uploader (user, nullable) -> learning materials
-db.user.hasMany(db.learningMaterial, {
-  foreignKey: "uploadedBy",
-  as: "LearningMaterials",
+// materialTopic -> links/folders/artifacts (共享学习材料库 -- see
+// materials-library.component.js). No owner FK on materialTopic itself:
+// it's purely admin-curated, unlike plan's teacher ownership.
+db.materialTopic.hasMany(db.materialLink, {
+  foreignKey: "materialTopicId",
+  as: "Links",
+  onDelete: "CASCADE",
+  hooks: true,
+});
+db.materialLink.belongsTo(db.materialTopic, {
+  foreignKey: "materialTopicId",
+  onDelete: "CASCADE",
+});
+
+db.materialTopic.hasMany(db.materialFolder, {
+  foreignKey: "materialTopicId",
+  as: "Folders",
+  onDelete: "CASCADE",
+  hooks: true,
+});
+db.materialFolder.belongsTo(db.materialTopic, {
+  foreignKey: "materialTopicId",
+  onDelete: "CASCADE",
+});
+
+// materialFolder -> materialFolder (self-referencing parent/children, same
+// shape as folder -> folder above)
+db.materialFolder.hasMany(db.materialFolder, {
+  foreignKey: "parentFolderId",
+  as: "Children",
+  onDelete: "CASCADE",
+});
+db.materialFolder.belongsTo(db.materialFolder, {
+  foreignKey: "parentFolderId",
+  as: "Parent",
+});
+
+db.materialTopic.hasMany(db.materialArtifact, {
+  foreignKey: "materialTopicId",
+  as: "Artifacts",
+  onDelete: "CASCADE",
+  hooks: true,
+});
+db.materialArtifact.belongsTo(db.materialTopic, {
+  foreignKey: "materialTopicId",
+  onDelete: "CASCADE",
+});
+
+db.materialFolder.hasMany(db.materialArtifact, {
+  foreignKey: "folderId",
+  as: "Artifacts",
   onDelete: "SET NULL",
 });
-db.learningMaterial.belongsTo(db.user, {
-  foreignKey: "uploadedBy",
-  as: "Uploader",
+db.materialArtifact.belongsTo(db.materialFolder, {
+  foreignKey: "folderId",
+  onDelete: "SET NULL",
 });
 
 // Roles are exactly admin/teacher/expert — this app has no

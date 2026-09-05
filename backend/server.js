@@ -38,8 +38,10 @@ require("./app/routes/plan.routes")(app);
 require("./app/routes/artifact.routes")(app);
 require("./app/routes/folder.routes")(app);
 require("./app/routes/review.routes")(app);
-require("./app/routes/learning-material.routes")(app);
 require("./app/routes/template.routes")(app);
+require("./app/routes/material-topic.routes")(app);
+require("./app/routes/material-folder.routes")(app);
+require("./app/routes/material-artifact.routes")(app);
 
 // Note: no static frontend serving / catch-all here — the frontend is being
 // built separately and its build output path doesn't exist yet.
