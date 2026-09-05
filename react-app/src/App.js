@@ -19,6 +19,7 @@ import AdminUsersList from "./components/admin-users-list.component";
 import TemplateAdmin from "./components/template-admin.component";
 
 import AuthService from "./services/auth.service";
+import { skipNextUnsavedWarning } from "./utils/unsavedChangesGuard";
 
 // Small role-gated nav + route table (react-router-dom v5 Switch/Route API, matching
 // shinshin's react-router-dom ^5.1.2). shinshin's idle-timeout AccessControlService HOC is
@@ -30,9 +31,30 @@ class App extends Component {
     this.logOut = this.logOut.bind(this);
   }
 
-  logOut() {
-    AuthService.signout();
+  logOut(e) {
+    if (e) e.preventDefault();
+    // A route component (e.g. PlanDetail) may have an active react-router
+    // <Prompt> guarding unsaved changes -- history.push below runs its
+    // block synchronously (the default getUserConfirmation is a plain
+    // window.confirm), so by the time push() returns, history.location
+    // already reflects whether the user actually confirmed leaving.
+    // Confirmed necessary: signout()/reload() used to run unconditionally
+    // here, before push even happened, so clicking "Cancel" on the prompt
+    // still logged the user out (nothing left to undo -- the token was
+    // already cleared) and reload() still fired a second, spurious
+    // beforeunload dialog regardless of that answer.
+    const before = this.props.history.location.pathname;
     this.props.history.push("/login");
+    if (this.props.history.location.pathname === before) {
+      return;
+    }
+    AuthService.signout();
+    // The user already confirmed leaving via the push above (if anything
+    // needed confirming) -- this reload is unconditional at this point, so
+    // a route component's own beforeunload listener (possibly not yet torn
+    // down, since unmount isn't guaranteed synchronous with push() above)
+    // shouldn't ask the same question again.
+    skipNextUnsavedWarning();
     window.location.reload();
   }
 

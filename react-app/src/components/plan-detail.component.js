@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Prompt } from "react-router-dom";
 import mammoth from "mammoth/mammoth.browser";
 
 import PlanDataService from "../services/plan.service";
@@ -7,6 +8,7 @@ import ReviewList from "./review-list.component";
 import LessonFileManager from "./lesson-file-manager.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_STATUSES, EMPTY_LESSON } from "../constants/plan-options";
 import { extractLessonsFromText, extractSectionsFromText, hasAnySectionContent } from "../utils/planDocExtract";
+import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
 import "../curriculum.css";
 
 // planFormData is nested by section key when its schema has more than one
@@ -75,7 +77,7 @@ const DynamicSectionFields = ({ fields, values, canEdit, onFieldChange }) => {
 // utils/planDocExtract.js) and overwrites the plan's planFormData wholesale
 // after an explicit confirm -- a destructive action, so it's gated behind a
 // warning rather than a silent merge.
-const DesignDocPanel = ({ planId, plan, canEdit, onContentReplaced }) => {
+const DesignDocPanel = ({ planId, plan, canEdit, onUploadReplace }) => {
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(""); // "" | "download" | "preview"
   const [showUpload, setShowUpload] = useState(false);
@@ -176,10 +178,9 @@ const DesignDocPanel = ({ planId, plan, canEdit, onContentReplaced }) => {
         return;
       }
       const newFormData = { ...bodyExtracted, lessons };
-      await PlanDataService.update(planId, { planFormData: newFormData });
+      await onUploadReplace({ planFormData: newFormData });
       setMessage("课程设计文件已上传，在线内容已更新。");
       setShowUpload(false);
-      if (onContentReplaced) onContentReplaced();
     } catch (e) {
       console.log(e);
       setMessage((e && e.response && e.response.data && e.response.data.message) || "上传失败，请确认文件格式。");
@@ -257,7 +258,7 @@ const DesignDocPanel = ({ planId, plan, canEdit, onContentReplaced }) => {
 // plan.ExecutionTemplateVersion's schema) and overwrites just this
 // lesson's entry in plan.executionFormData, gated behind an explicit
 // confirm, same as DesignDocPanel's 上传.
-const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onContentReplaced }) => {
+const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, executionFormData, canEdit, onUploadReplace }) => {
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(""); // "" | "download" | "preview"
   const [showUpload, setShowUpload] = useState(false);
@@ -348,14 +349,18 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onContent
         setMessage("未能从文件中识别到有效内容，请确认文件是按课时实施记录模板填写的 .docx。");
         return;
       }
-      const existing = Array.isArray(plan && plan.executionFormData) ? plan.executionFormData : [];
+      // Built from the parent's live in-memory executionFormData (prop),
+      // not plan.executionFormData -- the latter is only the last-known
+      // *server* value, and merging against it would silently drop any
+      // other lesson's (or this lesson's own) unsaved edits sitting in
+      // memory when this upload's save lands.
+      const existing = Array.isArray(executionFormData) ? executionFormData : [];
       const newExecutionFormData = existing.some((r) => Number(r.index) === Number(lessonIndex))
         ? existing.map((r) => (Number(r.index) === Number(lessonIndex) ? { ...record, index: lessonIndex } : r))
         : [...existing, { ...record, index: lessonIndex }];
-      await PlanDataService.update(planId, { executionFormData: newExecutionFormData });
+      await onUploadReplace({ executionFormData: newExecutionFormData });
       setMessage("课程实施文件已上传，实施记录已更新。");
       setShowUpload(false);
-      if (onContentReplaced) onContentReplaced();
     } catch (e) {
       console.log(e);
       setMessage((e && e.response && e.response.data && e.response.data.message) || "上传失败，请确认文件格式。");
@@ -455,6 +460,20 @@ const PlanDetail = (props) => {
   // shape as formData.lessons (see onLessonFieldChange), just plan-level
   // execution-record data instead of design content.
   const [executionFormData, setExecutionFormData] = useState([]);
+  // Dirty tracking for the 保存草稿/提交待点评 button pairs -- planDirty
+  // covers formData (WHY/WHAT/HOW + 分课时设计, both saved via
+  // saveFormData), executionDirty covers executionFormData (every 课时's
+  // 实施记录, saved together in one array via saveExecutionRecord). 提交待
+  // 点评 needs no dirty tracking of its own: it's gated purely by
+  // `plan.status === "draft"` (permanently disabled the moment a plan is
+  // ever submitted -- status only ever moves away from "draft", never
+  // back) and by planNotEmpty/executionNotEmpty (don't submit genuinely
+  // blank content) -- both computed straight from the plan's actual
+  // current data, so a plan born with content (e.g. created via 从文件导入)
+  // is correctly submittable immediately, with no separate "a save
+  // happened in this browsing session" flag required.
+  const [planDirty, setPlanDirty] = useState(false);
+  const [executionDirty, setExecutionDirty] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(false);
   // planLessons (分课时设计, nested under 计划) starts collapsed, unlike plan/
   // execution -- it can hold as many leaves as 实施's own 课时 list, and it's
@@ -486,6 +505,26 @@ const PlanDetail = (props) => {
   useEffect(() => {
     retrievePlan();
   }, [retrievePlan]);
+
+  // Covers actual tab close/refresh/typed-URL navigation -- the in-app
+  // <Prompt> below (same planDirty/executionDirty condition) covers
+  // react-router navigation (返回, browser back/forward) instead, since
+  // beforeunload doesn't fire for client-side route changes.
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (!planDirty && !executionDirty) return;
+      // Set by e.g. App.js's logOut right before a reload it already got
+      // explicit confirmation for via its own push-triggered <Prompt> --
+      // this component isn't guaranteed to have unmounted (and torn down
+      // this very listener) synchronously by that point, so without this
+      // check the same question would get asked a second, redundant time.
+      if (consumeSkipUnsavedWarning()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [planDirty, executionDirty]);
 
   const currentUser = AuthService.getCurrentUser();
   const isOwner = !!(plan && currentUser && String(plan.teacherId) === String(currentUser.id));
@@ -541,6 +580,7 @@ const PlanDetail = (props) => {
     setFormData((prev) =>
       sections.length > 1 ? { ...prev, [sectionKey]: { ...prev[sectionKey], [field]: value } } : { ...prev, [field]: value }
     );
+    setPlanDirty(true);
   };
 
   // formData.lessons is a sparse array of { index, title, content } (see
@@ -555,6 +595,7 @@ const PlanDetail = (props) => {
         : [...prev.lessons, { ...EMPTY_LESSON, index: lessonIndex, [field]: value }];
       return { ...prev, lessons };
     });
+    setPlanDirty(true);
   };
 
   // executionFormData is a sparse array of 实施记录 entries, same shape as
@@ -570,6 +611,7 @@ const PlanDetail = (props) => {
         ? prev.map((r) => (Number(r.index) === lessonIndex ? { ...r, [field]: value } : r))
         : [...prev, { index: lessonIndex, [field]: value }]
     );
+    setExecutionDirty(true);
   };
 
   // Same 保存草稿/提交待点评 split as saveFormData above -- 提交待点评 bumps
@@ -582,6 +624,7 @@ const PlanDetail = (props) => {
         executionFormData,
         status: submitStatus || undefined,
       });
+      setExecutionDirty(false);
       setMessage(submitStatus === "submitted" ? "实施记录已提交。" : "实施记录已保存。");
       retrievePlan();
     } catch (err) {
@@ -595,11 +638,29 @@ const PlanDetail = (props) => {
         planFormData: formData,
         status: submitStatus || undefined,
       });
+      setPlanDirty(false);
       setMessage(submitStatus === "submitted" ? "课程设计方案已提交。" : "课程设计方案已保存。");
       retrievePlan();
     } catch (err) {
       setMessage(err?.response?.data?.message || "保存失败。");
     }
+  };
+
+  // Shared by both doc-upload panels below (DesignDocPanel/
+  // LessonExecutionDocPanel): an upload always persists its own domain
+  // (planFormData or executionFormData -- whichever is passed in
+  // `replacement`), and, per the user's requirement, also flushes whatever
+  // *other* domain is currently dirty in the same request, so an upload
+  // never silently strands unsaved edits sitting elsewhere on the page.
+  // Counts as an implicit save for both domains either way.
+  const onUploadReplace = async (replacement) => {
+    const payload = { ...replacement };
+    if (payload.planFormData === undefined && planDirty) payload.planFormData = formData;
+    if (payload.executionFormData === undefined && executionDirty) payload.executionFormData = executionFormData;
+    await PlanDataService.update(planId, payload);
+    setPlanDirty(false);
+    setExecutionDirty(false);
+    retrievePlan();
   };
 
   const toggleExcellent = async () => {
@@ -648,6 +709,16 @@ const PlanDetail = (props) => {
   const lessons = Array.from({ length: lessonCount }, (_, i) => i + 1);
   const planTemplateSchema = (plan.PlanTemplateVersion && plan.PlanTemplateVersion.schemaJson) || { sections: [] };
   const planSchemaMultiSection = planTemplateSchema.sections.length > 1;
+  // Hoisted here (rather than locally inside the executionRecord branch
+  // below) so it's available for executionNotEmpty too.
+  const executionTemplateSchema = (plan.ExecutionTemplateVersion && plan.ExecutionTemplateVersion.schemaJson) || { sections: [] };
+  // "Not empty" gate for 提交待点评 -- reuses hasAnySectionContent, the same
+  // "did the user actually write anything" check already used for
+  // upload-extraction (see DesignDocPanel/LessonExecutionDocPanel below).
+  const planNotEmpty =
+    hasAnySectionContent(planTemplateSchema, formData) ||
+    (formData.lessons || []).some((l) => (l.title || "").trim() || (l.content || "").trim());
+  const executionNotEmpty = executionFormData.some((r) => hasAnySectionContent(executionTemplateSchema, r));
 
   const renderContent = () => {
     if (selected.type === "plan" && selected.key === "basic") {
@@ -748,10 +819,15 @@ const PlanDetail = (props) => {
           />
           {canEditPlan && (
             <div className="d-flex mt-2">
-              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveFormData()}>
+              <button className="btn btn-primary mr-2" type="button" onClick={() => saveFormData()} disabled={!planDirty}>
                 保存草稿
               </button>
-              <button className="btn btn-primary" type="button" onClick={() => saveFormData("submitted")}>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => saveFormData("submitted")}
+                disabled={plan.status !== "draft" || !planNotEmpty}
+              >
                 提交待点评
               </button>
             </div>
@@ -774,7 +850,7 @@ const PlanDetail = (props) => {
           <div className="mb-2">
             <h6 className="mb-0">课程设计文件</h6>
           </div>
-          <DesignDocPanel planId={planId} plan={plan} canEdit={canEditPlan} onContentReplaced={retrievePlan} />
+          <DesignDocPanel planId={planId} plan={plan} canEdit={canEditPlan} onUploadReplace={onUploadReplace} />
         </div>
       );
     }
@@ -837,10 +913,15 @@ const PlanDetail = (props) => {
           </div>
           {canEditPlan && (
             <div className="d-flex mt-2">
-              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveFormData()}>
+              <button className="btn btn-primary mr-2" type="button" onClick={() => saveFormData()} disabled={!planDirty}>
                 保存草稿
               </button>
-              <button className="btn btn-primary" type="button" onClick={() => saveFormData("submitted")}>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => saveFormData("submitted")}
+                disabled={plan.status !== "draft" || !planNotEmpty}
+              >
                 提交待点评
               </button>
             </div>
@@ -857,8 +938,7 @@ const PlanDetail = (props) => {
     if (selected.type === "executionRecord") {
       const n = selected.key;
       const record = executionFormData.find((r) => Number(r.index) === n) || {};
-      const executionSchema = (plan.ExecutionTemplateVersion && plan.ExecutionTemplateVersion.schemaJson) || { sections: [] };
-      const section = executionSchema.sections[0] || { fields: [] };
+      const section = executionTemplateSchema.sections[0] || { fields: [] };
       return (
         <div className="pl-card pl-why-what-how">
           <h6>实施记录 · 课时 {n}</h6>
@@ -870,10 +950,15 @@ const PlanDetail = (props) => {
           />
           {canEditPlan && (
             <div className="d-flex mt-2">
-              <button className="btn btn-secondary mr-2" type="button" onClick={() => saveExecutionRecord()}>
+              <button className="btn btn-primary mr-2" type="button" onClick={() => saveExecutionRecord()} disabled={!executionDirty}>
                 保存草稿
               </button>
-              <button className="btn btn-primary" type="button" onClick={() => saveExecutionRecord("submitted")}>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => saveExecutionRecord("submitted")}
+                disabled={plan.status !== "draft" || !executionNotEmpty}
+              >
                 提交待点评
               </button>
             </div>
@@ -889,7 +974,14 @@ const PlanDetail = (props) => {
           <div className="mb-2">
             <h6 className="mb-0">课程实施文件 · 课时 {n}</h6>
           </div>
-          <LessonExecutionDocPanel planId={planId} lessonIndex={n} plan={plan} canEdit={canEditPlan} onContentReplaced={retrievePlan} />
+          <LessonExecutionDocPanel
+            planId={planId}
+            lessonIndex={n}
+            plan={plan}
+            executionFormData={executionFormData}
+            canEdit={canEditPlan}
+            onUploadReplace={onUploadReplace}
+          />
         </div>
       );
     }
@@ -948,6 +1040,10 @@ const PlanDetail = (props) => {
 
   return (
     <div className="container pl-page">
+      {/* Covers 返回 above (a plain history.push) and browser back/forward
+          while still on this route -- actual tab close/refresh is the
+          beforeunload listener set up above instead. */}
+      <Prompt when={planDirty || executionDirty} message="有未保存的内容，确定要离开吗？" />
       <div className="pl-hero">
         <div className="mb-2">
           <button type="button" className="btn btn-primary" onClick={goBack}>
