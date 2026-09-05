@@ -25,6 +25,21 @@ class ArtifactDataService {
     });
   }
 
+  downloadSelection(planId, { lessonIndex, artifactIds, folderIds }, onDownloadProgress) {
+    const user = JSON.parse(localStorage.getItem("user"));
+    return http.post(
+      `/plans/${planId}/artifacts/download-selection`,
+      { lessonIndex, artifactIds, folderIds },
+      {
+        headers: {
+          "x-access-token": user && user.accessToken ? user.accessToken : null,
+        },
+        responseType: "arraybuffer",
+        onDownloadProgress,
+      }
+    );
+  }
+
   download(id) {
     const user = JSON.parse(localStorage.getItem("user"));
     return http.get(`/artifacts/${id}/download`, {

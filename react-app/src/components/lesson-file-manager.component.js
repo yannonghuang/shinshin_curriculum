@@ -165,7 +165,10 @@ const walkEntry = async (entry, parentFolderId, planId, lessonIndex, folderCache
   }
 };
 
-const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
+// canDownload gates selection/preview/download only -- upload, move, folder
+// creation, and delete stay canEdit-only (owner-only). Defaults to canEdit so
+// any other caller that doesn't pass it explicitly keeps the old behavior.
+const LessonFileManager = ({ planId, lessonIndex, canEdit, canDownload = canEdit }) => {
   const [folders, setFolders] = useState([]);
   const [artifacts, setArtifacts] = useState([]);
   const [currentFolderId, setCurrentFolderId] = useState(null);
@@ -464,11 +467,38 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
     }
   };
 
-  const downloadSelected = async () => {
-    const items = childArtifacts.filter((a) => selectedArtifactIds.has(a.id));
-    if (selectedFolderIds.size > 0) {
-      setMessage(`文件夹暂不支持下载，已跳过 ${selectedFolderIds.size} 个文件夹，仅下载已选择的文件。`);
+  // A selection containing any folder is packaged server-side into a single
+  // zip (folders staged recursively, preserving their subfolder structure and
+  // descendant files, alongside the selected top-level files) -- see
+  // artifact.controller.js#downloadSelection. A file-only selection keeps the
+  // simpler direct-download-per-file behavior below, unchanged.
+  const downloadSelectedAsZip = async () => {
+    try {
+      const resp = await ArtifactDataService.downloadSelection(planId, {
+        lessonIndex,
+        artifactIds: Array.from(selectedArtifactIds),
+        folderIds: Array.from(selectedFolderIds),
+      });
+      const url = window.URL.createObjectURL(new Blob([resp.data], { type: "application/zip" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `课时${lessonIndex}-支撑材料.zip`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.log(e);
+      setMessage("打包下载失败。");
     }
+  };
+
+  const downloadSelected = async () => {
+    if (selectedFolderIds.size > 0) {
+      await downloadSelectedAsZip();
+      return;
+    }
+    const items = childArtifacts.filter((a) => selectedArtifactIds.has(a.id));
     // Triggering several simultaneous browser downloads at once is what gets
     // them blocked as a popup flood; one at a time is deliberate.
     for (const artifact of items) {
@@ -555,7 +585,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
     if (isIcon) {
       return (
         <div key={`folder-${folder.id}`} className={`pl-fm-icon-item ${checked ? "is-selected" : ""}`} onClick={() => enterFolder(folder.id)}>
-          {canEdit && renderItemCheckbox(checked, () => toggleFolderSelection(folder.id))}
+          {canDownload && renderItemCheckbox(checked, () => toggleFolderSelection(folder.id))}
           <i className="fas fa-folder pl-fm-icon-glyph pl-fm-folder-glyph"></i>
           <div className="pl-fm-icon-name">{folder.name}</div>
         </div>
@@ -563,7 +593,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
     }
     return (
       <tr key={`folder-${folder.id}`} className={checked ? "is-selected" : ""}>
-        <td>{canEdit && renderItemCheckbox(checked, () => toggleFolderSelection(folder.id))}</td>
+        <td>{canDownload && renderItemCheckbox(checked, () => toggleFolderSelection(folder.id))}</td>
         <td className="pl-fm-name-cell" onClick={() => enterFolder(folder.id)}>
           <i className="fas fa-folder pl-fm-folder-glyph mr-2"></i>
           {folder.name}
@@ -580,7 +610,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
     if (isIcon) {
       return (
         <div key={`file-${artifact.id}`} className={`pl-fm-icon-item ${checked ? "is-selected" : ""}`} onClick={() => openPreview(artifact)}>
-          {canEdit && renderItemCheckbox(checked, () => toggleArtifactSelection(artifact.id))}
+          {canDownload && renderItemCheckbox(checked, () => toggleArtifactSelection(artifact.id))}
           {renderIconGlyphOrThumb(artifact)}
           <div className="pl-fm-icon-name" title={artifact.attachmentName}>
             {artifact.attachmentName}
@@ -590,7 +620,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
     }
     return (
       <tr key={`file-${artifact.id}`} className={checked ? "is-selected" : ""}>
-        <td>{canEdit && renderItemCheckbox(checked, () => toggleArtifactSelection(artifact.id))}</td>
+        <td>{canDownload && renderItemCheckbox(checked, () => toggleArtifactSelection(artifact.id))}</td>
         <td className="pl-fm-name-cell" onClick={() => openPreview(artifact)} title={artifact.attachmentName}>
           <i className={`${iconClassForArtifact(artifact)} mr-2`} style={{ color: iconColorForArtifact(artifact) }}></i>
           {artifact.attachmentName}
@@ -711,7 +741,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
                 预览
               </button>
             )}
-            {selectedArtifactIds.size > 0 && (
+            {selectionCount > 0 && (
               <button type="button" className="btn btn-sm btn-link" onClick={downloadSelected}>
                 下载
               </button>
@@ -743,7 +773,7 @@ const LessonFileManager = ({ planId, lessonIndex, canEdit }) => {
             <thead>
               <tr>
                 <th style={{ width: "32px" }}>
-                  {canEdit && (childFolders.length > 0 || childArtifacts.length > 0) && renderItemCheckbox(allSelected, toggleSelectAll)}
+                  {canDownload && (childFolders.length > 0 || childArtifacts.length > 0) && renderItemCheckbox(allSelected, toggleSelectAll)}
                 </th>
                 <th>名称</th>
                 <th style={{ width: "100px" }}>类型</th>

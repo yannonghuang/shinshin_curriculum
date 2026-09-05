@@ -15,6 +15,7 @@ module.exports = function (app) {
   );
   app.get("/api/plans/:planId/artifacts", artifacts.findByPlan);
   app.get("/api/plans/:planId/artifacts/download", artifacts.downloadByPlan);
+  app.post("/api/plans/:planId/artifacts/download-selection", artifacts.downloadSelection);
   app.get("/api/artifacts/:id", artifacts.findOne);
   app.get("/api/artifacts/:id/download", artifacts.download);
   app.put("/api/artifacts/:id", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], artifacts.update);

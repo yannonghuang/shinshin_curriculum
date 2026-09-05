@@ -9,6 +9,7 @@ const db = require("../models");
 const Artifact = db.artifact;
 const Plan = db.plan;
 const Folder = db.folder;
+const Op = db.Sequelize.Op;
 
 const ARTIFACT_CATEGORIES = ["课程设计文件", "实施记录文件", "课件PPT", "图片", "视频"];
 const LESSON_FOLDER_REGEX = /^lesson-(\d+)$/;
@@ -634,6 +635,156 @@ exports.downloadByPlan = async (req, res) => {
     }
     return res.status(500).send({
       message: err.message || "批量下载附件时发生错误。",
+    });
+  }
+};
+
+// POST /api/plans/:planId/artifacts/download-selection -- zips an arbitrary
+// mixed selection of top-level files (artifactIds) and folders (folderIds)
+// from one 课时's file space, the combination lesson-file-manager.component.js's
+// downloadSelected couldn't previously produce (it silently skipped selected
+// folders). Selected folders are staged recursively, preserving their
+// subfolder structure and every descendant file, exactly like a real folder
+// download would; selected files are staged directly at the zip root.
+// POST (not GET) because the selection can be arbitrarily large -- too big to
+// safely round-trip through a query string.
+exports.downloadSelection = async (req, res) => {
+  let tmpRootDir = null;
+  let stagingDir = null;
+  let zipPath = null;
+
+  try {
+    const planId = Number(req.params.planId);
+    if (!Number.isInteger(planId) || planId <= 0) {
+      return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
+    }
+
+    const plan = await Plan.findByPk(planId);
+    if (!plan) {
+      return res.status(404).send({ message: "乡土课程设计不存在。" });
+    }
+
+    const lessonIndex = normalizeLessonIndex(req.body.lessonIndex);
+    const toIdList = (value) =>
+      (Array.isArray(value) ? value : [])
+        .map((v) => Number(v))
+        .filter((n) => Number.isInteger(n) && n > 0);
+    const artifactIds = toIdList(req.body.artifactIds);
+    const folderIds = toIdList(req.body.folderIds);
+
+    if (artifactIds.length === 0 && folderIds.length === 0) {
+      return res.status(422).send({ message: "未选择任何文件或文件夹。" });
+    }
+
+    const [allFolders, selectedArtifacts, selectedFolders] = await Promise.all([
+      Folder.findAll({ where: { planId, lessonIndex }, attributes: ["id", "name", "parentFolderId"] }),
+      artifactIds.length
+        ? Artifact.findAll({
+            where: { id: { [Op.in]: artifactIds }, planId },
+            attributes: ["id", "attachmentName", "attachmentPath"],
+          })
+        : [],
+      folderIds.length
+        ? Folder.findAll({ where: { id: { [Op.in]: folderIds }, planId, lessonIndex }, attributes: ["id", "name"] })
+        : [],
+    ]);
+
+    if (folderIds.length > 0 && selectedFolders.length !== folderIds.length) {
+      return res.status(422).send({ message: "部分文件夹不存在，或不属于同一课时的文件空间。" });
+    }
+
+    const childrenByParentId = new Map();
+    for (const f of allFolders) {
+      const key = f.parentFolderId || null;
+      if (!childrenByParentId.has(key)) childrenByParentId.set(key, []);
+      childrenByParentId.get(key).push(f);
+    }
+
+    tmpRootDir = fs.mkdtempSync(path.join(os.tmpdir(), `plan-${planId}-selection-`));
+    stagingDir = path.join(tmpRootDir, "files");
+    fs.mkdirSync(stagingDir, { recursive: true });
+
+    let stagedCount = 0;
+    // Checks the real filesystem (not just a "seen" set) so a top-level file
+    // can never collide with a same-named folder's staged directory either --
+    // whichever of the two is staged second just gets an id-prefixed name.
+    const stageFile = (dirPath, artifact) => {
+      if (!artifact.attachmentPath || !fs.existsSync(artifact.attachmentPath)) return;
+      if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+      const safeName = path.basename(artifact.attachmentName || `artifact-${artifact.id}`);
+      let target = path.join(dirPath, safeName);
+      if (fs.existsSync(target)) target = path.join(dirPath, `${artifact.id}-${safeName}`);
+      fs.copyFileSync(artifact.attachmentPath, target);
+      stagedCount += 1;
+    };
+
+    // path.basename strips any "/"/".." a user-typed folder name might
+    // contain, so a nested staged directory can never escape stagingDir.
+    const stageFolderRecursive = async (folder, destDir) => {
+      let folderDir = path.join(destDir, path.basename(folder.name || "") || `folder-${folder.id}`);
+      if (fs.existsSync(folderDir) && !fs.statSync(folderDir).isDirectory()) {
+        folderDir = path.join(destDir, `${folder.id}-${path.basename(folder.name || "folder")}`);
+      }
+      fs.mkdirSync(folderDir, { recursive: true });
+
+      const filesInFolder = await Artifact.findAll({
+        where: { folderId: folder.id, planId },
+        attributes: ["id", "attachmentName", "attachmentPath"],
+      });
+      for (const artifact of filesInFolder) {
+        stageFile(folderDir, artifact);
+      }
+
+      const children = childrenByParentId.get(folder.id) || [];
+      for (const child of children) {
+        // eslint-disable-next-line no-await-in-loop
+        await stageFolderRecursive(child, folderDir);
+      }
+    };
+
+    // Folders staged before top-level files so a colliding file (see
+    // stageFile above) is the one that gets renamed, not the folder.
+    for (const folder of selectedFolders) {
+      // eslint-disable-next-line no-await-in-loop
+      await stageFolderRecursive(folder, stagingDir);
+    }
+    for (const artifact of selectedArtifacts) {
+      stageFile(stagingDir, artifact);
+    }
+
+    if (stagedCount === 0) {
+      fs.rmSync(tmpRootDir, { recursive: true, force: true });
+      return res.status(404).send({ message: "所选内容中没有可下载的文件。" });
+    }
+
+    zipPath = path.join(tmpRootDir, `plan-${planId}-selection.zip`);
+    childProcess.execFileSync("zip", ["-q", "-r", zipPath, "."], {
+      cwd: stagingDir,
+      stdio: "pipe",
+    });
+
+    res.download(zipPath, `plan-${planId}-selection.zip`, (err) => {
+      if (err) {
+        console.error("选定项打包下载响应失败:", err.message);
+      }
+      if (tmpRootDir && fs.existsSync(tmpRootDir)) {
+        try {
+          fs.rmSync(tmpRootDir, { recursive: true, force: true });
+        } catch (e) {
+          console.error("删除选定项下载临时目录失败:", tmpRootDir, e.message);
+        }
+      }
+    });
+  } catch (err) {
+    if (tmpRootDir && fs.existsSync(tmpRootDir)) {
+      try {
+        fs.rmSync(tmpRootDir, { recursive: true, force: true });
+      } catch (e) {
+        console.error("异常时删除选定项下载临时目录失败:", tmpRootDir, e.message);
+      }
+    }
+    return res.status(500).send({
+      message: err.message || "打包下载所选内容时发生错误。",
     });
   }
 };
