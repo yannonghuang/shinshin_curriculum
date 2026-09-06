@@ -53,11 +53,21 @@ const buildContextAddition = async (pageContext) => {
   if (pageContext.reviewId) {
     const review = await Review.findByPk(pageContext.reviewId);
     if (!review) return "";
-    const plan = await Plan.findByPk(review.planId, { attributes: ["id", "title"] });
+    const plan = await Plan.findByPk(review.planId, { attributes: ["id", "title", "contentVersionAt"] });
     const planLine = plan ? `课程设计《${plan.title}》(planId: ${plan.id})` : `课程设计 (planId: ${review.planId})`;
+    // The review's own text is a frozen snapshot of what the AI said at the
+    // time (review.planVersionAt) -- if the plan has since been edited
+    // (contentVersionAt moved on, the same staleness check
+    // review.controller.js#delete already uses to lock old reviews against
+    // deletion), that feedback may no longer match what's actually in the
+    // plan today. Surfaced here so neither the model nor the teacher acts on
+    // stale feedback without realizing it might be stale.
+    const isStale =
+      plan && review.planVersionAt && new Date(review.planVersionAt).getTime() !== new Date(plan.contentVersionAt).getTime();
+    const staleNote = isStale ? "\n注意：该点评基于该课程设计的旧版本，课程内容可能已发生变化，回答时请提醒教师这一点。" : "";
     return (
       `\n\n教师当前正在讨论关于${planLine}的一条点评：\n${review.content}\n` +
-      `如需查看该课程设计的详细内容，可调用 get_plan_details 工具（planId=${review.planId}）。`
+      `如需查看该课程设计的详细内容，可调用 get_plan_details 工具（planId=${review.planId}）。${staleNote}`
     );
   }
   if (pageContext.planId) {
