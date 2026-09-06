@@ -18,6 +18,13 @@ import "../curriculum.css";
 // contribute context later.
 const PLAN_PAGE_RE = /^\/plans\/(\d+)/;
 
+// Default size/placement, and the margin from the viewport edge -- used only
+// to compute an initial top/left once per open (see panelPos below).
+const PANEL_DEFAULT_WIDTH = 360;
+const PANEL_DEFAULT_HEIGHT = 520;
+const PANEL_MARGIN = 20;
+const TOGGLE_CLEARANCE = 84; // leaves room above the floating toggle button
+
 const CopilotPanel = () => {
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
@@ -27,6 +34,26 @@ const CopilotPanel = () => {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const messagesEndRef = useRef(null);
+  // Anchored via top/left (computed once, on first open), not right/bottom --
+  // CSS `resize` only ever grows/shrinks a box from its bottom-right corner
+  // while its top/left stay fixed. Anchoring via right/bottom instead would
+  // mean growing the box moves its *top-left* corner outward while the
+  // bottom-right corner (where the resize grip visually sits, and where a
+  // user's cursor actually is while dragging) never moves on screen at all --
+  // confirmed via a real drag simulation: the box's right/bottom screen
+  // position was bit-for-bit identical before and after resizing either
+  // direction. Top/left anchoring is what makes "drag the corner to make it
+  // bigger" track the cursor the way every other resizable box does.
+  const [panelPos, setPanelPos] = useState(null);
+
+  useEffect(() => {
+    if (isOpen && !panelPos) {
+      setPanelPos({
+        left: Math.max(8, window.innerWidth - PANEL_MARGIN - PANEL_DEFAULT_WIDTH),
+        top: Math.max(8, window.innerHeight - TOGGLE_CLEARANCE - PANEL_DEFAULT_HEIGHT),
+      });
+    }
+  }, [isOpen, panelPos]);
 
   const currentUser = AuthService.getCurrentUser();
   const isLoggedIn = !!currentUser;
@@ -128,7 +155,7 @@ const CopilotPanel = () => {
       </button>
 
       {isOpen && (
-        <div className="copilot-panel">
+        <div className="copilot-panel" style={panelPos ? { left: panelPos.left, top: panelPos.top } : undefined}>
           <div className="copilot-header">
             <span>欣欣助手</span>
             <button type="button" className="btn btn-sm btn-link copilot-new-btn" onClick={startNew}>

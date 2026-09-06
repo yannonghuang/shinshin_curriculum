@@ -1084,6 +1084,13 @@
 }
 
 .copilot-toggle {
+  /* Above .copilot-panel on purpose -- resizing the panel larger can now
+     (correctly, see .copilot-panel's own comment) grow it down/right over
+     where the toggle sits, and this keeps the toggle clickable (and
+     visible, since higher z-index also wins the paint order) regardless,
+     so it's never possible to resize your way into an unclosable panel. */
+  position: relative;
+  z-index: 2;
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -1100,9 +1107,13 @@
 }
 
 .copilot-panel {
+  /* top/left set inline (see copilot-panel.component.js's panelPos) --
+     computed once on open, not fixed in this stylesheet, so that resize
+     (which always grows/shrinks a box from its bottom-right corner while
+     top/left stay put) makes the panel track the cursor naturally instead of
+     growing toward a corner the user isn't dragging. */
   position: fixed;
-  right: 20px;
-  bottom: 84px;
+  z-index: 1;
   width: 360px;
   min-width: 300px;
   max-width: calc(100vw - 40px);
@@ -1116,10 +1127,6 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* Draggable from the bottom-right corner grip -- since the panel is
-     anchored via right/bottom (not top/left), growing width/height shrinks
-     the computed left/top instead, so it expands toward the upper-left and
-     the corner nearest the toggle button stays put. */
   resize: both;
 }
 
