@@ -22,5 +22,6 @@ module.exports = function (app) {
   app.get("/api/admin/templates/:templateKey", [authJwt.verifyToken, authJwt.isAdmin], templates.list);
   app.put("/api/admin/templates/:templateKey/versions/:id/activate", [authJwt.verifyToken, authJwt.isAdmin], templates.activate);
   app.put("/api/admin/templates/:templateKey/versions/:id/note", [authJwt.verifyToken, authJwt.isAdmin], templates.updateNote);
+  app.get("/api/admin/templates/:templateKey/versions/:id/download", [authJwt.verifyToken, authJwt.isAdmin], templates.download);
   app.delete("/api/admin/templates/:templateKey/versions/:id", [authJwt.verifyToken, authJwt.isAdmin], templates.remove);
 };

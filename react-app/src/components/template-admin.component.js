@@ -90,6 +90,35 @@ const TemplateAdmin = () => {
     }
   };
 
+  const handleDownload = async (templateKey, version) => {
+    setMessage("");
+    // Opened synchronously, before the await, so popup blockers see it as a
+    // direct result of the click; the blob URL is dropped in once the
+    // (auth-header-gated) request resolves.
+    const newWindow = window.open("", "_blank");
+    try {
+      const resp = await TemplateDataService.download(templateKey, version.id);
+      const url = window.URL.createObjectURL(
+        new Blob([resp.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
+      );
+      if (newWindow) {
+        newWindow.location = url;
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", version.sourceFileName || `${templateKey}-v${version.version}.docx`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      console.log(err);
+      setMessage("模板下载失败。");
+      if (newWindow) newWindow.close();
+    }
+  };
+
   const startEditNote = (version) => {
     setEditingNoteId(version.id);
     setNoteDraft(version.notes || "");
@@ -202,6 +231,13 @@ const TemplateAdmin = () => {
                           </button>
                         </td>
                         <td className="text-nowrap">
+                          <button
+                            className="btn btn-outline-primary btn-sm mr-1"
+                            type="button"
+                            onClick={() => handleDownload(t.key, v)}
+                          >
+                            下载
+                          </button>
                           {!v.isActive && (
                             <button
                               className="btn btn-outline-primary btn-sm mr-1"

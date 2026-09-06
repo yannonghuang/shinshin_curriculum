@@ -249,6 +249,43 @@ exports.downloadBlank = async (req, res) => {
   }
 };
 
+// GET /api/admin/templates/:templateKey/versions/:id/download -- admin-only,
+// the actual file behind one version row (not just the active one, unlike
+// #downloadBlank below). If this version came from an upload (sourceFilePath
+// set, see #upload above), streams back the original .docx as-is; the
+// hand-authored seed versions have no file on disk, so for those it falls
+// back to the same on-the-fly regeneration #downloadBlank uses, rendered
+// from *this* version's schemaJson rather than whichever is currently active.
+exports.download = async (req, res) => {
+  try {
+    const version = await TemplateVersion.findByPk(req.params.id);
+    if (!version || version.templateKey !== req.params.templateKey) {
+      return res.status(404).send({ message: `未找到模板版本 id=${req.params.id}。` });
+    }
+
+    if (version.sourceFilePath) {
+      if (!fs.existsSync(version.sourceFilePath)) {
+        return res.status(404).send({ message: "模板源文件已丢失。" });
+      }
+      return res.download(version.sourceFilePath, version.sourceFileName || `${req.params.templateKey}-v${version.version}.docx`);
+    }
+
+    const docTitle = `${TEMPLATE_DISPLAY_NAMES[req.params.templateKey] || req.params.templateKey}-v${version.version}`;
+    const buffer = await dynamicDocGenerator.generateDoc({
+      docTitle,
+      schema: version.schemaJson,
+      answers: {},
+    });
+    res.set({
+      "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(docTitle)}.docx`,
+    });
+    return res.send(buffer);
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "下载模板版本时发生错误。" });
+  }
+};
+
 // GET /api/templates/versions/:id -- resolves one specific pinned version
 // (a plan's own plan_template_version_id/execution_template_version_id),
 // regardless of whether it's still the active one.

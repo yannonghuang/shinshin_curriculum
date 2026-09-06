@@ -29,6 +29,19 @@ class TemplateDataService {
     return http.get(`/admin/templates/${templateKey}`, { headers: authHeader() });
   }
 
+  // The actual file behind one version row (the original upload, or a
+  // regenerated blank doc for the hand-authored seed versions that have none
+  // on disk -- see template.controller.js#download).
+  download(templateKey, id) {
+    const user = JSON.parse(localStorage.getItem("user"));
+    return http.get(`/admin/templates/${templateKey}/versions/${id}/download`, {
+      headers: {
+        "x-access-token": user && user.accessToken ? user.accessToken : null,
+      },
+      responseType: "arraybuffer",
+    });
+  }
+
   upload(templateKey, file) {
     const user = JSON.parse(localStorage.getItem("user"));
     const formData = new FormData();
