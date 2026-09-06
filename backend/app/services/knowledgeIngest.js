@@ -117,6 +117,17 @@ async function regenerateSkillCard(materialTopicId) {
     }
 
     const chunks = await KnowledgeChunk.findAll({ where: { materialTopicId }, order: [["id", "ASC"]] });
+
+    // A topic with nothing but its own 基本信息 chunk (see
+    // material-topic.controller.js's topicMetaText) has no real material yet
+    // -- retrieval already covers "谁讲过伞饭文化"-style questions via that
+    // meta chunk directly (knowledgeRetrieve.js), so an LLM call here would
+    // just be paraphrasing the same title/year/lecturer fields back as a
+    // "card." Skip it (slow + adds nothing); the first real link/file upload
+    // is what actually earns a generated card.
+    const hasRealMaterial = chunks.some((c) => c.sourceType !== "material_topic_meta");
+    if (!hasRealMaterial) return;
+
     const combinedText = chunks
       .map((c) => c.content)
       .join("\n\n")
