@@ -50,6 +50,12 @@ services:
     # headroom, leaving enough of the VM's 1.6GB + the swapfile added
     # alongside this for the host OS and Docker itself.
     mem_limit: 700m
+    # memswap_limit == mem_limit: no swap for this container specifically.
+    # Docker's default (unset) lets a container use up to mem_limit *again*
+    # in swap -- fine for a service that's merely large, bad for one that
+    # might thrash. A clean fast OOM-kill+restart beats slow disk-backed
+    # swapping that can drag the whole host down with it.
+    memswap_limit: 700m
 
   backend:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-backend:${IMAGE_TAG:-latest}
@@ -70,6 +76,19 @@ services:
     # container's hard cgroup limit, leaving ~130MB of headroom in mem_limit
     # itself for non-heap memory (buffers, native addons, thread stacks).
     mem_limit: 900m
+    # See db's memswap_limit comment -- PDF extraction is exactly the kind of
+    # bursty, CPU-heavy, possibly-slow-under-real-world-throttling load that
+    # swapping would make worse, not better (disk-backed swap I/O competing
+    # with an already CPU-starved host). Force a clean OOM-kill instead.
+    memswap_limit: 900m
+    # cpus: this ECS instance has 2 vCPUs total. A real-world PDF upload
+    # pegged CPU at 100%+ and coincided with the whole host (including sshd)
+    # becoming unresponsive for several minutes -- consistent with a
+    # burstable/shared-core instance where sustained full-core demand from
+    # one container can starve everything else on the VM. Capping backend to
+    # 1 core guarantees the other core stays available for sshd/dockerd/db
+    # regardless of how hard a single extraction runs.
+    cpus: "1"
     environment:
       NODE_OPTIONS: --max-old-space-size=768
 
@@ -87,3 +106,4 @@ services:
     # nginx serving a static build -- baseline usage is a few MB; generous
     # ceiling purely as a backstop, see db's mem_limit comment.
     mem_limit: 128m
+    memswap_limit: 128m   # see db's memswap_limit comment

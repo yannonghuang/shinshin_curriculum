@@ -51,6 +51,18 @@ const extractPptxText = (filePath) => {
 // the backend container out of memory (V8 "Reached heap limit", an
 // uncatchable fatal abort -- see the container's mem_limit/NODE_OPTIONS in
 // docker-compose.prod.yml for the other half of this fix).
+//
+// PDF_EXTRACT_TIMEOUT_MS: a hedge against the prod host's real-world CPU
+// being far slower/more throttled than any local test can reproduce (the
+// same 5-7MB file that took 1.5s on a dev machine took 8-17s in a
+// CPU-constrained container test, and reportedly far longer -- and froze the
+// whole VM -- on the actual small/burstable-core ECS instance). Bails out
+// and falls back to "" (same as any other unextractable file) rather than
+// letting one upload tie up the request, and the CPU/mem_limit caps in
+// docker-compose.prod.yml, for however long real-world throttling stretches
+// it to.
+const PDF_EXTRACT_TIMEOUT_MS = 45000;
+
 const extractPdfText = async (filePath) => {
   const parser = new PDFParse({
     data: fs.readFileSync(filePath),
@@ -60,7 +72,10 @@ const extractPdfText = async (filePath) => {
     disableStream: true,
   });
   try {
-    const result = await parser.getText();
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`PDF 提取超时（超过 ${PDF_EXTRACT_TIMEOUT_MS}ms）`)), PDF_EXTRACT_TIMEOUT_MS)
+    );
+    const result = await Promise.race([parser.getText(), timeout]);
     return (result.text || "").trim();
   } finally {
     await parser.destroy();
