@@ -2,8 +2,10 @@ const db = require("../models");
 const ChatConversation = db.chatConversation;
 const ChatMessage = db.chatMessage;
 const Plan = db.plan;
+const Review = db.review;
 const agentLoop = require("../services/agentLoop");
 const { searchKnowledgeBase, searchKnowledgeBaseToolDef } = require("../services/knowledgeRetrieve");
+const { getPlanDetailsToolDef, getPlanDetails } = require("../services/planContext");
 
 // How many past turns feed back into the model as conversation context --
 // caps token usage/cost as a thread grows long, rather than sending its
@@ -15,21 +17,68 @@ const COPILOT_SYSTEM_PROMPT =
   "你是「乡土课程项目实施与案例分享系统」的助手，帮助教师解答关于乡土课程设计、实施与共享学习材料库的问题。" +
   "如有需要，可调用 search_knowledge_base 工具查询共享学习材料库中的相关参考资料；不需要参考资料时无需调用。用中文简明清晰地回复。";
 
-// "Session" here is just "this user's most recent conversation row" -- the
-// app has no session infra of its own (stateless JWT + DB throughout), so
-// this is the whole mechanism: lazily create one if none exists yet.
-const getOrCreateCurrentConversation = async (userId) => {
-  let conversation = await ChatConversation.findOne({ where: { userId }, order: [["id", "DESC"]] });
+// Scopes a conversation to whatever the user is currently looking at, so
+// switching between plans (or leaving a review discussion) doesn't drag
+// unrelated history along -- reviewId implies its own plan, so it takes
+// precedence; a bare planId scopes to the plan generally; no pageContext at
+// all falls back to the one general-assistant conversation (scopeKey: null),
+// same as before this existed.
+const deriveScopeKey = (pageContext) => {
+  if (!pageContext) return null;
+  if (pageContext.reviewId) return `review:${pageContext.reviewId}`;
+  if (pageContext.planId) return `plan:${pageContext.planId}`;
+  return null;
+};
+
+// "Session" here is just "this user's most recent conversation row *for this
+// scope*" -- the app has no session infra of its own (stateless JWT + DB
+// throughout), so this is the whole mechanism: lazily create one if none
+// exists yet for that (userId, scopeKey) pair.
+const getOrCreateCurrentConversation = async (userId, scopeKey) => {
+  let conversation = await ChatConversation.findOne({ where: { userId, scopeKey }, order: [["id", "DESC"]] });
   if (!conversation) {
-    conversation = await ChatConversation.create({ userId });
+    conversation = await ChatConversation.create({ userId, scopeKey });
   }
   return conversation;
 };
 
-// GET /api/chat/conversations/current
+// Builds the extra system-prompt text (and any tools/executors) a given
+// pageContext contributes -- a lightweight pointer either way, not the full
+// plan content (see get_plan_details's own comment for why). reviewId also
+// injects the review's own (short, already-generated) text directly, since
+// unlike a whole plan's content there's no reason to make the model fetch
+// something 200-500 characters long on demand.
+const buildContextAddition = async (pageContext) => {
+  if (!pageContext) return "";
+  if (pageContext.reviewId) {
+    const review = await Review.findByPk(pageContext.reviewId);
+    if (!review) return "";
+    const plan = await Plan.findByPk(review.planId, { attributes: ["id", "title"] });
+    const planLine = plan ? `课程设计《${plan.title}》(planId: ${plan.id})` : `课程设计 (planId: ${review.planId})`;
+    return (
+      `\n\n教师当前正在讨论关于${planLine}的一条点评：\n${review.content}\n` +
+      `如需查看该课程设计的详细内容，可调用 get_plan_details 工具（planId=${review.planId}）。`
+    );
+  }
+  if (pageContext.planId) {
+    const plan = await Plan.findByPk(pageContext.planId, { attributes: ["id", "title"] });
+    if (!plan) return "";
+    return `\n\n教师当前正在查看课程设计《${plan.title}》(planId: ${plan.id})，如与问题相关，可调用 get_plan_details 工具查看详细内容。`;
+  }
+  return "";
+};
+
+const normalizePageContextQuery = (query) => ({
+  planId: query.planId ? Number(query.planId) : undefined,
+  reviewId: query.reviewId ? Number(query.reviewId) : undefined,
+});
+
+// GET /api/chat/conversations/current?planId=&reviewId=
 exports.getCurrent = async (req, res) => {
   try {
-    const conversation = await getOrCreateCurrentConversation(req.userId);
+    const pageContext = normalizePageContextQuery(req.query);
+    const scopeKey = deriveScopeKey(pageContext);
+    const conversation = await getOrCreateCurrentConversation(req.userId, scopeKey);
     const messages = await ChatMessage.findAll({
       where: { conversationId: conversation.id },
       order: [["id", "DESC"]],
@@ -41,10 +90,13 @@ exports.getCurrent = async (req, res) => {
   }
 };
 
-// POST /api/chat/conversations/new -- explicit "新对话" reset.
+// POST /api/chat/conversations/new -- explicit "新对话" reset, scoped the
+// same way as GET .../current so it starts a fresh thread for whatever the
+// user is currently looking at, not a fresh *global* thread.
 exports.startNew = async (req, res) => {
   try {
-    const conversation = await ChatConversation.create({ userId: req.userId });
+    const scopeKey = deriveScopeKey(req.body.pageContext);
+    const conversation = await ChatConversation.create({ userId: req.userId, scopeKey });
     return res.send({ conversation, messages: [] });
   } catch (err) {
     return res.status(500).send({ message: err.message || "创建新对话失败。" });
@@ -52,9 +104,10 @@ exports.startNew = async (req, res) => {
 };
 
 // POST /api/chat/conversations/current/messages
-// body: { content, pageContext?: { planId } } -- pageContext is looked up
-// server-side (not trusted verbatim from the client) so the system prompt
-// reflects the plan's actual current title, not whatever the client claims.
+// body: { content, pageContext?: { planId?, reviewId? } } -- pageContext is
+// looked up server-side (not trusted verbatim from the client) so the system
+// prompt reflects the plan/review's actual current data, not whatever the
+// client claims.
 exports.sendMessage = async (req, res) => {
   try {
     const content = (req.body.content || "").trim();
@@ -62,7 +115,9 @@ exports.sendMessage = async (req, res) => {
       return res.status(422).send({ message: "消息内容不能为空。" });
     }
 
-    const conversation = await getOrCreateCurrentConversation(req.userId);
+    const pageContext = req.body.pageContext;
+    const scopeKey = deriveScopeKey(pageContext);
+    const conversation = await getOrCreateCurrentConversation(req.userId, scopeKey);
 
     const userMessage = await ChatMessage.create({ conversationId: conversation.id, role: "user", content });
     if (!conversation.title) {
@@ -77,17 +132,20 @@ exports.sendMessage = async (req, res) => {
     const history = priorMessages.reverse().map((m) => ({ role: m.role, content: m.content }));
 
     let systemPrompt = COPILOT_SYSTEM_PROMPT;
-    const planId = req.body.pageContext && req.body.pageContext.planId;
-    if (planId) {
-      const plan = await Plan.findByPk(planId, { attributes: ["title"] });
-      if (plan) systemPrompt += `\n教师当前正在查看课程设计《${plan.title}》，如与问题相关可结合此上下文回答。`;
+    try {
+      systemPrompt += await buildContextAddition(pageContext);
+    } catch (e) {
+      console.error("加载当前课程设计/点评上下文失败（不影响消息发送）:", e.message);
     }
 
     const result = await agentLoop.runAgentLoop({
       systemPrompt,
       messages: history,
-      tools: [searchKnowledgeBaseToolDef],
-      executors: { search_knowledge_base: (args) => searchKnowledgeBase(args.query) },
+      tools: [searchKnowledgeBaseToolDef, getPlanDetailsToolDef],
+      executors: {
+        search_knowledge_base: (args) => searchKnowledgeBase(args.query),
+        get_plan_details: (args) => getPlanDetails(args),
+      },
       maxTokens: 1024,
       temperature: 0.3,
     });

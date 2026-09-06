@@ -14,6 +14,12 @@ module.exports = (sequelize, Sequelize) => {
       title: {
         type: Sequelize.STRING(255), // derived from the first user message, truncated
       },
+      scopeKey: {
+        // null = the general assistant conversation; 'plan:<id>'/'review:<id>'
+        // scope a thread to one plan/review so switching between them doesn't
+        // mix unrelated history -- see chat.controller.js#deriveScopeKey.
+        type: Sequelize.STRING(64),
+      },
     },
     {
       tableName: "chat_conversations",

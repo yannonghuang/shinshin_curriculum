@@ -302,6 +302,18 @@ const ReviewList = (props) => {
                     <td>{review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-"}</td>
                     <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
                     <td>
+                      {review.reviewerType === "ai" && (
+                        <button
+                          type="button"
+                          className="btn btn-link p-0 mr-2"
+                          title="打开欣欣助手，就这条点评继续提问"
+                          onClick={() =>
+                            window.dispatchEvent(new CustomEvent("copilot:open", { detail: { reviewId: review.id } }))
+                          }
+                        >
+                          讨论
+                        </button>
+                      )}
                       {canDelete(review) ? (
                         <button className="btn btn-link p-0 text-danger" onClick={() => deleteReview(review)}>
                           删除

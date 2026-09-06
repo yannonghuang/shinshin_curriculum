@@ -6,16 +6,20 @@ import AuthService from "../services/auth.service";
 import "../curriculum.css";
 
 // Floating slide-in co-pilot -- mounted once in App.js for any logged-in
-// user. "Session" is just "this user's most recent conversation row" (see
-// chat.controller.js) -- no client-side conversation-id caching, the panel
-// always asks the backend for "current" on open.
+// user. "Session" is a conversation *scoped* to whatever the user is
+// currently looking at (see chat.controller.js#deriveScopeKey) -- no
+// client-side conversation-id caching, the panel always asks the backend for
+// "current" (for the current scope) whenever that scope changes.
 //
-// pageContext is derived from the current route (useLocation), not passed as
-// a prop from whichever page is active -- this component is mounted once,
-// globally, outside any per-page tree, so reading the URL here is simpler
-// than plumbing a prop through every page that might want to set it. Only
+// planId comes from the current route (useLocation), not a prop from
+// whichever page is active -- this component is mounted once, globally,
+// outside any per-page tree, so reading the URL here is simpler than
+// plumbing a prop through every page that might want to set it. Only
 // /plans/:id is recognized today; extend the regex if other pages should
-// contribute context later.
+// contribute context later. reviewId, on the other hand, can't come from the
+// URL (there's no /reviews/:id route) -- any component can request it via a
+// "copilot:open" window event (see the listener below), e.g. a "与欣欣助手
+// 讨论这条点评" button in review-list.component.js.
 const PLAN_PAGE_RE = /^\/plans\/(\d+)/;
 
 // Default size and clamping bounds. The panel itself stays anchored via
@@ -102,9 +106,49 @@ const CopilotPanel = () => {
   const isLoggedIn = !!currentUser;
   const displayName = currentUser && (currentUser.chineseName || currentUser.username);
 
+  const [overrideReviewId, setOverrideReviewId] = useState(null);
+
+  // Listens for e.g. review-list.component.js's "discuss this review"
+  // button -- window.dispatchEvent(new CustomEvent("copilot:open", { detail:
+  // { reviewId } })) opens the panel scoped to that review, layered on top
+  // of (not replacing) whatever planId the URL already contributes.
+  useEffect(() => {
+    const onOpenRequest = (e) => {
+      if (e.detail && e.detail.reviewId) setOverrideReviewId(e.detail.reviewId);
+      setIsOpen(true);
+    };
+    window.addEventListener("copilot:open", onOpenRequest);
+    return () => window.removeEventListener("copilot:open", onOpenRequest);
+  }, []);
+
+  // Leaving the page (any navigation) ends that specific review discussion --
+  // the override doesn't follow the user to an unrelated page.
+  useEffect(() => {
+    setOverrideReviewId(null);
+  }, [location.pathname]);
+
+  const pageContext = (() => {
+    const match = PLAN_PAGE_RE.exec(location.pathname);
+    const planId = match ? Number(match[1]) : undefined;
+    if (!planId && !overrideReviewId) return undefined;
+    return { planId, reviewId: overrideReviewId || undefined };
+  })();
+
+  // Mirrors chat.controller.js#deriveScopeKey -- just used as an effect
+  // dependency below, so switching scope (navigating to a different plan, or
+  // opening a different review's discussion) reloads "current" for the new
+  // scope instead of silently keeping whatever was already loaded.
+  const scopeKeyClient = pageContext
+    ? pageContext.reviewId
+      ? `review:${pageContext.reviewId}`
+      : pageContext.planId
+      ? `plan:${pageContext.planId}`
+      : null
+    : null;
+
   const loadCurrent = async () => {
     try {
-      const resp = await ChatDataService.getCurrent();
+      const resp = await ChatDataService.getCurrent(pageContext);
       setMessages(resp.data.messages || []);
       setIsLoaded(true);
     } catch (e) {
@@ -114,11 +158,12 @@ const CopilotPanel = () => {
   };
 
   useEffect(() => {
-    if (isOpen && !isLoaded) {
+    if (isOpen) {
+      setIsLoaded(false);
       loadCurrent();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, scopeKeyClient]);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -127,11 +172,6 @@ const CopilotPanel = () => {
   }, [messages]);
 
   if (!isLoggedIn) return null;
-
-  const pageContext = (() => {
-    const match = PLAN_PAGE_RE.exec(location.pathname);
-    return match ? { planId: Number(match[1]) } : undefined;
-  })();
 
   const send = async (e) => {
     e.preventDefault();
@@ -159,7 +199,7 @@ const CopilotPanel = () => {
 
   const startNew = async () => {
     try {
-      await ChatDataService.startNew();
+      await ChatDataService.startNew(pageContext);
       setMessages([]);
       setError("");
     } catch (err) {
