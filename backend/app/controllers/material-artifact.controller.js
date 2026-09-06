@@ -10,6 +10,21 @@ const MaterialArtifact = db.materialArtifact;
 const MaterialTopic = db.materialTopic;
 const MaterialFolder = db.materialFolder;
 const Op = db.Sequelize.Op;
+const textExtract = require("../services/textExtract");
+const knowledgeIngest = require("../services/knowledgeIngest");
+
+// Word/PPT get their real content extracted for the knowledge base; 图片/视频
+// have no text-extractable content (no OCR/vision model in this pipeline --
+// see review.controller.js's own precedent of the same tiering), so they
+// contribute a metadata-only chunk instead (description + filename) rather
+// than nothing at all.
+const KB_EXTRACTABLE_CATEGORIES = ["Word文档", "课件PPT"];
+const artifactKnowledgeText = async (attachmentPath, type, category, description, filename) => {
+  if (KB_EXTRACTABLE_CATEGORIES.includes(category)) {
+    return textExtract.extractTextFromFile(attachmentPath, type);
+  }
+  return `${description || ""}\n${filename}`.trim();
+};
 
 const ARTIFACT_CATEGORIES = ["Word文档", "课件PPT", "图片", "视频"];
 const BULK_MAX_ZIP_BYTES = Number(process.env.MATERIAL_BULK_ZIP_MAX_BYTES || 1024 * 1024 * 1024); // 1GB default
@@ -209,23 +224,35 @@ exports.create = async (req, res) => {
 
     const createOne = async (file) => {
       const attachmentPath = moveIntoArtifactDirectory(topicId, category, file);
-      return MaterialArtifact.create({
+      const type = inferArtifactType(file.originalname);
+      const created = await MaterialArtifact.create({
         materialTopicId: topicId,
         folderId: folderId || null,
         description,
         category,
-        type: inferArtifactType(file.originalname),
+        type,
         attachmentPath,
         attachmentName: file.originalname,
         attachmentMime: file.mimetype,
         attachmentSize: file.size,
       });
+      const text = await artifactKnowledgeText(attachmentPath, type, category, description, file.originalname);
+      await knowledgeIngest.ingestSource({
+        sourceType: "material_artifact",
+        sourceId: created.id,
+        materialTopicId: topicId,
+        text,
+      });
+      return created;
     };
 
     // Single-file upload (field name "file") keeps the single-object response
-    // shape; multi-drag upload (field name "files") returns an array.
+    // shape; multi-drag upload (field name "files") returns an array. Skill
+    // card regenerated once after every file in this request, not per-file --
+    // an N-file drop shouldn't trigger N redundant LLM summarization calls.
     if (singleFile) {
       const data = await createOne(singleFile);
+      await knowledgeIngest.regenerateSkillCard(topicId);
       return res.send(data);
     }
 
@@ -233,6 +260,7 @@ exports.create = async (req, res) => {
     for (const file of multiFiles) {
       created.push(await createOne(file));
     }
+    await knowledgeIngest.regenerateSkillCard(topicId);
     return res.send(created);
   } catch (err) {
     return res.status(500).send({
@@ -776,6 +804,17 @@ exports.update = async (req, res) => {
       }
     }
 
+    const finalPath = payload.attachmentPath || oldPath;
+    const finalName = payload.attachmentName || artifact.attachmentName;
+    const text = await artifactKnowledgeText(finalPath, payload.type, payload.category, payload.description, finalName);
+    await knowledgeIngest.ingestSource({
+      sourceType: "material_artifact",
+      sourceId: artifact.id,
+      materialTopicId: artifact.materialTopicId,
+      text,
+    });
+    await knowledgeIngest.regenerateSkillCard(artifact.materialTopicId);
+
     return res.send({ message: "附件更新成功。" });
   } catch (err) {
     return res.status(500).send({
@@ -798,6 +837,10 @@ exports.delete = async (req, res) => {
       return res.status(404).send({ message: `未找到附件 id=${id}。` });
     }
 
+    // Explicit cleanup -- source_id is polymorphic, so the DB can't cascade
+    // "delete chunks where source_type='material_artifact' AND
+    // source_id=this artifact" on its own.
+    await knowledgeIngest.deleteSourceChunks({ sourceType: "material_artifact", sourceId: data.id });
     await MaterialArtifact.destroy({ where: { id } });
 
     if (data.attachmentPath && fs.existsSync(data.attachmentPath)) {

@@ -1,6 +1,9 @@
 const db = require("../models");
 const MaterialLink = db.materialLink;
 const MaterialTopic = db.materialTopic;
+const knowledgeIngest = require("../services/knowledgeIngest");
+
+const linkChunkText = (link) => `${link.description || ""}\n${link.url}`;
 
 // GET /api/material-topics/:topicId/links
 exports.findByTopic = async (req, res) => {
@@ -38,6 +41,15 @@ exports.create = async (req, res) => {
       description: req.body.description || null,
       url,
     });
+
+    await knowledgeIngest.ingestSource({
+      sourceType: "material_link",
+      sourceId: data.id,
+      materialTopicId: topicId,
+      text: linkChunkText(data),
+    });
+    await knowledgeIngest.regenerateSkillCard(topicId);
+
     return res.send(data);
   } catch (err) {
     return res.status(500).send({ message: err.message || "创建材料链接时发生错误。" });
@@ -63,6 +75,15 @@ exports.update = async (req, res) => {
     }
 
     await MaterialLink.update(payload, { where: { id: data.id } });
+
+    await knowledgeIngest.ingestSource({
+      sourceType: "material_link",
+      sourceId: data.id,
+      materialTopicId: data.materialTopicId,
+      text: linkChunkText({ ...data.toJSON(), ...payload }),
+    });
+    await knowledgeIngest.regenerateSkillCard(data.materialTopicId);
+
     return res.send({ message: "链接更新成功。" });
   } catch (err) {
     return res.status(500).send({ message: err.message || `更新链接 id=${req.params.id} 时发生错误。` });
@@ -76,6 +97,10 @@ exports.delete = async (req, res) => {
     if (!data) {
       return res.status(404).send({ message: `未找到链接 id=${req.params.id}。` });
     }
+    // Explicit cleanup needed here (unlike a topic delete) -- source_id is
+    // polymorphic, so the DB can't cascade "delete chunks where
+    // source_type='material_link' AND source_id=this link" on its own.
+    await knowledgeIngest.deleteSourceChunks({ sourceType: "material_link", sourceId: data.id });
     await MaterialLink.destroy({ where: { id: data.id } });
     return res.send({ message: "链接删除成功。" });
   } catch (err) {

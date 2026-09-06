@@ -5,6 +5,7 @@ const MaterialFolder = db.materialFolder;
 const MaterialArtifact = db.materialArtifact;
 const MaterialTopic = db.materialTopic;
 const Op = db.Sequelize.Op;
+const knowledgeIngest = require("../services/knowledgeIngest");
 
 const mustConfirm = (value) => value === true || value === "true" || value === "1";
 
@@ -165,6 +166,12 @@ exports.delete = async (req, res) => {
           console.error("删除文件夹内附件文件失败:", artifact.attachmentPath, e.message);
         }
       }
+    }
+    // Explicit per-artifact cleanup -- source_id is polymorphic, so the DB
+    // can't cascade "delete chunks where source_type='material_artifact' AND
+    // source_id=this artifact" on its own.
+    for (const artifact of artifacts) {
+      await knowledgeIngest.deleteSourceChunks({ sourceType: "material_artifact", sourceId: artifact.id });
     }
     if (artifacts.length > 0) {
       await MaterialArtifact.destroy({ where: { id: { [Op.in]: artifacts.map((a) => a.id) } } });

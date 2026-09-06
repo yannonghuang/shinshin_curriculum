@@ -6,6 +6,14 @@ const MaterialTopic = db.materialTopic;
 const MaterialFolder = db.materialFolder;
 const MaterialArtifact = db.materialArtifact;
 const MaterialLink = db.materialLink;
+const knowledgeIngest = require("../services/knowledgeIngest");
+
+// Knowledge-base chunk text for a topic's own 基本信息 (year/theme/lecturer/
+// comment) -- indexed under sourceType 'material_topic_meta' so a question
+// like "谁讲过伞饭文化" matches even before any file/link is uploaded under
+// the topic.
+const topicMetaText = (topic) =>
+  `年份：${topic.year}\n主题：${topic.theme}\n主讲人：${topic.lecturer || ""}\n备注：${topic.comment || ""}`;
 
 const mustConfirm = (value) => value === true || value === "true" || value === "1";
 
@@ -53,6 +61,15 @@ exports.create = async (req, res) => {
       lecturer: req.body.lecturer || null,
       comment: req.body.comment || null,
     });
+
+    await knowledgeIngest.ingestSource({
+      sourceType: "material_topic_meta",
+      sourceId: data.id,
+      materialTopicId: data.id,
+      text: topicMetaText(data),
+    });
+    await knowledgeIngest.regenerateSkillCard(data.id);
+
     return res.send(data);
   } catch (err) {
     return res.status(500).send({ message: err.message || "创建主题时发生错误。" });
@@ -86,6 +103,15 @@ exports.update = async (req, res) => {
     if (req.body.comment !== undefined) payload.comment = req.body.comment || null;
 
     await MaterialTopic.update(payload, { where: { id: data.id } });
+
+    await knowledgeIngest.ingestSource({
+      sourceType: "material_topic_meta",
+      sourceId: data.id,
+      materialTopicId: data.id,
+      text: topicMetaText({ ...data.toJSON(), ...payload }),
+    });
+    await knowledgeIngest.regenerateSkillCard(data.id);
+
     return res.send({ message: "主题更新成功。" });
   } catch (err) {
     return res.status(500).send({ message: err.message || `更新主题 id=${req.params.id} 时发生错误。` });
@@ -129,6 +155,11 @@ exports.delete = async (req, res) => {
       }
     }
 
+    // No explicit knowledge_chunks/knowledge_skills cleanup needed here --
+    // unlike source_id (polymorphic, points at whichever table sourceType
+    // names), material_topic_id on both tables is a real FK with ON DELETE
+    // CASCADE (see the migration), so this one delete already removes every
+    // chunk and the skill card for this topic regardless of source_type.
     await MaterialTopic.destroy({ where: { id: data.id } });
     return res.send({ message: "主题删除成功。" });
   } catch (err) {
