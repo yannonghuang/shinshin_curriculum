@@ -6,7 +6,10 @@ const MaterialTopic = db.materialTopic;
 const MaterialFolder = db.materialFolder;
 const MaterialArtifact = db.materialArtifact;
 const MaterialLink = db.materialLink;
+const KnowledgeSkill = db.knowledgeSkill;
+const Op = db.Sequelize.Op;
 const knowledgeIngest = require("../services/knowledgeIngest");
+const { searchKnowledgeBase } = require("../services/knowledgeRetrieve");
 
 // Knowledge-base chunk text for a topic's own 基本信息 (year/theme/lecturer/
 // comment) -- indexed under sourceType 'material_topic_meta' so a question
@@ -164,5 +167,104 @@ exports.delete = async (req, res) => {
     return res.send({ message: "主题删除成功。" });
   } catch (err) {
     return res.status(500).send({ message: err.message || `删除主题 id=${req.params.id} 时发生错误。` });
+  }
+};
+
+// GET /api/material-topics/search?q= -- searches the same two-tier KB
+// (knowledge_skills/knowledge_chunks) the co-pilot and AI review use,
+// resolved back to one result per matching topic (best-scoring hit wins when
+// a topic has more than one).
+exports.search = async (req, res) => {
+  try {
+    const q = (req.query.q || "").trim();
+    if (!q) return res.send([]);
+
+    const hits = await searchKnowledgeBase(q, { limit: 20 });
+    const bestHitByTopic = new Map();
+    for (const hit of hits) {
+      const existing = bestHitByTopic.get(hit.materialTopicId);
+      if (!existing || hit.score > existing.score) {
+        bestHitByTopic.set(hit.materialTopicId, hit);
+      }
+    }
+
+    const topicIds = Array.from(bestHitByTopic.keys());
+    if (topicIds.length === 0) return res.send([]);
+
+    const topics = await MaterialTopic.findAll({ where: { id: { [Op.in]: topicIds } } });
+    const topicsById = new Map(topics.map((t) => [t.id, t]));
+
+    const results = topicIds
+      .map((id) => {
+        const topic = topicsById.get(id);
+        if (!topic) return null; // shouldn't happen (FK cascade keeps these in sync), but don't 500 over it
+        const hit = bestHitByTopic.get(id);
+        return {
+          topicId: id,
+          year: topic.year,
+          theme: topic.theme,
+          tier: hit.tier,
+          snippet: (hit.content || hit.title || "").slice(0, 120),
+          score: hit.score,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
+
+    return res.send(results);
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "搜索共享学习材料库时发生错误。" });
+  }
+};
+
+// GET /api/material-topics/:id/skill -- any authenticated role. Returns null
+// (not 404) when a topic has no card yet (e.g. DASHSCOPE_API_KEY unset, or
+// the LLM call failed at ingest time) -- that's a normal, expected state, not
+// an error.
+exports.getSkill = async (req, res) => {
+  try {
+    const topicId = Number(req.params.id);
+    if (!Number.isInteger(topicId) || topicId <= 0) {
+      return res.status(422).send({ message: "主题 ID 无效。" });
+    }
+    const skill = await KnowledgeSkill.findOne({ where: { materialTopicId: topicId } });
+    return res.send(skill || null);
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "查询知识卡片时发生错误。" });
+  }
+};
+
+// PUT /api/material-topics/:id/skill -- admin-only. Always stamps
+// sourceType:'admin', reviewed:true -- this is the review/edit action itself,
+// so it always counts as "an admin has taken ownership of this card" (see
+// knowledgeIngest.js#regenerateSkillCard's own guard against overwriting
+// that). Creates the row if none exists yet (e.g. ingestion never produced
+// one) rather than 404ing.
+exports.updateSkill = async (req, res) => {
+  try {
+    const topicId = Number(req.params.id);
+    if (!Number.isInteger(topicId) || topicId <= 0) {
+      return res.status(422).send({ message: "主题 ID 无效。" });
+    }
+    const topic = await MaterialTopic.findByPk(topicId);
+    if (!topic) {
+      return res.status(404).send({ message: "主题不存在。" });
+    }
+
+    const payload = { sourceType: "admin", reviewed: true };
+    if (req.body.title !== undefined) payload.title = req.body.title;
+    if (req.body.summary !== undefined) payload.summary = req.body.summary;
+    if (req.body.keyPoints !== undefined) payload.keyPoints = req.body.keyPoints;
+    if (req.body.tags !== undefined) payload.tags = req.body.tags;
+
+    const existing = await KnowledgeSkill.findOne({ where: { materialTopicId: topicId } });
+    if (existing) {
+      await existing.update(payload);
+    } else {
+      await KnowledgeSkill.create({ materialTopicId: topicId, ...payload });
+    }
+    return res.send({ message: "知识卡片更新成功。" });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "更新知识卡片时发生错误。" });
   }
 };

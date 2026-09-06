@@ -47,6 +47,15 @@ const MaterialsLibrary = () => {
   const [editingLinkId, setEditingLinkId] = useState(null);
   const [editLinkForm, setEditLinkForm] = useState(EMPTY_LINK_FORM);
 
+  const [skillCard, setSkillCard] = useState(null); // null = none generated yet
+  const [isLoadingSkill, setIsLoadingSkill] = useState(false);
+  const [skillForm, setSkillForm] = useState(null);
+  const [skillDirty, setSkillDirty] = useState(false);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState(null); // null = no search run yet
+  const [isSearching, setIsSearching] = useState(false);
+
   const retrieveTopics = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -99,6 +108,32 @@ const MaterialsLibrary = () => {
       retrieveLinks(selected.topicId);
     }
   }, [selected.key, selected.topicId, retrieveLinks]);
+
+  const retrieveSkill = useCallback(async (topicId) => {
+    setIsLoadingSkill(true);
+    try {
+      const resp = await MaterialTopicDataService.getSkill(topicId);
+      setSkillCard(resp.data || null);
+      setSkillForm({
+        title: (resp.data && resp.data.title) || "",
+        summary: (resp.data && resp.data.summary) || "",
+        keyPointsText: (resp.data && resp.data.keyPoints ? resp.data.keyPoints : []).join("\n"),
+        tagsText: (resp.data && resp.data.tags ? resp.data.tags : []).join("、"),
+      });
+      setSkillDirty(false);
+    } catch (e) {
+      console.log(e);
+      setMessage("加载知识卡片失败。");
+    } finally {
+      setIsLoadingSkill(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selected.key === "skill" && selected.topicId) {
+      retrieveSkill(selected.topicId);
+    }
+  }, [selected.key, selected.topicId, retrieveSkill]);
 
   const topicsByYear = useMemo(() => {
     const byYear = new Map();
@@ -200,6 +235,57 @@ const MaterialsLibrary = () => {
     } catch (err) {
       setMessage(err?.response?.data?.message || "删除链接失败。");
     }
+  };
+
+  const updateSkillForm = (field, value) => {
+    setSkillForm((prev) => ({ ...prev, [field]: value }));
+    setSkillDirty(true);
+  };
+
+  const saveSkill = async () => {
+    try {
+      await MaterialTopicDataService.updateSkill(selected.topicId, {
+        title: skillForm.title,
+        summary: skillForm.summary,
+        keyPoints: skillForm.keyPointsText.split("\n").map((s) => s.trim()).filter(Boolean),
+        tags: skillForm.tagsText.split(/[、,]/).map((s) => s.trim()).filter(Boolean),
+      });
+      setMessage("知识卡片已保存。");
+      await retrieveSkill(selected.topicId);
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "保存知识卡片失败。");
+    }
+  };
+
+  const runSearch = async (e) => {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults(null);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const resp = await MaterialTopicDataService.search(q);
+      setSearchResults(Array.isArray(resp.data) ? resp.data : []);
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "搜索失败。");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Jumps the tree to a search hit's topic (expanding its year/subgroup) and
+  // shows its 知识卡片 -- the search matched KB content, so that's the most
+  // relevant pane to land on, rather than 基本信息.
+  const jumpToSearchResult = (result) => {
+    const topic = topics.find((t) => t.id === result.topicId);
+    if (!topic) return;
+    setExpandedYears((prev) => ({ ...prev, [topic.year]: true }));
+    setExpandedTopics((prev) => ({ ...prev, [topic.id]: true }));
+    select(topic.id, "skill");
+    setSearchResults(null);
+    setSearchQuery("");
   };
 
   const renderBasicInfo = () => {
@@ -371,12 +457,72 @@ const MaterialsLibrary = () => {
     </div>
   );
 
+  const renderSkillCard = () => {
+    if (isLoadingSkill || !skillForm) return <div className="pl-empty">加载中...</div>;
+    return (
+      <div className="pl-card">
+        {!skillCard && <div className="alert alert-info py-2">此主题暂无知识卡片（可能内容尚未生成，或生成失败）。</div>}
+        {skillCard && (
+          <p className="pl-subtitle">
+            {skillCard.sourceType === "admin" ? "管理员已审核" : "AI 自动生成，尚未审核"}
+          </p>
+        )}
+        <div className="form-group">
+          <label>标题</label>
+          <input
+            type="text"
+            className="form-control"
+            value={skillForm.title}
+            disabled={!isAdmin}
+            onChange={(e) => updateSkillForm("title", e.target.value)}
+          />
+        </div>
+        <div className="form-group">
+          <label>摘要</label>
+          <textarea
+            className="form-control"
+            rows={4}
+            value={skillForm.summary}
+            disabled={!isAdmin}
+            onChange={(e) => updateSkillForm("summary", e.target.value)}
+          />
+        </div>
+        <div className="form-group">
+          <label>要点（每行一条）</label>
+          <textarea
+            className="form-control"
+            rows={4}
+            value={skillForm.keyPointsText}
+            disabled={!isAdmin}
+            onChange={(e) => updateSkillForm("keyPointsText", e.target.value)}
+          />
+        </div>
+        <div className="form-group">
+          <label>标签（顿号或逗号分隔）</label>
+          <input
+            type="text"
+            className="form-control"
+            value={skillForm.tagsText}
+            disabled={!isAdmin}
+            onChange={(e) => updateSkillForm("tagsText", e.target.value)}
+          />
+        </div>
+        {isAdmin && (
+          <button type="button" className="btn btn-primary" disabled={!skillDirty} onClick={saveSkill}>
+            保存（标记为已审核）
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const renderContent = () => {
     if (!selected.topicId || !selected.key) {
       return <div className="pl-empty">请选择左侧主题。</div>;
     }
     if (selected.key === "basic") return renderBasicInfo();
     if (selected.key === "links") return renderLinks();
+    if (selected.key === "skill") return renderSkillCard();
     if (selected.key === "contents") {
       return (
         <LessonFileManager
@@ -420,6 +566,43 @@ const MaterialsLibrary = () => {
 
         {!navCollapsed && (
           <div className="pl-explorer-nav">
+            <form onSubmit={runSearch} className="mb-2">
+              <div className="input-group input-group-sm">
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="搜索材料库..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                <div className="input-group-append">
+                  <button type="submit" className="btn btn-outline-secondary" disabled={isSearching}>
+                    <i className="fas fa-search"></i>
+                  </button>
+                </div>
+              </div>
+            </form>
+            {searchResults !== null && (
+              <div className="pl-explorer-empty mb-2">
+                {searchResults.length === 0 ? (
+                  "未找到相关材料。"
+                ) : (
+                  <ul className="list-unstyled mb-0">
+                    {searchResults.map((r) => (
+                      <li key={r.topicId}>
+                        <button type="button" className="btn btn-sm btn-link p-0" onClick={() => jumpToSearchResult(r)}>
+                          {r.year}年 · {r.theme}
+                        </button>
+                        <div className="text-truncate" style={{ maxWidth: "220px" }}>
+                          {r.snippet}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
             {isAdmin && !isCreatingTopic && (
               <button type="button" className="btn btn-sm btn-outline-primary mb-2" onClick={() => setIsCreatingTopic(true)}>
                 <i className="fas fa-plus mr-1"></i>新建主题
@@ -522,6 +705,13 @@ const MaterialsLibrary = () => {
                               onClick={() => select(topic.id, "links")}
                             >
                               材料链接
+                            </button>
+                            <button
+                              type="button"
+                              className={`pl-explorer-leaf ${selected.topicId === topic.id && selected.key === "skill" ? "is-active" : ""}`}
+                              onClick={() => select(topic.id, "skill")}
+                            >
+                              知识卡片
                             </button>
                           </div>
                         )}

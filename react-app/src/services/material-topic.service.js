@@ -23,6 +23,18 @@ class MaterialTopicDataService {
       headers: authHeader(),
     });
   }
+
+  search(q) {
+    return http.get("/material-topics/search", { params: { q }, headers: authHeader() });
+  }
+
+  getSkill(topicId) {
+    return http.get(`/material-topics/${topicId}/skill`, { headers: authHeader() });
+  }
+
+  updateSkill(topicId, data) {
+    return http.put(`/material-topics/${topicId}/skill`, data, { headers: authHeader() });
+  }
 }
 
 export default new MaterialTopicDataService();
