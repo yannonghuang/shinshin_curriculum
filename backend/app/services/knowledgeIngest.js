@@ -2,6 +2,8 @@ const db = require("../models");
 const KnowledgeChunk = db.knowledgeChunk;
 const KnowledgeSkill = db.knowledgeSkill;
 const MaterialTopic = db.materialTopic;
+const MaterialLink = db.materialLink;
+const MaterialArtifact = db.materialArtifact;
 const llmClient = require("./llmClient");
 
 const CHUNK_TARGET_SIZE = 600;
@@ -68,15 +70,32 @@ async function deleteSourceChunks({ sourceType, sourceId }) {
   await KnowledgeChunk.destroy({ where: { sourceType, sourceId } });
 }
 
+// Latest "something about this topic's material changed" instant: the topic
+// row itself (基本信息 edits) plus every link/artifact under it. Compared
+// against the skill card's own updatedAt to decide whether a regeneration
+// would actually pick up anything new.
+async function getLatestMaterialActivity(topic) {
+  const [latestLink, latestArtifact] = await Promise.all([
+    MaterialLink.max("updatedAt", { where: { materialTopicId: topic.id } }),
+    MaterialArtifact.max("updatedAt", { where: { materialTopicId: topic.id } }),
+  ]);
+  return [topic.updatedAt, latestLink, latestArtifact]
+    .filter(Boolean)
+    .map((d) => new Date(d).getTime())
+    .reduce((max, t) => Math.max(max, t), 0);
+}
+
 // One LLM call per topic, folding in its 基本信息 plus every current chunk
 // of every source under it (all already deterministically extracted -- this
 // call curates/summarizes, it does no extraction of its own). Regenerates
-// (replace via upsert on the topic's unique constraint, not append) whenever
-// any source under the topic changes, so the card never drifts from what's
-// actually there. Best-effort: swallows its own errors so a failed/
-// unconfigured LLM call never blocks the material save that triggered it --
-// a missing/stale skill card just means retrieval falls back to the raw
-// chunks tier for that topic, not a hard failure of the upload itself.
+// (replace via upsert on the topic's unique constraint, not append) only when
+// some material under the topic is newer than the card's own last-generated
+// timestamp, so the call stays cheap to invoke liberally (every mutation,
+// a future batch/cron sweep, ...) without re-summarizing unchanged topics.
+// Best-effort: swallows its own errors so a failed/unconfigured LLM call
+// never blocks the material save that triggered it -- a missing/stale skill
+// card just means retrieval falls back to the raw chunks tier for that
+// topic, not a hard failure of the upload itself.
 async function regenerateSkillCard(materialTopicId) {
   try {
     const topic = await MaterialTopic.findByPk(materialTopicId);
@@ -89,6 +108,13 @@ async function regenerateSkillCard(materialTopicId) {
     // card (including the very first one).
     const existing = await KnowledgeSkill.findOne({ where: { materialTopicId } });
     if (existing && (existing.sourceType === "admin" || existing.reviewed)) return;
+
+    // Incremental: skip the LLM call entirely if nothing under the topic has
+    // changed since the card currently on file was generated.
+    if (existing) {
+      const latestActivity = await getLatestMaterialActivity(topic);
+      if (latestActivity <= new Date(existing.updatedAt).getTime()) return;
+    }
 
     const chunks = await KnowledgeChunk.findAll({ where: { materialTopicId }, order: [["id", "ASC"]] });
     const combinedText = chunks
