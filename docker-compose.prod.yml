@@ -30,6 +30,14 @@ services:
     # default instead of replacing them — !override forces a full replace so
     # the dev host-port mapping is actually dropped, not appended to.
     ports: !override []   # only reachable from other containers on the compose network
+    # unless-stopped: come back on their own after the Docker daemon restarts
+    # (dockerd itself is enabled on boot) or the VM reboots -- confirmed
+    # necessary the hard way: a prod VM freeze needed a console-level hard
+    # reboot to recover, and with no restart policy every container just sat
+    # Exited afterward until someone SSHed in and ran `up -d` by hand. Dev
+    # (docker-compose.yml) deliberately has no restart policy of its own --
+    # a crash there should surface immediately, not loop silently.
+    restart: unless-stopped
 
   backend:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-backend:${IMAGE_TAG:-latest}
@@ -39,6 +47,7 @@ services:
     volumes: !override
       - backend_upload:/app/upload   # keep upload persistence; drop the dev source bind-mount
     command: node server.js
+    restart: unless-stopped
 
   frontend:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-frontend:${IMAGE_TAG:-latest}
@@ -50,3 +59,4 @@ services:
     volumes: !override []   # static build is baked into the image; nothing to mount
     depends_on:
       - backend
+    restart: unless-stopped
