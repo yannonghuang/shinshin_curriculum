@@ -31,6 +31,10 @@ class ChatDataService {
   sendMessageToConversation(id, content) {
     return http.post(`/chat/conversations/${id}/messages`, { content }, { headers: authHeader() });
   }
+
+  deleteConversation(id) {
+    return http.delete(`/chat/conversations/${id}`, { headers: authHeader() });
+  }
 }
 
 export default new ChatDataService();

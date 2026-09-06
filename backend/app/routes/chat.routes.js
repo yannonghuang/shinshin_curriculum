@@ -23,4 +23,5 @@ module.exports = function (app) {
   app.get("/api/chat/conversations", [authJwt.verifyToken], chat.listConversations);
   app.get("/api/chat/conversations/:id", [authJwt.verifyToken], chat.getConversationById);
   app.post("/api/chat/conversations/:id/messages", [authJwt.verifyToken], chat.sendMessageToConversation);
+  app.delete("/api/chat/conversations/:id", [authJwt.verifyToken], chat.deleteConversation);
 };

@@ -228,6 +228,22 @@ const CopilotPanel = () => {
     setExplicitConversationId(null);
   };
 
+  const deleteThread = async (id) => {
+    if (!window.confirm("确定删除这条历史对话吗？此操作无法撤销。")) return;
+    try {
+      await ChatDataService.deleteConversation(id);
+      setHistoryList((prev) => (prev ? prev.filter((c) => c.id !== id) : prev));
+      // Deleting the thread currently open elsewhere in the panel -- snap
+      // back to whatever's current for the page rather than leaving a
+      // reference to a conversation that no longer exists.
+      if (explicitConversationId === id) {
+        setExplicitConversationId(null);
+      }
+    } catch (err) {
+      setError(err?.response?.data?.message || "删除对话失败。");
+    }
+  };
+
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -334,11 +350,22 @@ const CopilotPanel = () => {
               {!isLoadingHistory &&
                 historyList &&
                 historyList.map((c) => (
-                  <button type="button" key={c.id} className="copilot-history-item" onClick={() => openThread(c.id)}>
+                  <div key={c.id} className="copilot-history-item" onClick={() => openThread(c.id)}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-link text-danger copilot-history-delete"
+                      title="删除这条历史对话"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteThread(c.id);
+                      }}
+                    >
+                      删除
+                    </button>
                     <div className="copilot-history-label">{c.label}</div>
                     {c.title && <div className="copilot-history-title">{c.title}</div>}
                     <div className="copilot-history-time">{formatRelativeTime(c.lastActivity)}</div>
-                  </button>
+                  </div>
                 ))}
             </div>
           ) : (

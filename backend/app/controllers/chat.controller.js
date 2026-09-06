@@ -332,3 +332,18 @@ exports.sendMessageToConversation = async (req, res) => {
     return res.status(500).send({ message: err.message || "发送消息时发生错误。" });
   }
 };
+
+// DELETE /api/chat/conversations/:id -- lets a teacher manually clear a
+// thread from their own history list, rather than waiting on the 7-day
+// retention sweep (chatRetention.js) or the 24h fresh-start rule. Ownership-
+// checked; cascades to the conversation's messages via the FK.
+exports.deleteConversation = async (req, res) => {
+  try {
+    const conversation = await ChatConversation.findOne({ where: { id: req.params.id, userId: req.userId } });
+    if (!conversation) return res.status(404).send({ message: "未找到该对话。" });
+    await ChatConversation.destroy({ where: { id: conversation.id } });
+    return res.send({ message: "对话已删除。" });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "删除对话时发生错误。" });
+  }
+};
