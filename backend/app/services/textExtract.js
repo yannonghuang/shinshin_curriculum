@@ -1,14 +1,16 @@
+const fs = require("fs");
 const mammoth = require("mammoth");
 const childProcess = require("child_process");
+const { PDFParse } = require("pdf-parse");
 
 // Shared text-extraction used by both review.controller.js's AI-review
 // prompt builder and the knowledge-base ingestion pipeline
 // (knowledgeIngest.js) -- previously two separate inline copies of the same
 // .docx/.pptx logic; lifted out here so both consumers extract identically.
 //
-// Only the modern XML-based formats (.docx/.pptx) are extractable -- no pdf,
-// no legacy .doc/.ppt, no image/video content. Callers treat "" as a normal,
-// expected "nothing to extract" outcome, not an error.
+// Extractable: .docx, .pptx, .pdf -- no legacy .doc/.ppt, no image/video
+// content. Callers treat "" as a normal, expected "nothing to extract"
+// outcome, not an error.
 
 const extractDocxText = async (filePath) => {
   const result = await mammoth.extractRawText({ path: filePath });
@@ -39,6 +41,19 @@ const extractPptxText = (filePath) => {
   return [...xml.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]).join(" ").trim();
 };
 
+// Text layer only -- pdf-parse reads what's already encoded as text in the
+// PDF, same as every other extractor here; a scanned/image-only PDF still
+// yields "" (no OCR in this pipeline, same tier as 图片/视频).
+const extractPdfText = async (filePath) => {
+  const parser = new PDFParse({ data: fs.readFileSync(filePath) });
+  try {
+    const result = await parser.getText();
+    return (result.text || "").trim();
+  } finally {
+    await parser.destroy();
+  }
+};
+
 // Extracts plain text from a file on disk, based on its (case-insensitive,
 // no-dot) extension. Returns "" for anything unsupported rather than
 // throwing.
@@ -47,10 +62,11 @@ const extractTextFromFile = async (filePath, ext) => {
   try {
     if (normalizedExt === "docx") return await extractDocxText(filePath);
     if (normalizedExt === "pptx") return extractPptxText(filePath);
+    if (normalizedExt === "pdf") return await extractPdfText(filePath);
   } catch (e) {
     console.error("文本提取失败:", filePath, e.message);
   }
   return "";
 };
 
-module.exports = { extractTextFromFile, extractDocxText, extractDocxTextFromBuffer, extractPptxText };
+module.exports = { extractTextFromFile, extractDocxText, extractDocxTextFromBuffer, extractPptxText, extractPdfText };

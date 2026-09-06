@@ -13,11 +13,13 @@ const Op = db.Sequelize.Op;
 const textExtract = require("../services/textExtract");
 const knowledgeIngest = require("../services/knowledgeIngest");
 
-// Word/PPT get their real content extracted for the knowledge base; 图片/视频
-// have no text-extractable content (no OCR/vision model in this pipeline --
-// see review.controller.js's own precedent of the same tiering), so they
-// contribute a metadata-only chunk instead (description + filename) rather
-// than nothing at all.
+// Word/PPT (and anything else filed under "Word文档" -- notably .pdf, which
+// has no category of its own; see lesson-file-manager.component.js's
+// inferCategoryFromFilename) get their real content extracted for the
+// knowledge base; 图片/视频 have no text-extractable content (no OCR/vision
+// model in this pipeline -- see review.controller.js's own precedent of the
+// same tiering), so they contribute a metadata-only chunk instead
+// (description + filename) rather than nothing at all.
 const KB_EXTRACTABLE_CATEGORIES = ["Word文档", "课件PPT"];
 const artifactKnowledgeText = async (attachmentPath, type, category, description, filename) => {
   if (KB_EXTRACTABLE_CATEGORIES.includes(category)) {
