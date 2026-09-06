@@ -1104,8 +1104,10 @@
   right: 20px;
   bottom: 84px;
   width: 360px;
+  min-width: 300px;
   max-width: calc(100vw - 40px);
   height: 520px;
+  min-height: 360px;
   max-height: calc(100vh - 140px);
   background: var(--pl-panel);
   border: 1px solid var(--pl-line);
@@ -1114,6 +1116,11 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Draggable from the bottom-right corner grip -- since the panel is
+     anchored via right/bottom (not top/left), growing width/height shrinks
+     the computed left/top instead, so it expands toward the upper-left and
+     the corner nearest the toggle button stays put. */
+  resize: both;
 }
 
 .copilot-header {
@@ -1168,6 +1175,22 @@
   margin-top: 6px;
   font-size: 12px;
   color: var(--pl-muted);
+}
+
+.copilot-bubble-thinking {
+  font-style: italic;
+  color: var(--pl-muted);
+  animation: copilot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes copilot-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .copilot-error {

@@ -28,7 +28,9 @@ const CopilotPanel = () => {
   const [error, setError] = useState("");
   const messagesEndRef = useRef(null);
 
-  const isLoggedIn = !!AuthService.getCurrentUser();
+  const currentUser = AuthService.getCurrentUser();
+  const isLoggedIn = !!currentUser;
+  const displayName = currentUser && (currentUser.chineseName || currentUser.username);
 
   const loadCurrent = async () => {
     try {
@@ -120,7 +122,7 @@ const CopilotPanel = () => {
         type="button"
         className="copilot-toggle"
         onClick={() => setIsOpen((prev) => !prev)}
-        title={isOpen ? "关闭助手" : "打开助手"}
+        title={isOpen ? "关闭欣欣助手" : "打开欣欣助手"}
       >
         <i className={`fas fa-${isOpen ? "times" : "comment-dots"}`}></i>
       </button>
@@ -128,7 +130,7 @@ const CopilotPanel = () => {
       {isOpen && (
         <div className="copilot-panel">
           <div className="copilot-header">
-            <span>助手</span>
+            <span>欣欣助手</span>
             <button type="button" className="btn btn-sm btn-link copilot-new-btn" onClick={startNew}>
               新对话
             </button>
@@ -136,13 +138,20 @@ const CopilotPanel = () => {
 
           <div className="copilot-messages">
             {!isLoaded && <div className="pl-empty">加载中...</div>}
-            {isLoaded && messages.length === 0 && <div className="pl-empty">有什么可以帮您的？</div>}
+            {isLoaded && messages.length === 0 && (
+              <div className="pl-empty">{displayName ? `${displayName}，有什么可以帮您的？` : "有什么可以帮您的？"}</div>
+            )}
             {messages.map((m, i) => (
               <div key={m.id || `pending-${i}`} className={`copilot-bubble copilot-bubble-${m.role}`}>
                 <div className="copilot-bubble-content">{m.content}</div>
                 {m.role === "assistant" && renderCitations(m)}
               </div>
             ))}
+            {isSending && (
+              <div className="copilot-bubble copilot-bubble-assistant copilot-bubble-thinking">
+                <div className="copilot-bubble-content">思考中...</div>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
