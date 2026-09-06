@@ -44,6 +44,10 @@ db.materialTopic = require("./material-topic.model.js")(sequelize, Sequelize);
 db.materialLink = require("./material-link.model.js")(sequelize, Sequelize);
 db.materialFolder = require("./material-folder.model.js")(sequelize, Sequelize);
 db.materialArtifact = require("./material-artifact.model.js")(sequelize, Sequelize);
+db.knowledgeSkill = require("./knowledge-skill.model.js")(sequelize, Sequelize);
+db.knowledgeChunk = require("./knowledge-chunk.model.js")(sequelize, Sequelize);
+db.chatConversation = require("./chat-conversation.model.js")(sequelize, Sequelize);
+db.chatMessage = require("./chat-message.model.js")(sequelize, Sequelize);
 
 // users <-> roles (many-to-many via user_roles)
 // Explicitly pre-defined (rather than through: "user_roles" as a bare string)
@@ -230,6 +234,55 @@ db.materialFolder.hasMany(db.materialArtifact, {
 db.materialArtifact.belongsTo(db.materialFolder, {
   foreignKey: "folderId",
   onDelete: "SET NULL",
+});
+
+// materialTopic -> knowledgeSkill (one curated card per topic, see
+// knowledgeIngest.js#regenerateSkillCard) and -> knowledgeChunk (many raw
+// extracted-text chunks, see knowledgeIngest.js#ingestSource). knowledgeChunk
+// has no association to material_artifact/material_link -- its sourceId is
+// polymorphic (points at whichever table sourceType names), which Sequelize
+// associations can't model; callers look it up manually when needed.
+db.materialTopic.hasOne(db.knowledgeSkill, {
+  foreignKey: "materialTopicId",
+  as: "Skill",
+  onDelete: "CASCADE",
+});
+db.knowledgeSkill.belongsTo(db.materialTopic, {
+  foreignKey: "materialTopicId",
+  onDelete: "CASCADE",
+});
+
+db.materialTopic.hasMany(db.knowledgeChunk, {
+  foreignKey: "materialTopicId",
+  as: "KnowledgeChunks",
+  onDelete: "CASCADE",
+  hooks: true,
+});
+db.knowledgeChunk.belongsTo(db.materialTopic, {
+  foreignKey: "materialTopicId",
+  onDelete: "CASCADE",
+});
+
+// user -> chatConversations -> chatMessages (the co-pilot's own
+// conversation/turn history -- see chat.controller.js and agentLoop.js)
+db.user.hasMany(db.chatConversation, {
+  foreignKey: "userId",
+  as: "ChatConversations",
+  onDelete: "CASCADE",
+});
+db.chatConversation.belongsTo(db.user, {
+  foreignKey: "userId",
+});
+
+db.chatConversation.hasMany(db.chatMessage, {
+  foreignKey: "conversationId",
+  as: "Messages",
+  onDelete: "CASCADE",
+  hooks: true,
+});
+db.chatMessage.belongsTo(db.chatConversation, {
+  foreignKey: "conversationId",
+  onDelete: "CASCADE",
 });
 
 // Roles are exactly admin/teacher/expert — this app has no

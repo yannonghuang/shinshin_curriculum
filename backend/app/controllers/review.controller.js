@@ -1,6 +1,5 @@
-const childProcess = require("child_process");
-const mammoth = require("mammoth");
 const dynamicDocGenerator = require("../services/dynamicDocGenerator");
+const textExtract = require("../services/textExtract");
 
 const db = require("../models");
 const Review = db.review;
@@ -87,36 +86,9 @@ const WORD_EXTS = ["docx"];
 const PPT_EXTS = ["pptx"];
 const MAX_EXTRACTED_CHARS = 6000; // keeps the prompt bounded regardless of how many/how large the winning tier's files are
 
-const extractDocxText = async (filePath) => {
-  const result = await mammoth.extractRawText({ path: filePath });
-  return (result.value || "").trim();
-};
-
-// .pptx is a zip of per-slide XML files; each text run lives in an <a:t>
-// element. Shells out to the same `unzip` binary artifact.controller.js's
-// bulkCreateFromZip already depends on, rather than adding a pptx-parsing npm
-// package for one regex's worth of extraction. `slide*.xml`'s wildcard is
-// matched by unzip itself (no shell involved, so no glob-injection risk).
-const extractPptxText = (filePath) => {
-  let xml;
-  try {
-    xml = childProcess.execFileSync("unzip", ["-p", filePath, "ppt/slides/slide*.xml"], { stdio: ["ignore", "pipe", "ignore"] }).toString("utf8");
-  } catch (e) {
-    return ""; // not a real zip, or no slides matched -- fall through to "no text extracted"
-  }
-  return [...xml.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]).join(" ").trim();
-};
-
-const extractArtifactText = async (artifact) => {
-  const ext = (artifact.type || "").toLowerCase();
-  try {
-    if (ext === "docx") return await extractDocxText(artifact.attachmentPath);
-    if (ext === "pptx") return extractPptxText(artifact.attachmentPath);
-  } catch (e) {
-    console.error("AI 点评文本提取失败:", artifact.attachmentPath, e.message);
-  }
-  return "";
-};
+// .docx/.pptx extraction itself lives in textExtract.js (shared with the
+// knowledge-base ingestion pipeline); this just adapts it to an Artifact row.
+const extractArtifactText = async (artifact) => textExtract.extractTextFromFile(artifact.attachmentPath, artifact.type);
 
 // Picks the highest-precedence tier with at least one artifact present, and
 // extracts as much of its files' text as fits in MAX_EXTRACTED_CHARS
@@ -191,7 +163,7 @@ const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => {
           schema: plan.ExecutionTemplateVersion ? plan.ExecutionTemplateVersion.schemaJson : { sections: [] },
           answers: record,
         });
-        const docText = (await mammoth.extractRawText({ buffer })).value.trim();
+        const docText = await textExtract.extractDocxTextFromBuffer(buffer);
         lines.push("以下是该课时的实施记录（在线填写，优先参考）：");
         lines.push(docText || "（文档内容为空）");
       } catch (e) {
@@ -217,7 +189,7 @@ const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => {
         schema: plan.PlanTemplateVersion ? plan.PlanTemplateVersion.schemaJson : { sections: [] },
         answers: plan.planFormData,
       });
-      const docText = (await mammoth.extractRawText({ buffer })).value.trim();
+      const docText = await textExtract.extractDocxTextFromBuffer(buffer);
       lines.push("\n以下是该课程设计方案文档内容：");
       lines.push(docText || "（文档内容为空）");
     } catch (e) {
