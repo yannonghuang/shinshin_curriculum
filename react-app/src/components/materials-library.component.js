@@ -218,9 +218,14 @@ const MaterialsLibrary = () => {
         </div>
         <div className="form-group">
           <label>主题</label>
-          <input
-            type="text"
+          {/* textarea, not a single-line input -- 主题 names here can run
+              long, and this keeps the full name visible/wrapped instead of
+              scrolling off sideways; overflowY: auto caps growth and scrolls
+              internally past maxHeight. */}
+          <textarea
             className="form-control"
+            rows={2}
+            style={{ resize: "vertical", overflowY: "auto", maxHeight: "150px" }}
             value={metaForm.theme}
             disabled={!isAdmin}
             onChange={(e) => updateMetaForm("theme", e.target.value)}
@@ -432,11 +437,17 @@ const MaterialsLibrary = () => {
                     setNewTopicForm((prev) => ({ ...prev, year: value }));
                   }}
                 />
-                <input
-                  type="text"
+                {/* textarea, not a single-line input -- 主题名称 can run
+                    long, and this keeps it fully visible/wrapped within the
+                    narrow nav column instead of scrolling off sideways;
+                    overflowY: auto caps growth and scrolls internally past
+                    maxHeight. */}
+                <textarea
                   className="form-control form-control-sm mb-1"
                   placeholder="主题名称"
                   autoFocus
+                  rows={2}
+                  style={{ resize: "vertical", overflowY: "auto", maxHeight: "120px" }}
                   value={newTopicForm.theme}
                   onChange={(e) => {
                     const value = e.target.value;

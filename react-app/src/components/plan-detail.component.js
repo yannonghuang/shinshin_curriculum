@@ -772,18 +772,26 @@ const PlanDetail = (props) => {
         <div className="pl-card">
           <h6>基本信息</h6>
           <form onSubmit={saveMeta}>
+            <div className="form-group">
+              <label>标题</label>
+              {/* textarea (not a single-line input) so a long 标题 (project
+                  titles here routinely run past what a single-line input can
+                  show, e.g. "伞韵米香·寻味五溪——...") wraps and stays fully
+                  visible instead of scrolling off sideways; overflowY: auto
+                  caps its growth and scrolls internally past maxHeight rather
+                  than pushing the rest of the form down indefinitely. */}
+              <textarea
+                className="form-control"
+                rows={2}
+                style={{ resize: "vertical", overflowY: "auto", maxHeight: "150px" }}
+                value={metaForm.title}
+                onChange={(e) => updateMetaForm({ title: e.target.value })}
+                disabled={!canEditPlan}
+                required
+              />
+            </div>
             <div className="form-row">
               <div className="form-group col-md-3">
-                <label>标题</label>
-                <input
-                  className="form-control"
-                  value={metaForm.title}
-                  onChange={(e) => updateMetaForm({ title: e.target.value })}
-                  disabled={!canEditPlan}
-                  required
-                />
-              </div>
-              <div className="form-group col-md-2">
                 <label>年份</label>
                 <input
                   className="form-control"
@@ -794,7 +802,7 @@ const PlanDetail = (props) => {
                   required
                 />
               </div>
-              <div className="form-group col-md-2">
+              <div className="form-group col-md-3">
                 <label>学季</label>
                 <select className="form-control" value={metaForm.season} onChange={(e) => updateMetaForm({ season: e.target.value })} disabled={!canEditPlan}>
                   {PLAN_SEASONS.map((s) => (
@@ -815,7 +823,7 @@ const PlanDetail = (props) => {
                   ))}
                 </select>
               </div>
-              <div className="form-group col-md-2">
+              <div className="form-group col-md-3">
                 <label>年级</label>
                 <select className="form-control" value={metaForm.grade} onChange={(e) => updateMetaForm({ grade: e.target.value })} disabled={!canEditPlan}>
                   <option value="">不限</option>
