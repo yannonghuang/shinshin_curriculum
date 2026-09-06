@@ -45,7 +45,6 @@ const PlansList = (props) => {
   // cases (suspend/delete/promote/review) but don't create their own, matching
   // plan.routes.js's isTeacher-only gate on POST /api/plans.
   const canCreate = !excellentOnly && AuthService.isTeacher();
-  const stylishPublic = excellentOnly || !AuthService.isLogin();
   // A teacher never has a legitimate reason to browse "all plans" -- the
   // backend only ever shows them their own plans plus 优秀案例 (see
   // plan.controller.js#findAll's visibility rule), so treat any /plans visit
@@ -59,12 +58,27 @@ const PlansList = (props) => {
   // toggle to offer them either (removed; previously shown to admin only).
   const effectiveMineOnly = mineOnly || (!excellentOnly && !statusFilter && AuthService.isTeacher());
 
-  // Manager's bare /plans and expert's /plans?status=submitted both land
-  // here, and both get the year-学期 -> teacher explorer (plans-hierarchy.
-  // component.js) instead of this component's own flat search/paginate/grid
-  // -- a teacher's own list (effectiveMineOnly) and the public 优秀案例
-  // gallery (excellentOnly) are unaffected, they keep the flat view.
-  const isManagerOrExpertView = (AuthService.isAdmin() || AuthService.isExpert()) && !excellentOnly && !effectiveMineOnly;
+  // Manager's bare /plans, expert's /plans?status=submitted, and the public
+  // 优秀案例 gallery (excellentOnly) all land here, and all three get the
+  // year-学期 -> teacher explorer (plans-hierarchy.component.js) instead of
+  // this component's own flat search/paginate/grid -- one view for every
+  // audience on the gallery (admin, expert, teacher, or a logged-out
+  // visitor), not just staff. Only a teacher's own list (effectiveMineOnly)
+  // is unaffected, since that's a small, non-hierarchical set by nature.
+  // TODO: the flat view's search/filter (title keyword, year/grade/theme)
+  // has no equivalent here yet -- the tree has no search of its own, so a
+  // gallery visitor can currently only browse by year-学期/teacher, not
+  // search across all excellent cases. Planned as a future addition.
+  const isManagerOrExpertView = excellentOnly || ((AuthService.isAdmin() || AuthService.isExpert()) && !effectiveMineOnly);
+  // stylishPublic (green pl-hero header, KPI cards, search/filter bar,
+  // pagination) is the flat view's own chrome -- never shown alongside the
+  // hierarchy view above, which has its own plain heading and conveys scale
+  // via its own tree instead of totalItems/page counters that this
+  // component's own paginated fetch (skipped entirely when
+  // isManagerOrExpertView, see retrieveAll) would leave stuck at 0. Since
+  // excellentOnly now always implies isManagerOrExpertView, this is only
+  // ever true for a logged-out visitor on bare /plans.
+  const stylishPublic = !isManagerOrExpertView && !AuthService.isLogin();
 
   const isOwnerOf = (item) => AuthService.isTeacher() && String(item.teacherId) === String(currentUserId());
   // Editing a plan's content is owner-only, no admin bypass -- managers can
@@ -224,7 +238,7 @@ const PlansList = (props) => {
       )}
 
       {isManagerOrExpertView ? (
-        <PlansHierarchy statusFilter={statusFilter} />
+        <PlansHierarchy statusFilter={statusFilter} excellentOnly={excellentOnly} />
       ) : (
         <>
       {/* A teacher's own plans list is small by nature -- search/filter/pagination

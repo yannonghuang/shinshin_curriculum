@@ -50,7 +50,7 @@ const buildHierarchy = (plans) => {
   return groupList;
 };
 
-const PlansHierarchy = ({ statusFilter }) => {
+const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
   const [plans, setPlans] = useState([]);
   const [message, setMessage] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
@@ -59,13 +59,18 @@ const PlansHierarchy = ({ statusFilter }) => {
 
   const retrieveAll = useCallback(async () => {
     try {
-      const resp = await PlanDataService.getAll({ page: 0, size: PAGE_SIZE, status: statusFilter || undefined });
+      const resp = await PlanDataService.getAll({
+        page: 0,
+        size: PAGE_SIZE,
+        status: statusFilter || undefined,
+        isExcellentCase: excellentOnly ? true : undefined,
+      });
       setPlans(resp.data.rows || []);
     } catch (e) {
       console.log(e);
       setMessage("加载课程设计数据失败。");
     }
-  }, [statusFilter]);
+  }, [statusFilter, excellentOnly]);
 
   useEffect(() => {
     retrieveAll();
@@ -200,7 +205,8 @@ const PlansHierarchy = ({ statusFilter }) => {
         ) : (
           <div className="pl-card">
             <h6>
-              {selectedTeacher.teacherName} 的乡土课程设计 -- {selectedGroup.year}年 {selectedGroup.season || "未设置学期"}
+              {selectedTeacher.teacherName} 的{excellentOnly ? "优秀案例" : "乡土课程设计"} -- {selectedGroup.year}年{" "}
+              {selectedGroup.season || "未设置学期"}
               （共 {selectedTeacher.plans.length} 项）
             </h6>
             <div className="pl-plan-grid mt-3">
