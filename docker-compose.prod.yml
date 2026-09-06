@@ -62,10 +62,16 @@ services:
     restart: unless-stopped
     # See db's mem_limit comment -- this is the service actually implicated
     # in the two prod freezes (PDF/doc text extraction). Normal baseline is
-    # ~100-150MB; 512MB gives real headroom for extracting a large PDF while
-    # still guaranteeing a runaway one gets killed+restarted rather than
-    # taking the VM down.
-    mem_limit: 512m
+    # ~100-150MB; bumped from an initial 512m after a real 5-7MB PDF still
+    # hit that ceiling (V8 "Reached heap limit" -- an uncatchable fatal
+    # abort, not something try/catch in textExtract.js could contain).
+    # --max-old-space-size is set explicitly below mem_limit so V8 always
+    # fails via that same clean, logged abort+restart well before the
+    # container's hard cgroup limit, leaving ~130MB of headroom in mem_limit
+    # itself for non-heap memory (buffers, native addons, thread stacks).
+    mem_limit: 900m
+    environment:
+      NODE_OPTIONS: --max-old-space-size=768
 
   frontend:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-frontend:${IMAGE_TAG:-latest}

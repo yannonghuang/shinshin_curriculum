@@ -43,9 +43,22 @@ const extractPptxText = (filePath) => {
 
 // Text layer only -- pdf-parse reads what's already encoded as text in the
 // PDF, same as every other extractor here; a scanned/image-only PDF still
-// yields "" (no OCR in this pipeline, same tier as 图片/视频).
+// yields "" (no OCR in this pipeline, same tier as 图片/视频). Load options
+// trim memory overhead pdfjs-dist otherwise spends on things a pure text
+// extraction never needs: no font-face/glyph rendering, no eval'd PDF
+// functions, no range/stream fetching (the whole file is already an in-memory
+// buffer) -- confirmed necessary in prod, where a 5-7MB real-world PDF ran
+// the backend container out of memory (V8 "Reached heap limit", an
+// uncatchable fatal abort -- see the container's mem_limit/NODE_OPTIONS in
+// docker-compose.prod.yml for the other half of this fix).
 const extractPdfText = async (filePath) => {
-  const parser = new PDFParse({ data: fs.readFileSync(filePath) });
+  const parser = new PDFParse({
+    data: fs.readFileSync(filePath),
+    disableFontFace: true,
+    isEvalSupported: false,
+    disableAutoFetch: true,
+    disableStream: true,
+  });
   try {
     const result = await parser.getText();
     return (result.text || "").trim();
