@@ -15,6 +15,7 @@ import Reset from "./components/reset.component";
 import PlansList from "./components/plans-list.component";
 import PlanDetail from "./components/plan-detail.component";
 import MaterialsLibrary from "./components/materials-library.component";
+import CopilotPanel from "./components/copilot-panel.component";
 import AdminUsersList from "./components/admin-users-list.component";
 import TemplateAdmin from "./components/template-admin.component";
 
@@ -181,6 +182,8 @@ class App extends Component {
             <Route path="/plans/:id" component={PlanDetail} />
           </Switch>
         </div>
+
+        <CopilotPanel />
       </div>
     );
   }
