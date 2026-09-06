@@ -47,6 +47,27 @@ require("./app/routes/chat.routes")(app);
 // Note: no static frontend serving / catch-all here — the frontend is being
 // built separately and its build output path doesn't exist yet.
 
+// Daily sweep of chat conversations past their retention window (see
+// chatRetention.js) -- a plain in-process interval, not a cron job or
+// external scheduler, since nothing else in this app runs on a schedule and
+// one sweep a day doesn't justify a new deployment piece. Runs once shortly
+// after startup too (nodemon/container restarts are frequent in dev, and a
+// freshly-started prod container shouldn't have to wait a full day for its
+// first sweep), delayed a few seconds so it isn't racing the DB connection
+// check above.
+const chatRetention = require("./app/services/chatRetention");
+const CHAT_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const runChatRetentionSweep = () => {
+  chatRetention
+    .purgeStaleConversations()
+    .then((deletedCount) => {
+      if (deletedCount > 0) console.log(`Chat retention sweep: purged ${deletedCount} conversation(s).`);
+    })
+    .catch((err) => console.error("Chat retention sweep failed:", err.message));
+};
+setTimeout(runChatRetentionSweep, 10 * 1000);
+setInterval(runChatRetentionSweep, CHAT_RETENTION_SWEEP_INTERVAL_MS);
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}.`);

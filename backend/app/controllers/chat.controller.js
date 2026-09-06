@@ -13,6 +13,15 @@ const { getPlanDetailsToolDef, getPlanDetails } = require("../services/planConte
 const HISTORY_TURNS = 10;
 const TITLE_MAX_LEN = 40;
 
+// A conversation idle longer than this is never resumed as "current" --
+// coming back to the same plan/review (or the general assistant) after a day
+// away starts fresh instead of reviving a stale thread. This only changes
+// what counts as "current"; the old conversation's rows aren't touched here
+// -- actual deletion is a separate, longer-window sweep (see
+// chatRetention.js), since "don't resume this" and "delete this" are
+// different questions with different acceptable timeframes.
+const CONVERSATION_FRESH_START_MS = 24 * 60 * 60 * 1000;
+
 const COPILOT_SYSTEM_PROMPT =
   "你是「乡土课程项目实施与案例分享系统」的助手，帮助教师解答关于乡土课程设计、实施与共享学习材料库的问题。" +
   "如有需要，可调用 search_knowledge_base 工具查询共享学习材料库中的相关参考资料；不需要参考资料时无需调用。用中文简明清晰地回复。";
@@ -33,9 +42,24 @@ const deriveScopeKey = (pageContext) => {
 // "Session" here is just "this user's most recent conversation row *for this
 // scope*" -- the app has no session infra of its own (stateless JWT + DB
 // throughout), so this is the whole mechanism: lazily create one if none
-// exists yet for that (userId, scopeKey) pair.
+// exists yet for that (userId, scopeKey) pair, or if the one that exists has
+// gone stale (see CONVERSATION_FRESH_START_MS).
 const getOrCreateCurrentConversation = async (userId, scopeKey) => {
   let conversation = await ChatConversation.findOne({ where: { userId, scopeKey }, order: [["id", "DESC"]] });
+  if (conversation) {
+    // Last actual activity, not the conversation row's own updatedAt --
+    // creating the row doesn't get touched by adding messages to it, so the
+    // row's own timestamp would never reflect a real conversation's activity.
+    const lastMessage = await ChatMessage.findOne({
+      where: { conversationId: conversation.id },
+      order: [["id", "DESC"]],
+      attributes: ["createdAt"],
+    });
+    const lastActivity = lastMessage ? lastMessage.createdAt : conversation.createdAt;
+    if (Date.now() - new Date(lastActivity).getTime() > CONVERSATION_FRESH_START_MS) {
+      conversation = null; // stale -- fall through to start a fresh one
+    }
+  }
   if (!conversation) {
     conversation = await ChatConversation.create({ userId, scopeKey });
   }
