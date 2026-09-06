@@ -38,6 +38,18 @@ services:
     # (docker-compose.yml) deliberately has no restart policy of its own --
     # a crash there should surface immediately, not loop silently.
     restart: unless-stopped
+    # mem_limit: the target VM is a small 1.6GB instance with (until now) no
+    # swap and no per-container caps -- a memory spike in any one service had
+    # nowhere to go but to consume everything and lock up the whole host
+    # (confirmed: two prod freezes that needed a hard console reboot, one
+    # coinciding with a PDF upload -- pdfjs-dist-based extraction is far
+    # heavier than the old docx/pptx path). A hard per-container ceiling
+    # means the worst case is now that one container gets OOM-killed and
+    # comes back via restart:unless-stopped above, not the whole VM hanging.
+    # Sized against actual usage (db alone already runs ~400-450MB) with
+    # headroom, leaving enough of the VM's 1.6GB + the swapfile added
+    # alongside this for the host OS and Docker itself.
+    mem_limit: 700m
 
   backend:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-backend:${IMAGE_TAG:-latest}
@@ -48,6 +60,12 @@ services:
       - backend_upload:/app/upload   # keep upload persistence; drop the dev source bind-mount
     command: node server.js
     restart: unless-stopped
+    # See db's mem_limit comment -- this is the service actually implicated
+    # in the two prod freezes (PDF/doc text extraction). Normal baseline is
+    # ~100-150MB; 512MB gives real headroom for extracting a large PDF while
+    # still guaranteeing a runaway one gets killed+restarted rather than
+    # taking the VM down.
+    mem_limit: 512m
 
   frontend:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-frontend:${IMAGE_TAG:-latest}
@@ -60,3 +78,6 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    # nginx serving a static build -- baseline usage is a few MB; generous
+    # ceiling purely as a backstop, see db's mem_limit comment.
+    mem_limit: 128m
