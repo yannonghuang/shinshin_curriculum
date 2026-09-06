@@ -16,6 +16,21 @@ class ChatDataService {
   sendMessage(content, pageContext) {
     return http.post("/chat/conversations/current/messages", { content, pageContext }, { headers: authHeader() });
   }
+
+  // "Revisit all threads" -- list every retained conversation, open one by
+  // id, continue it (its own stored scope decides context, not whatever
+  // page happens to be open -- see chat.controller.js#sendMessageToConversation).
+  listConversations() {
+    return http.get("/chat/conversations", { headers: authHeader() });
+  }
+
+  getConversationById(id) {
+    return http.get(`/chat/conversations/${id}`, { headers: authHeader() });
+  }
+
+  sendMessageToConversation(id, content) {
+    return http.post(`/chat/conversations/${id}/messages`, { content }, { headers: authHeader() });
+  }
 }
 
 export default new ChatDataService();

@@ -3,14 +3,18 @@ const ChatConversation = db.chatConversation;
 const ChatMessage = db.chatMessage;
 const Plan = db.plan;
 const Review = db.review;
+const { QueryTypes } = db.Sequelize;
 const agentLoop = require("../services/agentLoop");
 const { searchKnowledgeBase, searchKnowledgeBaseToolDef } = require("../services/knowledgeRetrieve");
 const { getPlanDetailsToolDef, getPlanDetails } = require("../services/planContext");
 
 // How many past turns feed back into the model as conversation context --
 // caps token usage/cost as a thread grows long, rather than sending its
-// entire history on every turn.
+// entire history on every turn. HISTORY_VIEW_LIMIT is separate and more
+// generous -- it's what a human browsing a past thread sees (getById), not
+// what gets replayed into the model.
 const HISTORY_TURNS = 10;
+const HISTORY_VIEW_LIMIT = 100;
 const TITLE_MAX_LEN = 40;
 
 // A conversation idle longer than this is never resumed as "current" --
@@ -19,7 +23,10 @@ const TITLE_MAX_LEN = 40;
 // what counts as "current"; the old conversation's rows aren't touched here
 // -- actual deletion is a separate, longer-window sweep (see
 // chatRetention.js), since "don't resume this" and "delete this" are
-// different questions with different acceptable timeframes.
+// different questions with different acceptable timeframes. It also has no
+// bearing on listConversations/getConversationById below -- those show
+// every retained thread regardless of this window, since browsing history
+// on purpose is a different action than passively landing on a page.
 const CONVERSATION_FRESH_START_MS = 24 * 60 * 60 * 1000;
 
 const COPILOT_SYSTEM_PROMPT =
@@ -37,6 +44,19 @@ const deriveScopeKey = (pageContext) => {
   if (pageContext.reviewId) return `review:${pageContext.reviewId}`;
   if (pageContext.planId) return `plan:${pageContext.planId}`;
   return null;
+};
+
+// The reverse of deriveScopeKey -- used when continuing an explicitly-
+// selected past conversation (sendMessageToConversation below): that
+// thread's own context should always be what it was originally about
+// (e.g. Plan A), never wherever the user happens to be browsing right now
+// (e.g. Plan B's page), which is the whole point of picking it from a list
+// instead of just landing on "current".
+const parseScopeKeyToPageContext = (scopeKey) => {
+  if (!scopeKey) return undefined;
+  if (scopeKey.startsWith("review:")) return { reviewId: Number(scopeKey.slice("review:".length)) };
+  if (scopeKey.startsWith("plan:")) return { planId: Number(scopeKey.slice("plan:".length)) };
+  return undefined;
 };
 
 // "Session" here is just "this user's most recent conversation row *for this
@@ -107,6 +127,57 @@ const normalizePageContextQuery = (query) => ({
   reviewId: query.reviewId ? Number(query.reviewId) : undefined,
 });
 
+// Shared by both sendMessage (current-scope-resolved) and
+// sendMessageToConversation (an explicitly-picked past thread) -- appends
+// the user/assistant turn to whichever conversation row and pageContext the
+// caller already resolved.
+const appendTurn = async (conversation, content, pageContext) => {
+  const userMessage = await ChatMessage.create({ conversationId: conversation.id, role: "user", content });
+  if (!conversation.title) {
+    await conversation.update({ title: content.slice(0, TITLE_MAX_LEN) });
+  }
+
+  const priorMessages = await ChatMessage.findAll({
+    where: { conversationId: conversation.id },
+    order: [["id", "DESC"]],
+    limit: HISTORY_TURNS * 2,
+  });
+  const history = priorMessages.reverse().map((m) => ({ role: m.role, content: m.content }));
+
+  let systemPrompt = COPILOT_SYSTEM_PROMPT;
+  try {
+    systemPrompt += await buildContextAddition(pageContext);
+  } catch (e) {
+    console.error("加载当前课程设计/点评上下文失败（不影响消息发送）:", e.message);
+  }
+
+  const result = await agentLoop.runAgentLoop({
+    systemPrompt,
+    messages: history,
+    tools: [searchKnowledgeBaseToolDef, getPlanDetailsToolDef],
+    executors: {
+      search_knowledge_base: (args) => searchKnowledgeBase(args.query),
+      get_plan_details: (args) => getPlanDetails(args),
+    },
+    // Higher than review's own cap -- a chat reply routinely runs long
+    // (structured markdown with tables/sections, especially once
+    // get_plan_details content is in play), and a truncated reply mid-
+    // sentence is worse here than in a stored review, since the user is
+    // reading it live and there's no edit-and-resave path to fix it.
+    maxTokens: 2048,
+    temperature: 0.3,
+  });
+
+  const assistantMessage = await ChatMessage.create({
+    conversationId: conversation.id,
+    role: "assistant",
+    content: result.text,
+    retrievedChunkIds: result.toolCallLog.length > 0 ? result.toolCallLog : null,
+  });
+
+  return { userMessage, assistantMessage };
+};
+
 // GET /api/chat/conversations/current?planId=&reviewId=
 exports.getCurrent = async (req, res) => {
   try {
@@ -153,49 +224,109 @@ exports.sendMessage = async (req, res) => {
     const scopeKey = deriveScopeKey(pageContext);
     const conversation = await getOrCreateCurrentConversation(req.userId, scopeKey);
 
-    const userMessage = await ChatMessage.create({ conversationId: conversation.id, role: "user", content });
-    if (!conversation.title) {
-      await conversation.update({ title: content.slice(0, TITLE_MAX_LEN) });
-    }
+    const { userMessage, assistantMessage } = await appendTurn(conversation, content, pageContext);
+    return res.send({ userMessage, assistantMessage });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "发送消息时发生错误。" });
+  }
+};
 
-    const priorMessages = await ChatMessage.findAll({
+// GET /api/chat/conversations -- lists every retained conversation for this
+// user ("revisit all threads"), regardless of CONVERSATION_FRESH_START_MS --
+// deliberately browsing history is a different action than passively landing
+// on "current" for a page, so the 24h rule doesn't apply here. Each row's
+// scopeKey is resolved into a human label (batch-fetching the referenced
+// plans/reviews, not one query per row) and ordered by actual last activity,
+// same "last message, or creation time if none" rule as everywhere else.
+exports.listConversations = async (req, res) => {
+  try {
+    const conversations = await ChatConversation.findAll({ where: { userId: req.userId }, order: [["id", "DESC"]] });
+    if (conversations.length === 0) return res.send([]);
+
+    const conversationIds = conversations.map((c) => c.id);
+    const lastActivityRows = await db.sequelize.query(
+      `SELECT conversation_id, MAX(created_at) AS last_activity FROM chat_messages WHERE conversation_id IN (:ids) GROUP BY conversation_id`,
+      { replacements: { ids: conversationIds }, type: QueryTypes.SELECT }
+    );
+    const lastActivityById = new Map(lastActivityRows.map((r) => [r.conversation_id, r.last_activity]));
+
+    const planIds = new Set();
+    const reviewIds = new Set();
+    for (const c of conversations) {
+      if (c.scopeKey && c.scopeKey.startsWith("plan:")) planIds.add(Number(c.scopeKey.slice("plan:".length)));
+      if (c.scopeKey && c.scopeKey.startsWith("review:")) reviewIds.add(Number(c.scopeKey.slice("review:".length)));
+    }
+    const reviews = reviewIds.size
+      ? await Review.findAll({ where: { id: Array.from(reviewIds) }, attributes: ["id", "planId"] })
+      : [];
+    for (const r of reviews) planIds.add(r.planId);
+    const reviewPlanById = new Map(reviews.map((r) => [r.id, r.planId]));
+    const plans = planIds.size ? await Plan.findAll({ where: { id: Array.from(planIds) }, attributes: ["id", "title"] }) : [];
+    const planTitleById = new Map(plans.map((p) => [p.id, p.title]));
+
+    const results = conversations.map((c) => {
+      let label = "通用助手";
+      if (c.scopeKey && c.scopeKey.startsWith("plan:")) {
+        const planId = Number(c.scopeKey.slice("plan:".length));
+        label = planTitleById.has(planId) ? `课程设计《${planTitleById.get(planId)}》` : "课程设计（已删除）";
+      } else if (c.scopeKey && c.scopeKey.startsWith("review:")) {
+        const reviewId = Number(c.scopeKey.slice("review:".length));
+        const planId = reviewPlanById.get(reviewId);
+        label = planId && planTitleById.has(planId) ? `点评讨论 · 《${planTitleById.get(planId)}》` : "点评讨论（已删除）";
+      }
+      return {
+        id: c.id,
+        scopeKey: c.scopeKey,
+        title: c.title,
+        label,
+        lastActivity: lastActivityById.get(c.id) || c.createdAt,
+      };
+    });
+    results.sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
+
+    return res.send(results);
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "加载对话列表失败。" });
+  }
+};
+
+// GET /api/chat/conversations/:id -- full history for one specific,
+// explicitly-picked conversation (from the list above). Ownership-checked
+// (userId must match); returns 404 rather than another user's data for a
+// conversation id that isn't this user's.
+exports.getConversationById = async (req, res) => {
+  try {
+    const conversation = await ChatConversation.findOne({ where: { id: req.params.id, userId: req.userId } });
+    if (!conversation) return res.status(404).send({ message: "未找到该对话。" });
+    const messages = await ChatMessage.findAll({
       where: { conversationId: conversation.id },
       order: [["id", "DESC"]],
-      limit: HISTORY_TURNS * 2,
+      limit: HISTORY_VIEW_LIMIT,
     });
-    const history = priorMessages.reverse().map((m) => ({ role: m.role, content: m.content }));
+    return res.send({ conversation, messages: messages.reverse() });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "加载对话失败。" });
+  }
+};
 
-    let systemPrompt = COPILOT_SYSTEM_PROMPT;
-    try {
-      systemPrompt += await buildContextAddition(pageContext);
-    } catch (e) {
-      console.error("加载当前课程设计/点评上下文失败（不影响消息发送）:", e.message);
+// POST /api/chat/conversations/:id/messages -- continues an explicitly-
+// picked past conversation (as opposed to sendMessage, which always targets
+// whatever "current" resolves to for the caller's own page). pageContext is
+// derived from *that conversation's own* scopeKey, not from whatever the
+// client is currently browsing -- picking an old Plan A thread while sitting
+// on Plan B's page should still answer with Plan A's context.
+exports.sendMessageToConversation = async (req, res) => {
+  try {
+    const content = (req.body.content || "").trim();
+    if (!content) {
+      return res.status(422).send({ message: "消息内容不能为空。" });
     }
 
-    const result = await agentLoop.runAgentLoop({
-      systemPrompt,
-      messages: history,
-      tools: [searchKnowledgeBaseToolDef, getPlanDetailsToolDef],
-      executors: {
-        search_knowledge_base: (args) => searchKnowledgeBase(args.query),
-        get_plan_details: (args) => getPlanDetails(args),
-      },
-      // Higher than review's own cap -- a chat reply routinely runs long
-      // (structured markdown with tables/sections, especially once
-      // get_plan_details content is in play), and a truncated reply mid-
-      // sentence is worse here than in a stored review, since the user is
-      // reading it live and there's no edit-and-resave path to fix it.
-      maxTokens: 2048,
-      temperature: 0.3,
-    });
+    const conversation = await ChatConversation.findOne({ where: { id: req.params.id, userId: req.userId } });
+    if (!conversation) return res.status(404).send({ message: "未找到该对话。" });
 
-    const assistantMessage = await ChatMessage.create({
-      conversationId: conversation.id,
-      role: "assistant",
-      content: result.text,
-      retrievedChunkIds: result.toolCallLog.length > 0 ? result.toolCallLog : null,
-    });
-
+    const pageContext = parseScopeKeyToPageContext(conversation.scopeKey);
+    const { userMessage, assistantMessage } = await appendTurn(conversation, content, pageContext);
     return res.send({ userMessage, assistantMessage });
   } catch (err) {
     return res.status(500).send({ message: err.message || "发送消息时发生错误。" });

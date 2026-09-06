@@ -43,6 +43,22 @@ const PANEL_MARGIN = 20;
 const PANEL_RIGHT_OFFSET = 20; // must match .copilot-panel's `right`
 const PANEL_BOTTOM_OFFSET = 84; // must match .copilot-panel's `bottom`
 
+// Coarse relative time for the history list ("刚刚"/"3小时前"/"2天前"/absolute
+// date beyond a week) -- precise timestamps aren't useful there, just enough
+// to tell threads apart at a glance.
+const formatRelativeTime = (dateStr) => {
+  if (!dateStr) return "";
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes}分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}天前`;
+  return new Date(dateStr).toLocaleDateString("zh-cn");
+};
+
 const CopilotPanel = () => {
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
@@ -107,6 +123,18 @@ const CopilotPanel = () => {
   const displayName = currentUser && (currentUser.chineseName || currentUser.username);
 
   const [overrideReviewId, setOverrideReviewId] = useState(null);
+  // Set when the user explicitly picks a past thread from "历史" (see
+  // openThread below) -- takes priority over scope-derived "current" for
+  // both loading and sending: that thread's own stored context is what
+  // answers apply to, not wherever the user happens to be browsing (see
+  // chat.controller.js#sendMessageToConversation). Cleared on close, on
+  // "新对话", and by the explicit "返回当前对话" link -- never silently, since
+  // the whole point of picking a thread is that it stays put until the user
+  // deliberately leaves it.
+  const [explicitConversationId, setExplicitConversationId] = useState(null);
+  const [viewMode, setViewMode] = useState("chat"); // "chat" | "history"
+  const [historyList, setHistoryList] = useState(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   // Listens for e.g. review-list.component.js's "discuss this review"
   // button -- window.dispatchEvent(new CustomEvent("copilot:open", { detail:
@@ -148,7 +176,9 @@ const CopilotPanel = () => {
 
   const loadCurrent = async () => {
     try {
-      const resp = await ChatDataService.getCurrent(pageContext);
+      const resp = explicitConversationId
+        ? await ChatDataService.getConversationById(explicitConversationId)
+        : await ChatDataService.getCurrent(pageContext);
       setMessages(resp.data.messages || []);
       setIsLoaded(true);
     } catch (e) {
@@ -158,12 +188,45 @@ const CopilotPanel = () => {
   };
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && viewMode === "chat") {
       setIsLoaded(false);
       loadCurrent();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, scopeKeyClient]);
+  }, [isOpen, scopeKeyClient, explicitConversationId, viewMode]);
+
+  // Closing the panel ends any explicitly-picked thread -- reopening (maybe
+  // much later, on a different page) should show whatever's current for
+  // wherever the user is by then, not silently resurrect an old pick.
+  useEffect(() => {
+    if (!isOpen) {
+      setExplicitConversationId(null);
+      setViewMode("chat");
+    }
+  }, [isOpen]);
+
+  const openHistory = async () => {
+    setViewMode("history");
+    setIsLoadingHistory(true);
+    try {
+      const resp = await ChatDataService.listConversations();
+      setHistoryList(resp.data || []);
+    } catch (e) {
+      console.log(e);
+      setError("加载历史对话失败。");
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  const openThread = (id) => {
+    setExplicitConversationId(id);
+    setViewMode("chat");
+  };
+
+  const returnToCurrent = () => {
+    setExplicitConversationId(null);
+  };
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -185,7 +248,9 @@ const CopilotPanel = () => {
     setMessages((prev) => [...prev, { role: "user", content, _pending: true }]);
     setIsSending(true);
     try {
-      const resp = await ChatDataService.sendMessage(content, pageContext);
+      const resp = explicitConversationId
+        ? await ChatDataService.sendMessageToConversation(explicitConversationId, content)
+        : await ChatDataService.sendMessage(content, pageContext);
       setMessages((prev) => {
         const withoutPending = prev.filter((m) => !m._pending);
         return [...withoutPending, resp.data.userMessage, resp.data.assistantMessage];
@@ -199,6 +264,8 @@ const CopilotPanel = () => {
 
   const startNew = async () => {
     try {
+      setExplicitConversationId(null);
+      setViewMode("chat");
       await ChatDataService.startNew(pageContext);
       setMessages([]);
       setError("");
@@ -226,6 +293,10 @@ const CopilotPanel = () => {
     );
   };
 
+  const currentThreadLabel = historyList && explicitConversationId
+    ? (historyList.find((c) => c.id === explicitConversationId) || {}).label
+    : null;
+
   return (
     <div className="copilot-root">
       <button
@@ -242,45 +313,80 @@ const CopilotPanel = () => {
           <div className="copilot-resize-handle" onMouseDown={onResizeMouseDown} title="拖动调整大小"></div>
           <div className="copilot-header">
             <span>欣欣助手</span>
-            <button type="button" className="btn btn-sm btn-link copilot-new-btn" onClick={startNew}>
-              新对话
-            </button>
+            <div>
+              <button
+                type="button"
+                className="btn btn-sm btn-link copilot-new-btn"
+                onClick={() => (viewMode === "history" ? setViewMode("chat") : openHistory())}
+              >
+                {viewMode === "history" ? "返回" : "历史"}
+              </button>
+              <button type="button" className="btn btn-sm btn-link copilot-new-btn" onClick={startNew}>
+                新对话
+              </button>
+            </div>
           </div>
 
-          <div className="copilot-messages">
-            {!isLoaded && <div className="pl-empty">加载中...</div>}
-            {isLoaded && messages.length === 0 && (
-              <div className="pl-empty">{displayName ? `${displayName}，有什么可以帮您的？` : "有什么可以帮您的？"}</div>
-            )}
-            {messages.map((m, i) => (
-              <div key={m.id || `pending-${i}`} className={`copilot-bubble copilot-bubble-${m.role}`}>
-                <div className="copilot-bubble-content">{m.content}</div>
-                {m.role === "assistant" && renderCitations(m)}
+          {viewMode === "history" ? (
+            <div className="copilot-messages">
+              {isLoadingHistory && <div className="pl-empty">加载中...</div>}
+              {!isLoadingHistory && historyList && historyList.length === 0 && <div className="pl-empty">暂无历史对话。</div>}
+              {!isLoadingHistory &&
+                historyList &&
+                historyList.map((c) => (
+                  <button type="button" key={c.id} className="copilot-history-item" onClick={() => openThread(c.id)}>
+                    <div className="copilot-history-label">{c.label}</div>
+                    {c.title && <div className="copilot-history-title">{c.title}</div>}
+                    <div className="copilot-history-time">{formatRelativeTime(c.lastActivity)}</div>
+                  </button>
+                ))}
+            </div>
+          ) : (
+            <>
+              {explicitConversationId && (
+                <div className="copilot-thread-banner">
+                  正在查看：{currentThreadLabel || "历史对话"}
+                  <button type="button" className="btn btn-sm btn-link p-0 ml-2" onClick={returnToCurrent}>
+                    返回当前对话
+                  </button>
+                </div>
+              )}
+              <div className="copilot-messages">
+                {!isLoaded && <div className="pl-empty">加载中...</div>}
+                {isLoaded && messages.length === 0 && (
+                  <div className="pl-empty">{displayName ? `${displayName}，有什么可以帮您的？` : "有什么可以帮您的？"}</div>
+                )}
+                {messages.map((m, i) => (
+                  <div key={m.id || `pending-${i}`} className={`copilot-bubble copilot-bubble-${m.role}`}>
+                    <div className="copilot-bubble-content">{m.content}</div>
+                    {m.role === "assistant" && renderCitations(m)}
+                  </div>
+                ))}
+                {isSending && (
+                  <div className="copilot-bubble copilot-bubble-assistant copilot-bubble-thinking">
+                    <div className="copilot-bubble-content">思考中...</div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
               </div>
-            ))}
-            {isSending && (
-              <div className="copilot-bubble copilot-bubble-assistant copilot-bubble-thinking">
-                <div className="copilot-bubble-content">思考中...</div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
 
-          {error && <div className="alert alert-info py-1 px-2 copilot-error">{error}</div>}
+              {error && <div className="alert alert-info py-1 px-2 copilot-error">{error}</div>}
 
-          <form className="copilot-input-row" onSubmit={send}>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="输入问题..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={isSending}
-            />
-            <button type="submit" className="btn btn-primary" disabled={isSending || !input.trim()}>
-              {isSending ? "..." : "发送"}
-            </button>
-          </form>
+              <form className="copilot-input-row" onSubmit={send}>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="输入问题..."
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  disabled={isSending}
+                />
+                <button type="submit" className="btn btn-primary" disabled={isSending || !input.trim()}>
+                  {isSending ? "..." : "发送"}
+                </button>
+              </form>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -10,7 +10,17 @@ module.exports = function (app) {
   // Any authenticated user (teacher/expert/admin) -- scoped to req.userId,
   // no role restriction, matching the co-pilot's "helps teachers" ask
   // without arbitrarily excluding other roles who might also use it.
+  //
+  // Literal /current and /new routes registered before the generic /:id
+  // ones below -- Express matches path segments in registration order, and
+  // /:id would otherwise happily swallow the literal string "current" too.
   app.get("/api/chat/conversations/current", [authJwt.verifyToken], chat.getCurrent);
   app.post("/api/chat/conversations/new", [authJwt.verifyToken], chat.startNew);
   app.post("/api/chat/conversations/current/messages", [authJwt.verifyToken], chat.sendMessage);
+
+  // "Revisit all threads" -- list every retained conversation, open one by
+  // id, continue it.
+  app.get("/api/chat/conversations", [authJwt.verifyToken], chat.listConversations);
+  app.get("/api/chat/conversations/:id", [authJwt.verifyToken], chat.getConversationById);
+  app.post("/api/chat/conversations/:id/messages", [authJwt.verifyToken], chat.sendMessageToConversation);
 };

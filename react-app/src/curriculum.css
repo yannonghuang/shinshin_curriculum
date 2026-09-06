@@ -1178,6 +1178,7 @@
 .copilot-new-btn {
   color: #fff;
   text-decoration: underline;
+  margin-left: 10px;
 }
 
 .copilot-messages {
@@ -1237,6 +1238,48 @@
 
 .copilot-error {
   margin: 0 12px;
+}
+
+.copilot-thread-banner {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+  border-bottom: 1px solid var(--pl-line);
+}
+
+.copilot-history-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--pl-panel);
+  border: 1px solid var(--pl-line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.copilot-history-item:hover {
+  background: var(--pl-accent-soft);
+}
+
+.copilot-history-label {
+  font-weight: 600;
+  color: var(--pl-text);
+}
+
+.copilot-history-title {
+  font-size: 12px;
+  color: var(--pl-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.copilot-history-time {
+  font-size: 11px;
+  color: var(--pl-muted);
+  margin-top: 2px;
 }
 
 .copilot-input-row {
