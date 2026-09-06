@@ -964,7 +964,7 @@ const PlanDetail = (props) => {
             <label>课时设计内容</label>
             <textarea
               className="form-control"
-              rows="6"
+              rows="10"
               value={lesson.content}
               disabled={!canEditPlan}
               onChange={(e) => onLessonFieldChange(n, "content", e.target.value)}
