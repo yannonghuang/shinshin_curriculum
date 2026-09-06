@@ -7,7 +7,8 @@ const Plan = db.plan;
 const Artifact = db.artifact;
 const User = db.user;
 const TemplateVersion = db.templateVersion;
-const llmClient = require("../services/llmClient");
+const agentLoop = require("../services/agentLoop");
+const { searchKnowledgeBase, searchKnowledgeBaseToolDef } = require("../services/knowledgeRetrieve");
 
 const findExecutionRecord = (plan, lessonIndex) => {
   const records = Array.isArray(plan.executionFormData) ? plan.executionFormData : [];
@@ -123,7 +124,8 @@ const buildPrecedenceExtract = async (artifacts) => {
 
 const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => {
   const systemPrompt =
-    "你是乡土课程教学专家，请对以下课程设计/实施记录整体做点评，从目标达成、内容设计、可操作性、创新性等维度给出优点、不足和改进建议，用中文回复，200-500字。";
+    "你是乡土课程教学专家，请对以下课程设计/实施记录整体做点评，从目标达成、内容设计、可操作性、创新性等维度给出优点、不足和改进建议，用中文回复，200-500字。" +
+    "如果需要参考共享学习材料库中与该课程主题相关的资料（例如同主题的其他课程案例、专家讲解等）来支撑你的点评，可以调用 search_knowledge_base 工具查询；不需要参考资料时无需调用。";
 
   const lines = [];
   lines.push(`课程标题：${plan.title || ""}`);
@@ -244,9 +246,16 @@ exports.createAiReview = async (req, res) => {
 
     const { systemPrompt, userContent } = await buildAiReviewPrompt(plan, lessonIndex, artifacts);
 
-    const result = await llmClient.llmChat({
+    // Routed through the agent loop rather than a plain llmChat call so the
+    // model can decide for itself whether this plan/lesson's content
+    // warrants pulling in reference material from 共享学习材料库, instead of
+    // every review being force-fed the same retrieval regardless of
+    // relevance (see knowledgeRetrieve.js's searchKnowledgeBaseToolDef).
+    const result = await agentLoop.runAgentLoop({
       systemPrompt,
       messages: [{ role: "user", content: userContent }],
+      tools: [searchKnowledgeBaseToolDef],
+      executors: { search_knowledge_base: (args) => searchKnowledgeBase(args.query) },
       maxTokens: 1024,
       temperature: 0.3,
     });
