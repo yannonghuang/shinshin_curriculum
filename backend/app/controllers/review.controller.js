@@ -119,7 +119,12 @@ exports.createAiReview = async (req, res) => {
       messages: [{ role: "user", content: userContent }],
       tools: [searchKnowledgeBaseToolDef],
       executors: { search_knowledge_base: (args) => searchKnowledgeBase(args.query) },
-      maxTokens: 1024,
+      // The system prompt asks for 200-500字, but real replies sometimes run
+      // past their own target once markdown formatting is counted -- a
+      // margin here matters more than in the old plain-text case, since a
+      // truncated review is a *stored*, permanent artifact with no
+      // edit-and-resave path, not a live reply the user can just ask again.
+      maxTokens: 1536,
       temperature: 0.3,
     });
 

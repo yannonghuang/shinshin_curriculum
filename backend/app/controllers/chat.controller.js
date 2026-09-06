@@ -146,7 +146,12 @@ exports.sendMessage = async (req, res) => {
         search_knowledge_base: (args) => searchKnowledgeBase(args.query),
         get_plan_details: (args) => getPlanDetails(args),
       },
-      maxTokens: 1024,
+      // Higher than review's own cap -- a chat reply routinely runs long
+      // (structured markdown with tables/sections, especially once
+      // get_plan_details content is in play), and a truncated reply mid-
+      // sentence is worse here than in a stored review, since the user is
+      // reading it live and there's no edit-and-resave path to fix it.
+      maxTokens: 2048,
       temperature: 0.3,
     });
 
