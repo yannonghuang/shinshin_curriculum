@@ -18,12 +18,26 @@ import "../curriculum.css";
 // contribute context later.
 const PLAN_PAGE_RE = /^\/plans\/(\d+)/;
 
-// Default size/placement, and the margin from the viewport edge -- used only
-// to compute an initial top/left once per open (see panelPos below).
+// Default size and clamping bounds. The panel itself stays anchored via
+// CSS right/bottom (see .copilot-panel) -- fixed offsets from the viewport
+// edge that can never put it off-screen on that side, which is also the
+// side the floating toggle button lives on. Resize handle sits at the
+// panel's *top-left* corner instead of the more conventional bottom-right:
+// growing a box necessarily extends away from whichever corner is fixed,
+// and since right/bottom are what's fixed here, "away from that corner" is
+// up-and-left -- there's plenty of room in that direction (unlike
+// bottom-right, which starts already snug against the edge it's anchored
+// to, leaving no room to grow there at all -- confirmed live: an earlier
+// top-left-anchored version could grow height a little but not width at
+// all, because its default left position was deliberately placed with zero
+// slack to the right).
 const PANEL_DEFAULT_WIDTH = 360;
 const PANEL_DEFAULT_HEIGHT = 520;
+const PANEL_MIN_WIDTH = 300;
+const PANEL_MIN_HEIGHT = 360;
 const PANEL_MARGIN = 20;
-const TOGGLE_CLEARANCE = 84; // leaves room above the floating toggle button
+const PANEL_RIGHT_OFFSET = 20; // must match .copilot-panel's `right`
+const PANEL_BOTTOM_OFFSET = 84; // must match .copilot-panel's `bottom`
 
 const CopilotPanel = () => {
   const location = useLocation();
@@ -34,26 +48,55 @@ const CopilotPanel = () => {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const messagesEndRef = useRef(null);
-  // Anchored via top/left (computed once, on first open), not right/bottom --
-  // CSS `resize` only ever grows/shrinks a box from its bottom-right corner
-  // while its top/left stay fixed. Anchoring via right/bottom instead would
-  // mean growing the box moves its *top-left* corner outward while the
-  // bottom-right corner (where the resize grip visually sits, and where a
-  // user's cursor actually is while dragging) never moves on screen at all --
-  // confirmed via a real drag simulation: the box's right/bottom screen
-  // position was bit-for-bit identical before and after resizing either
-  // direction. Top/left anchoring is what makes "drag the corner to make it
-  // bigger" track the cursor the way every other resizable box does.
-  const [panelPos, setPanelPos] = useState(null);
+  const [panelSize, setPanelSize] = useState({ width: PANEL_DEFAULT_WIDTH, height: PANEL_DEFAULT_HEIGHT });
+  const panelRef = useRef(null);
+  // Only populated while an actual drag is in progress -- see
+  // onResizeMouseDown/Move/Up below. Not React state: every mousemove during
+  // a drag mutates panelRef's DOM node directly (no re-render per pixel
+  // moved), and panelSize only gets its one state update on mouseup, once
+  // the final size is known.
+  const resizeStateRef = useRef(null);
 
-  useEffect(() => {
-    if (isOpen && !panelPos) {
-      setPanelPos({
-        left: Math.max(8, window.innerWidth - PANEL_MARGIN - PANEL_DEFAULT_WIDTH),
-        top: Math.max(8, window.innerHeight - TOGGLE_CLEARANCE - PANEL_DEFAULT_HEIGHT),
-      });
+  // Custom drag-to-resize handle (see .copilot-resize-handle), not the
+  // native CSS `resize` property -- that was tried first and turned out
+  // unreliable in practice (a real user could only ever shrink the panel,
+  // never grow it, for reasons that didn't reproduce in an automated
+  // same-browser drag simulation -- rather than keep chasing a browser-
+  // specific native-resize quirk, this gives full, predictable control).
+  const onResizeMouseMove = (e) => {
+    const state = resizeStateRef.current;
+    const panel = panelRef.current;
+    if (!state || !panel) return;
+    // Dragging the top-left grip up/left grows the box (moving away from
+    // the fixed bottom-right corner), so width/height move *opposite* to
+    // the mouse delta here, unlike a conventional bottom-right handle.
+    const maxWidth = window.innerWidth - PANEL_RIGHT_OFFSET - PANEL_MARGIN;
+    const maxHeight = window.innerHeight - PANEL_BOTTOM_OFFSET - PANEL_MARGIN;
+    const newWidth = Math.min(Math.max(state.startWidth - (e.clientX - state.startX), PANEL_MIN_WIDTH), maxWidth);
+    const newHeight = Math.min(Math.max(state.startHeight - (e.clientY - state.startY), PANEL_MIN_HEIGHT), maxHeight);
+    panel.style.width = `${newWidth}px`;
+    panel.style.height = `${newHeight}px`;
+  };
+
+  const onResizeMouseUp = () => {
+    const panel = panelRef.current;
+    if (panel) {
+      setPanelSize({ width: panel.offsetWidth, height: panel.offsetHeight });
     }
-  }, [isOpen, panelPos]);
+    resizeStateRef.current = null;
+    document.removeEventListener("mousemove", onResizeMouseMove);
+    document.removeEventListener("mouseup", onResizeMouseUp);
+  };
+
+  const onResizeMouseDown = (e) => {
+    e.preventDefault();
+    const panel = panelRef.current;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    resizeStateRef.current = { startX: e.clientX, startY: e.clientY, startWidth: rect.width, startHeight: rect.height };
+    document.addEventListener("mousemove", onResizeMouseMove);
+    document.addEventListener("mouseup", onResizeMouseUp);
+  };
 
   const currentUser = AuthService.getCurrentUser();
   const isLoggedIn = !!currentUser;
@@ -155,7 +198,8 @@ const CopilotPanel = () => {
       </button>
 
       {isOpen && (
-        <div className="copilot-panel" style={panelPos ? { left: panelPos.left, top: panelPos.top } : undefined}>
+        <div className="copilot-panel" ref={panelRef} style={{ width: panelSize.width, height: panelSize.height }}>
+          <div className="copilot-resize-handle" onMouseDown={onResizeMouseDown} title="拖动调整大小"></div>
           <div className="copilot-header">
             <span>欣欣助手</span>
             <button type="button" className="btn btn-sm btn-link copilot-new-btn" onClick={startNew}>

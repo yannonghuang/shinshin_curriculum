@@ -1107,19 +1107,26 @@
 }
 
 .copilot-panel {
-  /* top/left set inline (see copilot-panel.component.js's panelPos) --
-     computed once on open, not fixed in this stylesheet, so that resize
-     (which always grows/shrinks a box from its bottom-right corner while
-     top/left stay put) makes the panel track the cursor naturally instead of
-     growing toward a corner the user isn't dragging. */
+  /* right/bottom (not top/left) -- fixed offsets from the viewport edge that
+     can never put the panel off-screen on this side, which is also the side
+     the floating toggle button lives on (see .copilot-toggle's own z-index
+     comment for what guards against overlap with it). width/height are set
+     inline (see copilot-panel.component.js's panelSize), driven by the
+     custom .copilot-resize-handle drag rather than native CSS `resize`
+     (tried first; unreliable in practice -- a real drag could only ever
+     shrink the panel, not grow it, for reasons that didn't reproduce in an
+     automated same-browser simulation). The values below are just fallback
+     defaults matching panelSize's own initial state. */
   position: fixed;
+  right: 20px;
+  bottom: 84px;
   z-index: 1;
   width: 360px;
   min-width: 300px;
-  max-width: calc(100vw - 40px);
+  max-width: calc(100vw - 40px); /* matches JS: PANEL_RIGHT_OFFSET(20) + PANEL_MARGIN(20) */
   height: 520px;
   min-height: 360px;
-  max-height: calc(100vh - 140px);
+  max-height: calc(100vh - 104px); /* matches JS: PANEL_BOTTOM_OFFSET(84) + PANEL_MARGIN(20) */
   background: var(--pl-panel);
   border: 1px solid var(--pl-line);
   border-radius: 12px;
@@ -1127,14 +1134,42 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  resize: both;
+}
+
+/* Top-left, not the more conventional bottom-right -- growing a box always
+   extends away from whichever corner is fixed, and since the panel is
+   anchored via right/bottom, "away from that corner" is up-and-left, where
+   there's actually room to grow (unlike bottom-right, which starts already
+   snug against the edge it's anchored to). */
+.copilot-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 3;
+}
+
+.copilot-resize-handle::before {
+  /* Always sits on the header's dark-green corner (top-left of the panel is
+     always under the header, whatever the panel's size) -- light lines for
+     contrast there, not var(--pl-muted), which all but disappears against
+     that background. */
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0, rgba(255, 255, 255, 0.85) 1.5px, transparent 1.5px, transparent 4px);
 }
 
 .copilot-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: 10px 14px 10px 26px; /* extra left padding clears .copilot-resize-handle in that corner */
   background: var(--pl-accent);
   color: #fff;
   font-weight: 600;
