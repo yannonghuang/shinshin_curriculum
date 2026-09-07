@@ -599,6 +599,20 @@ const LessonFileManager = ({
     return <i className={`${iconClassForArtifact(artifact)} pl-fm-icon-glyph`} style={{ color: iconColorForArtifact(artifact) }}></i>;
   };
 
+  // hasExtractedContent is computed server-side, live off knowledge_chunks
+  // (see material-artifact.controller.js#findByTopic) -- only ever present
+  // on materials-library artifacts, so this is undefined (and the warning
+  // never shows) for the plan/lesson Artifact model this same component also
+  // renders for 支撑材料. `=== false` (not falsy) so a plain Artifact row's
+  // undefined value, and a materials artifact still mid-ingestion right
+  // after upload, both render nothing rather than a false alarm.
+  const EXTRACTION_WARNING_TITLE =
+    "未能从该文件提取到可用于知识库/知识卡片的文本内容——可能是扫描件、没有文字层，或提取仍在后台处理中，可稍后刷新页面重试。";
+  const renderExtractionWarning = (artifact) =>
+    artifact.hasExtractedContent === false ? (
+      <i className="fas fa-exclamation-triangle ml-1" style={{ color: "var(--pl-warn)" }} title={EXTRACTION_WARNING_TITLE}></i>
+    ) : null;
+
   const renderFolderRow = (folder, isIcon) => {
     const checked = selectedFolderIds.has(folder.id);
 
@@ -634,6 +648,7 @@ const LessonFileManager = ({
           {renderIconGlyphOrThumb(artifact)}
           <div className="pl-fm-icon-name" title={artifact.attachmentName}>
             {artifact.attachmentName}
+            {renderExtractionWarning(artifact)}
           </div>
         </div>
       );
@@ -644,6 +659,7 @@ const LessonFileManager = ({
         <td className="pl-fm-name-cell" onClick={() => openPreview(artifact)} title={artifact.attachmentName}>
           <i className={`${iconClassForArtifact(artifact)} mr-2`} style={{ color: iconColorForArtifact(artifact) }}></i>
           {artifact.attachmentName}
+          {renderExtractionWarning(artifact)}
         </td>
         <td>{artifact.type}</td>
         <td>{formatBytes(artifact.attachmentSize)}</td>

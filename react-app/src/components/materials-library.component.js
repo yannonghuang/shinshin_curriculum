@@ -583,7 +583,7 @@ const MaterialsLibrary = () => {
         </div>
         {isAdmin && (
           <button type="button" className="btn btn-primary" disabled={!skillDirty} onClick={saveSkill}>
-            保存（标记为已审核）
+            保存
           </button>
         )}
       </div>
