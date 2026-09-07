@@ -13,18 +13,24 @@ exports.getRoles = (req, res) => {
   res.send(ROLES);
 };
 
-// Only 教师 may have non-null schoolCode/schoolName (migrated from shinshin's
-// `schools` table -- see react-app/src/constants/school-options.js). roleNames
-// is whatever the user's role set will actually be *after* the request:
-// the roles being assigned (signup/admin-create/admin-update-with-roles), or
-// the user's existing roles (self-update, or an admin update that doesn't
-// touch roles). Clearing to null is always allowed regardless of role.
+// 教师 must have a non-null schoolCode (FK to the `schools` table -- see
+// react-app/src/constants/school-options.js, migrated in
+// 20260907120000-teacher-school-enforcement.js); non-teachers must not have
+// one. roleNames is whatever the user's role set will actually be *after*
+// the request: the roles being assigned (signup/admin-create/admin-update-
+// with-roles), or the user's existing roles (self-update, or an admin update
+// that doesn't touch roles). This is app-layer defense-in-depth -- the same
+// rule is also enforced at the DB level by that migration's triggers.
 const validateSchoolFields = (schoolCode, schoolName, roleNames) => {
+  const isTeacher = (roleNames || []).includes("teacher");
   const hasValue =
     (schoolCode !== undefined && schoolCode !== null && schoolCode !== "") ||
     (schoolName !== undefined && schoolName !== null && schoolName !== "");
-  if (hasValue && !(roleNames || []).includes("teacher")) {
+  if (hasValue && !isTeacher) {
     return "只有教师角色可以设置学校代码/学校名称。";
+  }
+  if (isTeacher && (schoolCode === undefined || schoolCode === null || schoolCode === "")) {
+    return "教师账号必须选择所在学校。";
   }
   return null;
 };
@@ -46,7 +52,6 @@ exports.signup = async (req, res) => {
       chineseName: req.body.chineseName,
       phone: req.body.phone,
       schoolCode: req.body.schoolCode || null,
-      schoolName: req.body.schoolName || null,
       emailVerified: false,
     });
 
@@ -82,7 +87,6 @@ exports.adminCreateUser = async (req, res) => {
       chineseName: req.body.chineseName,
       phone: req.body.phone,
       schoolCode: req.body.schoolCode || null,
-      schoolName: req.body.schoolName || null,
       emailVerified: true,
     });
 
@@ -258,7 +262,6 @@ exports.findOne = (req, res) => {
       "phone",
       "emailVerified",
       "schoolCode",
-      "schoolName",
       // Sequelize.col("users.created_at") (a "table.column" qualifier) fails
       // with "Unknown column 'users.created_at' in 'field list'" -- doesn't
       // match the alias Sequelize actually generates for this query. Bare
@@ -274,11 +277,18 @@ exports.findOne = (req, res) => {
         through: { attributes: [] },
         required: false,
       },
+      { model: db.school, as: "School", attributes: ["code", "name"], required: false },
     ],
   })
     .then((data) => {
       if (data) {
-        res.send(data);
+        // schoolName is no longer a real column (dropped in
+        // 20260907120000-teacher-school-enforcement.js) -- derive it from the
+        // School include so the response shape stays unchanged for callers.
+        const plain = data.get({ plain: true });
+        plain.schoolName = plain.School ? plain.School.name : null;
+        delete plain.School;
+        res.send(plain);
       } else {
         res.status(404).send({ message: `Cannot find user with id=${id}.` });
       }
@@ -299,10 +309,13 @@ exports.update = async (req, res) => {
 
   try {
     const { password, roles, ...otherParameters } = req.body;
-    // schoolCode/schoolName are self-editable like the other basic profile
-    // fields (unlike roles/emailVerified, which stay admin-only) -- id is
-    // never in this list, so it can never be altered via this endpoint.
-    const allowed = ["username", "email", "chineseName", "phone", "schoolCode", "schoolName"];
+    // schoolCode is self-editable like the other basic profile fields
+    // (unlike roles/emailVerified, which stay admin-only) -- id is never in
+    // this list, so it can never be altered via this endpoint. schoolName is
+    // no longer a writable column (dropped in
+    // 20260907120000-teacher-school-enforcement.js, derived via the School
+    // association instead) -- silently ignored if a caller still sends it.
+    const allowed = ["username", "email", "chineseName", "phone", "schoolCode"];
     if (isAdminActor) allowed.push("emailVerified");
 
     const updateParams = {};
@@ -320,31 +333,53 @@ exports.update = async (req, res) => {
       });
     }
 
-    if (updateParams.schoolCode !== undefined || updateParams.schoolName !== undefined) {
-      // Validate against the *effective* role set: roles being assigned in
-      // this same request (admin only), else the user's current roles.
-      let roleNames;
-      if (roles && isAdminActor) {
-        roleNames = roles;
-      } else {
+    // Effective new role set: roles being assigned in this same request
+    // (admin only), else the user's current roles unchanged.
+    const nextRoleNames = roles && isAdminActor ? roles : null;
+    let effectiveRoleNames = nextRoleNames;
+    if (updateParams.schoolCode !== undefined) {
+      if (!effectiveRoleNames) {
         const currentRoles = await user.getRoles();
-        roleNames = currentRoles.map((r) => r.name);
+        effectiveRoleNames = currentRoles.map((r) => r.name);
       }
-      const schoolCodeValue = updateParams.schoolCode !== undefined ? updateParams.schoolCode : user.schoolCode;
-      const schoolNameValue = updateParams.schoolName !== undefined ? updateParams.schoolName : user.schoolName;
-      const schoolError = validateSchoolFields(schoolCodeValue, schoolNameValue, roleNames);
+      const schoolCodeValue = updateParams.schoolCode;
+      const schoolError = validateSchoolFields(schoolCodeValue, undefined, effectiveRoleNames);
       if (schoolError) {
         return res.status(422).send({ message: schoolError });
       }
     }
 
-    if (Object.keys(updateParams).length > 0) {
-      await User.update(updateParams, { where: { id } });
+    // Write order matters once the DB-level teacher/school triggers are in
+    // play (see 20260907120000-teacher-school-enforcement.js): promoting to
+    // (or staying) teacher while also setting schoolCode in the same request
+    // must write schoolCode *before* the user_roles insert (the insert
+    // trigger checks users.school_code); demoting away from teacher while
+    // also clearing schoolCode must remove the user_roles row *before*
+    // nulling schoolCode (the update trigger checks current role
+    // membership). Requests touching only one of {roles, schoolCode} are
+    // unaffected by the ordering either way.
+    const applyScalarUpdate = async () => {
+      if (Object.keys(updateParams).length > 0) {
+        await User.update(updateParams, { where: { id } });
+      }
+    };
+    const applyRoles = async () => {
+      if (roles && isAdminActor) {
+        const foundRoles = await Role.findAll({ where: { name: { [Op.or]: roles } } });
+        await user.setRoles(foundRoles);
+      }
+    };
+
+    const demotingAwayFromTeacher = nextRoleNames !== null && !nextRoleNames.includes("teacher");
+    if (demotingAwayFromTeacher) {
+      await applyRoles();
+      await applyScalarUpdate();
+    } else {
+      await applyScalarUpdate();
+      await applyRoles();
     }
 
     if (roles && isAdminActor) {
-      const foundRoles = await Role.findAll({ where: { name: { [Op.or]: roles } } });
-      await user.setRoles(foundRoles);
       return res.send({ message: "User and roles were updated successfully!" });
     }
 
@@ -450,6 +485,7 @@ exports.findAll = async (req, res) => {
           required: !!role,
           where: role ? { name: role } : undefined,
         },
+        { model: db.school, as: "School", attributes: ["code", "name"], required: false },
       ],
       distinct: true,
       attributes: [
@@ -461,13 +497,22 @@ exports.findAll = async (req, res) => {
         "emailVerified",
         "suspended",
         "schoolCode",
-        "schoolName",
         "lastLogin",
         "createdAt",
       ],
       limit,
       offset,
       order: [["id", "DESC"]],
+    });
+
+    // schoolName is no longer a real column (dropped in
+    // 20260907120000-teacher-school-enforcement.js) -- derive it from the
+    // School include so the response shape stays unchanged for callers.
+    data.rows = data.rows.map((row) => {
+      const plain = row.get({ plain: true });
+      plain.schoolName = plain.School ? plain.School.name : null;
+      delete plain.School;
+      return plain;
     });
 
     res.send(getPagingData(data, page, limit));

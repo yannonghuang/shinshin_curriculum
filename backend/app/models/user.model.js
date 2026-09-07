@@ -48,12 +48,12 @@ module.exports = (sequelize, Sequelize) => {
       },
       // Only meaningful for 教师 -- enforced in auth.controller.js
       // (validateSchoolFields), not here; a role is a many-to-many relation,
-      // not something a Sequelize column validator can see.
+      // not something a Sequelize column validator can see. FK to
+      // schools(code) added at the DB level in
+      // 20260907120000-teacher-school-enforcement.js; school name is derived
+      // via the School association (see models/index.js), not stored here.
       schoolCode: {
         type: Sequelize.INTEGER,
-      },
-      schoolName: {
-        type: Sequelize.STRING(255),
       },
     },
     {

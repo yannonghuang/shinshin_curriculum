@@ -23,6 +23,15 @@ services:
   db:
     image: mysql:8.0
     logging: *default-logging
+    # Needed for 20260907120000-teacher-school-enforcement.js's two triggers
+    # (and any future ones): MySQL refuses CREATE TRIGGER/FUNCTION from a
+    # non-SUPER user while binary logging is on, unless the server trusts
+    # routine creators -- this only relaxes that replication-safety check,
+    # it doesn't grant the app's DB user any broader privilege. Not
+    # overridden in docker-compose.prod.yml, so it applies there too
+    # (Compose carries a scalar `command` through from the base file when an
+    # override file doesn't set its own).
+    command: --log-bin-trust-function-creators=1
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
       MYSQL_DATABASE: ${DB_NAME:-shinshin_curriculum}
