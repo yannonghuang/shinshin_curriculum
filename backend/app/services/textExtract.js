@@ -1,7 +1,5 @@
-const fs = require("fs");
 const mammoth = require("mammoth");
 const childProcess = require("child_process");
-const { PDFParse } = require("pdf-parse");
 
 // Shared text-extraction used by both review.controller.js's AI-review
 // prompt builder and the knowledge-base ingestion pipeline
@@ -41,44 +39,32 @@ const extractPptxText = (filePath) => {
   return [...xml.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]).join(" ").trim();
 };
 
-// Text layer only -- pdf-parse reads what's already encoded as text in the
-// PDF, same as every other extractor here; a scanned/image-only PDF still
-// yields "" (no OCR in this pipeline, same tier as 图片/视频). Load options
-// trim memory overhead pdfjs-dist otherwise spends on things a pure text
-// extraction never needs: no font-face/glyph rendering, no eval'd PDF
-// functions, no range/stream fetching (the whole file is already an in-memory
-// buffer) -- confirmed necessary in prod, where a 5-7MB real-world PDF ran
-// the backend container out of memory (V8 "Reached heap limit", an
-// uncatchable fatal abort -- see the container's mem_limit/NODE_OPTIONS in
-// docker-compose.prod.yml for the other half of this fix).
-//
-// PDF_EXTRACT_TIMEOUT_MS: a hedge against the prod host's real-world CPU
-// being far slower/more throttled than any local test can reproduce (the
-// same 5-7MB file that took 1.5s on a dev machine took 8-17s in a
-// CPU-constrained container test, and reportedly far longer -- and froze the
-// whole VM -- on the actual small/burstable-core ECS instance). Bails out
-// and falls back to "" (same as any other unextractable file) rather than
-// letting one upload tie up the request, and the CPU/mem_limit caps in
-// docker-compose.prod.yml, for however long real-world throttling stretches
-// it to.
-const PDF_EXTRACT_TIMEOUT_MS = 45000;
+// Text layer only -- no OCR in this pipeline, same tier as 图片/视频, so a
+// scanned/image-only PDF still yields "". Shells out to mutool (MuPDF,
+// installed via apk -- see Dockerfile*) rather than a JS PDF library: this
+// replaced an earlier pdf-parse (pdfjs-dist)-based implementation after a
+// real prod incident -- a 4.96MB image-heavy PDF took pdfjs-dist ~800MB RSS
+// and 8-17s to extract from, which triggered a host-wide kernel OOM-kill on
+// the small prod VM (global OOM, not even scoped to this container). The
+// identical file through mutool: ~48MB peak, ~0.2s, and more complete text
+// output besides -- a native, mature PDF interpreter is simply a better tool
+// for this than a from-scratch JS reimplementation. `timeout` is a hedge
+// against a truly pathological file well past anything seen in testing, not
+// a limit expected to bind in practice.
+const PDF_EXTRACT_TIMEOUT_MS = 20000;
 
-const extractPdfText = async (filePath) => {
-  const parser = new PDFParse({
-    data: fs.readFileSync(filePath),
-    disableFontFace: true,
-    isEvalSupported: false,
-    disableAutoFetch: true,
-    disableStream: true,
-  });
+const extractPdfText = (filePath) => {
   try {
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`PDF 提取超时（超过 ${PDF_EXTRACT_TIMEOUT_MS}ms）`)), PDF_EXTRACT_TIMEOUT_MS)
-    );
-    const result = await Promise.race([parser.getText(), timeout]);
-    return (result.text || "").trim();
-  } finally {
-    await parser.destroy();
+    return childProcess
+      .execFileSync("mutool", ["draw", "-q", "-F", "txt", "-o", "-", filePath], {
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: PDF_EXTRACT_TIMEOUT_MS,
+        maxBuffer: 50 * 1024 * 1024,
+      })
+      .toString("utf8")
+      .trim();
+  } catch (e) {
+    return ""; // not a real/parseable PDF, or timed out -- fall through to "no text extracted"
   }
 };
 

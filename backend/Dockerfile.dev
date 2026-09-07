@@ -5,7 +5,10 @@ FROM node:20-alpine
 # node:20-alpine ships unzip (busybox applet) but not zip -- needed by
 # artifact.controller.js's zip-download endpoints (downloadByPlan,
 # downloadSelection), which shell out to the `zip` binary via child_process.
-RUN apk add --no-cache zip
+# mupdf-tools provides `mutool`, used by textExtract.js for PDF text
+# extraction (native MuPDF -- far lighter than a JS PDF library; see that
+# file's header comment for why).
+RUN apk add --no-cache zip mupdf-tools
 
 WORKDIR /app
 

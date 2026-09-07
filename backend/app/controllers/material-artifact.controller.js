@@ -22,15 +22,16 @@ const knowledgeIngest = require("../services/knowledgeIngest");
 // (description + filename) rather than nothing at all.
 const KB_EXTRACTABLE_CATEGORIES = ["Word文档", "课件PPT"];
 
-// pdfjs-dist's memory footprint doesn't scale predictably with file size --
-// a real 4.96MB image-heavy report measured ~800MB RSS to extract text from,
-// which (combined with the rest of the stack already running) triggered a
-// host-wide kernel OOM kill on the small prod VM, not just a contained
-// per-container one. A size cap that skips full extraction above it, falling
-// back to the same metadata-only chunk 图片/视频 already get, is a hard
-// guarantee independent of whatever memory limits are tuned on the
-// container -- this class of file simply never attempts the expensive path.
-const PDF_MAX_EXTRACT_BYTES = 3 * 1024 * 1024;
+// Defense-in-depth backstop, not the primary safety mechanism anymore --
+// textExtract.js's PDF extraction now shells out to mutool (native MuPDF)
+// rather than a JS PDF library, after a real 4.96MB image-heavy report
+// measured ~800MB RSS / 8-17s through the old pdfjs-dist-based path and
+// triggered a host-wide kernel OOM-kill on the small prod VM; the identical
+// file through mutool is ~48MB peak / ~0.2s (see textExtract.js's header
+// comment). This cap just guards against a genuinely oversized/pathological
+// file still costing more than it should, falling back to the same
+// metadata-only chunk 图片/视频 already get rather than nothing at all.
+const PDF_MAX_EXTRACT_BYTES = 50 * 1024 * 1024;
 
 const artifactKnowledgeText = async (attachmentPath, type, category, description, filename) => {
   const metaFallback = () => `${description || ""}\n${filename}`.trim();
