@@ -96,7 +96,7 @@ async function getLatestMaterialActivity(topic) {
 // never blocks the material save that triggered it -- a missing/stale skill
 // card just means retrieval falls back to the raw chunks tier for that
 // topic, not a hard failure of the upload itself.
-async function regenerateSkillCard(materialTopicId) {
+async function regenerateSkillCardInner(materialTopicId) {
   try {
     const topic = await MaterialTopic.findByPk(materialTopicId);
     if (!topic) return;
@@ -169,6 +169,26 @@ async function regenerateSkillCard(materialTopicId) {
   } catch (e) {
     console.error("知识卡片生成失败（不影响材料本身的保存）:", e.message);
   }
+}
+
+// Per-topic queue, keyed by materialTopicId, holding the tail promise of
+// whatever regeneration is currently running/pending for that topic.
+// Without this, artifact ingestion running off the request path (see
+// material-artifact.controller.js) means two uploads landing close together
+// for the same topic can both read "no newer card yet" before either writes
+// back -- each firing its own LLM call and racing to upsert, wasting an API
+// call and leaving whichever happens to finish last as a coin-flip winner.
+// Chaining onto the topic's own tail promise instead means the second call
+// simply waits for the first to finish; its own incremental check inside
+// regenerateSkillCardInner then usually finds nothing left to do and returns
+// immediately, so correctness costs nothing extra in the common case.
+const skillCardQueues = new Map();
+
+function regenerateSkillCard(materialTopicId) {
+  const tail = (skillCardQueues.get(materialTopicId) || Promise.resolve()).catch(() => {});
+  const run = tail.then(() => regenerateSkillCardInner(materialTopicId));
+  skillCardQueues.set(materialTopicId, run.catch(() => {}));
+  return run;
 }
 
 module.exports = { ingestSource, deleteSourceChunks, regenerateSkillCard, splitIntoChunks };
