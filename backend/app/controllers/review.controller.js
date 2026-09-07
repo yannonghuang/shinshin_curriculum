@@ -60,16 +60,19 @@ exports.create = async (req, res) => {
   }
 };
 
+// Fixed across every AI-review scope (single lesson, whole design, or the
+// combined design+every-lesson scope below) -- only the user content varies.
+const AI_REVIEW_SYSTEM_PROMPT =
+  "你是乡土课程教学专家，请对以下课程设计/实施记录整体做点评，从目标达成、内容设计、可操作性、创新性等维度给出优点、不足和改进建议，用中文回复，200-500字。" +
+  "如果需要参考共享学习材料库中与该课程主题相关的资料（例如同主题的其他课程案例、专家讲解等）来支撑你的点评，可以调用 search_knowledge_base 工具查询；不需要参考资料时无需调用。";
+
 // Content-rendering itself lives in planContext.js (shared with the
 // co-pilot's own pageContext awareness, see chat.controller.js) -- this just
 // pairs it with the review-specific system prompt.
-const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => {
-  const systemPrompt =
-    "你是乡土课程教学专家，请对以下课程设计/实施记录整体做点评，从目标达成、内容设计、可操作性、创新性等维度给出优点、不足和改进建议，用中文回复，200-500字。" +
-    "如果需要参考共享学习材料库中与该课程主题相关的资料（例如同主题的其他课程案例、专家讲解等）来支撑你的点评，可以调用 search_knowledge_base 工具查询；不需要参考资料时无需调用。";
-  const userContent = await planContext.buildPlanContentText(plan, lessonIndex, artifacts);
-  return { systemPrompt, userContent };
-};
+const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => ({
+  systemPrompt: AI_REVIEW_SYSTEM_PROMPT,
+  userContent: await planContext.buildPlanContentText(plan, lessonIndex, artifacts),
+});
 
 // Trigger an AI review (POST /api/plans/:planId/reviews/ai). Runs
 // synchronously — a single DashScope call, no streaming needed for a
@@ -98,16 +101,27 @@ exports.createAiReview = async (req, res) => {
       return res.status(403).send({ message: "只能为本人创建的乡土课程设计请求 AI 点评。" });
     }
 
-    const lessonIndex = normalizeLessonIndex(req.body.lessonIndex);
+    // scope="implementation" is 实施/整体点评's AI review -- "on both
+    // sections" per the comment-scoping spec, i.e. combined design + every
+    // lesson's execution content, not just one lessonIndex (see
+    // planContext.js#buildWholePlanContentText). lessonIndex is meaningless
+    // in that case and ignored.
+    const isWholePlanScope = req.body.scope === "implementation";
+    const lessonIndex = isWholePlanScope ? null : normalizeLessonIndex(req.body.lessonIndex);
 
-    let artifacts = [];
-    if (lessonIndex) {
-      artifacts = await Artifact.findAll({ where: { planId, lessonIndex } });
-    } else if (!plan.planFormData) {
-      artifacts = await Artifact.findAll({ where: { planId, lessonIndex: null } });
+    const systemPrompt = AI_REVIEW_SYSTEM_PROMPT;
+    let userContent;
+    if (isWholePlanScope) {
+      userContent = await planContext.buildWholePlanContentText(plan);
+    } else {
+      let artifacts = [];
+      if (lessonIndex) {
+        artifacts = await Artifact.findAll({ where: { planId, lessonIndex } });
+      } else if (!plan.planFormData) {
+        artifacts = await Artifact.findAll({ where: { planId, lessonIndex: null } });
+      }
+      ({ userContent } = await buildAiReviewPrompt(plan, lessonIndex, artifacts));
     }
-
-    const { systemPrompt, userContent } = await buildAiReviewPrompt(plan, lessonIndex, artifacts);
 
     // Routed through the agent loop rather than a plain llmChat call so the
     // model can decide for itself whether this plan/lesson's content
@@ -133,7 +147,7 @@ exports.createAiReview = async (req, res) => {
       lessonIndex,
       reviewerType: "ai",
       reviewerId: null,
-      sectionKey: null,
+      sectionKey: isWholePlanScope ? "IMPLEMENTATION_OVERALL" : null,
       score: null,
       content: result.text,
       aiModel: result.model,

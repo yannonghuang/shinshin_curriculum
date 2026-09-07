@@ -88,4 +88,37 @@ async function generateDoc({ docTitle, meta, schema, answers, trailingChildren }
   return Packer.toBuffer(doc);
 }
 
-module.exports = { generateDoc, title, h1, h2, h3, p, plain, multiline, lessonOrdinal };
+// "第二部分：分课时设计" tail -- freeform per-课时 title+content, not part of
+// the field-template mechanism (see EMPTY_LESSON). Shared by
+// plan.controller.js#renderDoc (the downloadable doc) and
+// planContext.js#buildPlanContentText (AI-review/co-pilot content) so both
+// use the same lesson-count fallback and can't drift apart on how many
+// lessons they render.
+const buildLessonDesignTrailingChildren = (plan) => {
+  const lessons = Array.isArray(plan.planFormData && plan.planFormData.lessons) ? plan.planFormData.lessons : [];
+  const lessonCount = plan.plannedLessonCount || lessons.length || 0;
+  const children = [h1("第二部分：分课时设计")];
+  if (lessonCount > 0) {
+    for (let i = 1; i <= lessonCount; i += 1) {
+      const lesson = lessons.find((l) => Number(l.index) === i) || {};
+      children.push(h3(`第${lessonOrdinal(i)}课时：${lesson.title || ""}`));
+      children.push(...multiline(lesson.content));
+    }
+  } else {
+    children.push(plain(""));
+  }
+  return children;
+};
+
+module.exports = {
+  generateDoc,
+  title,
+  h1,
+  h2,
+  h3,
+  p,
+  plain,
+  multiline,
+  lessonOrdinal,
+  buildLessonDesignTrailingChildren,
+};

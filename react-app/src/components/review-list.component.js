@@ -20,24 +20,30 @@ import AuthService from "../services/auth.service";
 // unlike comments-list.component.js this renders plain client-sorted/grouped tables instead of
 // a server-paginated react-table -- the plan's REST contract does not paginate this endpoint.
 //
-// Three distinct usages, driven by the sectionKey/lessonIndex props:
-//  - A segment mini-widget (sectionKey="WHY"/"WHAT"/"HOW", lessonIndex unset): embedded at the
+// Two distinct usages, driven by the sectionKey prop (lessonIndex further
+// narrows either one to a single 课时):
+//  - A segment mini-widget (sectionKey set: "WHY"/"WHAT"/"HOW" for 设计's top-level segments,
+//    "LESSON_DESIGN" for 设计/分课时设计/课时N, "EXECUTION_RECORD" for 实施/课时N/实施记录 --
+//    the latter two always paired with a lessonIndex prop to pick which lesson): embedded at the
 //    end of that segment's own tab in plan-detail.component.js. No section picker -- the section
 //    is simply whichever tab the widget lives in, and its list is pre-filtered to that section's
-//    reviews. This used to be a single "整体点评" list with a manual "点评模块" dropdown the
-//    reviewer had to remember to set correctly; asking a reviewer to comment right where they're
-//    already reading that section, rather than context-switch to a dropdown, is both more
-//    accurate and more pleasant to use.
-//  - A lesson widget (lessonIndex set, no sectionKey): unchanged from before, just the section
-//    picker removed -- lessonIndex is already the review's whole scope, a WHY/WHAT/HOW section
-//    within a single 课时 never applied.
-//  - The whole-plan aggregate (neither prop set, i.e. 整体点评 itself): shows every plan-level
-//    review together -- both genuine whole-plan comments written here directly, and, read-only,
-//    every WHY/WHAT/HOW segment review (tagged in a "模块" column) so a reviewer looking at 整体
-//    点评 sees the complete picture without having to click into each tab. A segment-tagged row
-//    has no delete button here even for its own author -- it's edited/deleted at its origin (the
-//    segment's own mini-widget), never from the aggregate, so nothing you see on a section's own
-//    tab can vanish out from under it via an edit made somewhere else.
+//    reviews (server-side by lessonIndex when given, client-side by sectionKey always). This
+//    used to be a single "整体点评" list with a manual "点评模块" dropdown the reviewer had to
+//    remember to set correctly; asking a reviewer to comment right where they're already reading
+//    that section, rather than context-switch to a dropdown, is both more accurate and more
+//    pleasant to use.
+//  - An aggregate (sectionKey unset, i.e. 整体点评 itself -- 设计's own via aggregateScope="design"
+//    (the default) or 实施's via aggregateScope="implementation"): shows every review in that
+//    aggregate's scope together -- genuine whole-section comments (and AI reviews) written here
+//    directly, tagged null for 设计 / "IMPLEMENTATION_OVERALL" for 实施, plus, read-only, every
+//    segment review that falls under this aggregate's scope (tagged in a "模块" column) so a
+//    reviewer sees the complete picture without clicking into each tab. 设计's aggregate covers
+//    WHY/WHAT/HOW + LESSON_DESIGN; 实施's aggregate covers those PLUS EXECUTION_RECORD, since its
+//    AI review is generated over combined design+execution content ("both sections" per the
+//    comment-scoping spec). A segment-tagged row has no delete button here even for its own
+//    author -- it's edited/deleted at its origin (the segment's own mini-widget), never from the
+//    aggregate, so nothing you see on a section's own tab can vanish out from under it via an
+//    edit made somewhere else.
 const groupByVersion = (sortedReviews) => {
   const groups = [];
   const byKey = new Map();
@@ -60,13 +66,46 @@ const groupByVersion = (sortedReviews) => {
 // meant to be scannable.
 const CONTENT_PREVIEW_LENGTH = 150;
 
+// 设计's segment sectionKeys -- both aggregates show these; 实施's aggregate
+// additionally shows EXECUTION_RECORD (see the file header comment).
+const DESIGN_SEGMENT_KEYS = ["WHY", "WHAT", "HOW", "LESSON_DESIGN"];
+
+// sectionKey is an internal, code-shaped constant for LESSON_DESIGN/
+// EXECUTION_RECORD/IMPLEMENTATION_OVERALL (unlike WHY/WHAT/HOW, which already
+// read fine as-is) -- map those to a proper Chinese label instead of
+// surfacing the raw string in headerLabel/the 模块 column.
+const sectionLabel = (key, lessonIdx) => {
+  if (key === "LESSON_DESIGN") return `分课时设计·课时${lessonIdx}`;
+  if (key === "EXECUTION_RECORD") return `实施记录·课时${lessonIdx}`;
+  if (key === "IMPLEMENTATION_OVERALL") return "实施整体";
+  return key;
+};
+
 const ReviewList = (props) => {
-  const { planId, lessonIndex, sectionKey, embedded, planContentVersionAt, canTriggerAi, onSelectSection } = props;
+  const {
+    planId,
+    lessonIndex,
+    sectionKey,
+    aggregateScope,
+    embedded,
+    planContentVersionAt,
+    canTriggerAi,
+    onSelectSection,
+    aiPending,
+    setAiPending,
+  } = props;
   const [reviews, setReviews] = useState([]);
   const [text, setText] = useState("");
   const [score, setScore] = useState("");
   const [message, setMessage] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
+  // aiPending/setAiPending are optional: when the caller lifts this into
+  // state of its own (see plan-detail.component.js's two aggregate widgets),
+  // the "AI点评生成中..." state survives navigating away and back -- a
+  // request that outlives this component's own mount, unlike this local
+  // fallback, which resets whenever the widget remounts.
+  const [localAiLoading, setLocalAiLoading] = useState(false);
+  const aiLoading = aiPending !== undefined ? aiPending : localAiLoading;
+  const setAiLoading = setAiPending || setLocalAiLoading;
   const [expandedIds, setExpandedIds] = useState(new Set());
 
   const toggleExpanded = (id) => {
@@ -81,38 +120,58 @@ const ReviewList = (props) => {
   const isExpertReviewer = AuthService.isExpert() || AuthService.isAdmin();
   const currentUser = AuthService.getCurrentUser();
 
-  // The whole-plan 整体点评 usage: no fixed section, no lesson -- see the
-  // aggregate-view behavior described in the file header comment.
-  const isAggregateView = !sectionKey && (lessonIndex === undefined || lessonIndex === null);
+  // The aggregate 整体点评 usage: no fixed section -- see the aggregate-view
+  // behavior described in the file header comment. aggregateScope only
+  // matters here; segment mini-widgets always pass a sectionKey.
+  const isAggregateView = !sectionKey;
+  // The sectionKey an aggregate's own directly-written comments/AI review
+  // get tagged with (see review.model.js's sectionKey comment) -- null for
+  // 设计's aggregate (unchanged from before aggregateScope existed).
+  const writeSectionKey = aggregateScope === "implementation" ? "IMPLEMENTATION_OVERALL" : null;
 
   const retrieveReviews = useCallback(async () => {
     if (!planId) return;
     try {
       const resp = await ReviewDataService.getByPlan(planId, lessonIndex);
       const list = Array.isArray(resp.data) ? resp.data : resp.data.rows || resp.data.reviews || [];
-      // A segment mini-widget only ever shows its own section's reviews.
-      // The aggregate view passes no lessonIndex to getByPlan (null doesn't
-      // become a query param -- see review.service.js), so the fetch itself
-      // returns every review for the plan, lesson-scoped ones included;
-      // filter those back out here so 整体点评 only ever shows genuine
-      // whole-plan comments plus section reviews, tagged, matching the file
-      // header comment -- a 课时's own reviews stay on that 课时's own tab.
+      // A segment mini-widget only ever shows its own section's reviews (the
+      // lessonIndex prop, when set, already narrowed the fetch server-side).
+      // An aggregate fetches every review for the plan (no lessonIndex sent
+      // -- see review.service.js) and keeps: its own directly-written
+      // comments/AI review (tagged writeSectionKey, lessonIndex null), plus
+      // every segment review in its scope regardless of that segment's own
+      // lessonIndex -- 设计's aggregate scopes to DESIGN_SEGMENT_KEYS, 实施's
+      // additionally includes EXECUTION_RECORD and 计划's own AI review
+      // (sectionKey null, lessonIndex null, reviewerType "ai" -- 设计's
+      // aggregate's own AI-generated review) so a reviewer looking at
+      // 实施整体点评 also sees how the design itself was AI-reviewed.
       const scoped = sectionKey
         ? list.filter((r) => r.sectionKey === sectionKey)
-        : isAggregateView
-        ? list.filter((r) => r.lessonIndex === null || r.lessonIndex === undefined)
-        : list;
+        : list.filter(
+            (r) =>
+              (r.sectionKey === writeSectionKey && (r.lessonIndex === null || r.lessonIndex === undefined)) ||
+              DESIGN_SEGMENT_KEYS.includes(r.sectionKey) ||
+              (aggregateScope === "implementation" &&
+                (r.sectionKey === "EXECUTION_RECORD" ||
+                  (r.sectionKey == null && r.reviewerType === "ai" && (r.lessonIndex === null || r.lessonIndex === undefined))))
+          );
       const sorted = [...scoped].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setReviews(sorted);
     } catch (e) {
       console.log(e);
       setMessage("加载点评列表失败。");
     }
-  }, [planId, lessonIndex, sectionKey, isAggregateView]);
+  }, [planId, lessonIndex, sectionKey, aggregateScope, writeSectionKey]);
 
+  // Also reruns whenever aiLoading flips (in either direction) -- when
+  // aiPending is lifted to a parent that outlives this widget's own mount
+  // (see the aiPending/setAiPending comment above), a remount can pick up an
+  // AI review that finished while this widget was unmounted, and this makes
+  // sure the newly-generated row actually appears once aiLoading goes back
+  // to false instead of waiting for some unrelated re-render.
   useEffect(() => {
     retrieveReviews();
-  }, [retrieveReviews]);
+  }, [retrieveReviews, aiLoading]);
 
   const save = async (e) => {
     e.preventDefault();
@@ -126,10 +185,12 @@ const ReviewList = (props) => {
         lessonIndex: lessonIndex !== undefined && lessonIndex !== null ? lessonIndex : undefined,
       };
       if (isExpertReviewer) {
-        // sectionKey is a fixed prop, never reviewer-chosen -- omitted entirely
-        // for a lesson widget or a genuine whole-plan comment written directly
-        // in 整体点评.
+        // sectionKey is a fixed prop, never reviewer-chosen. A segment mini-widget
+        // tags with its own sectionKey; an aggregate tags with writeSectionKey
+        // (null for 设计, "IMPLEMENTATION_OVERALL" for 实施) so its own comments
+        // stay distinguishable from the segment reviews it also displays.
         if (sectionKey) data.sectionKey = sectionKey;
+        else if (writeSectionKey) data.sectionKey = writeSectionKey;
         if (score !== "") data.score = Number(score);
       }
       await ReviewDataService.create(planId, data);
@@ -148,6 +209,7 @@ const ReviewList = (props) => {
     try {
       const resp = await ReviewDataService.createAi(planId, {
         lessonIndex: lessonIndex !== undefined && lessonIndex !== null ? lessonIndex : undefined,
+        scope: aggregateScope === "implementation" ? "implementation" : undefined,
       });
       const model = resp && resp.data && resp.data.aiModel;
       setMessage(`AI 点评已生成${model ? `（${model}）` : ""}。`);
@@ -164,10 +226,33 @@ const ReviewList = (props) => {
   // plan's current content version -- once superseded by a later edit, it's
   // locked as history for everyone, admin included.
   const isCurrentVersion = (review) => review.planVersionAt === planContentVersionAt;
-  // A review with a sectionKey only ever got it from that section's own
-  // mini-widget -- shown here in the aggregate 整体点评 view for visibility,
-  // but not editable/deletable from here at all (see the file header comment).
-  const isSectionOrigin = (review) => isAggregateView && !!review.sectionKey;
+  // A review is "this aggregate's own" iff it's tagged with this aggregate's
+  // writeSectionKey and has no lessonIndex -- everything else shown in an
+  // aggregate (a segment review, or, in 实施's aggregate, 设计's own AI
+  // review) was written/generated elsewhere and is read-only here, never
+  // editable/deletable from this aggregate (see the file header comment).
+  const isOwnAggregateRow = (review) =>
+    review.sectionKey === writeSectionKey && (review.lessonIndex === null || review.lessonIndex === undefined);
+  const isSectionOrigin = (review) => isAggregateView && !isOwnAggregateRow(review);
+
+  // What the 模块 column shows for a row, and whether/where clicking it
+  // should navigate. A tagged segment row uses its own sectionKey as the
+  // navigation target; an untagged (sectionKey null) row is normally this
+  // aggregate's own genuine comment ("整体", not clickable) -- except inside
+  // 实施's aggregate, where writeSectionKey is "IMPLEMENTATION_OVERALL", so a
+  // null-sectionKey row there is never this aggregate's own -- it's always
+  // 设计's own AI review, borrowed for visibility (see the file header
+  // comment), so it's labeled distinctly and links back to 设计's aggregate.
+  const moduleCell = (review) => {
+    if (review.sectionKey) {
+      return { label: sectionLabel(review.sectionKey, review.lessonIndex), navKey: review.sectionKey, clickable: !isOwnAggregateRow(review) };
+    }
+    if (aggregateScope === "implementation") {
+      return { label: "设计整体", navKey: "DESIGN_OVERALL", clickable: true };
+    }
+    return { label: "整体", clickable: false };
+  };
+
   const canDelete = (review) =>
     !isSectionOrigin(review) &&
     isCurrentVersion(review) &&
@@ -184,7 +269,11 @@ const ReviewList = (props) => {
     }
   };
 
-  const headerLabel = sectionKey ? `点评（${sectionKey}）` : lessonIndex ? `点评（课时${lessonIndex}）` : "点评（整体）";
+  const headerLabel = sectionKey
+    ? `点评（${sectionLabel(sectionKey, lessonIndex)}）`
+    : aggregateScope === "implementation"
+    ? "点评（实施整体）"
+    : "点评（整体）";
 
   return (
     <div className={embedded ? "" : "pl-card"}>
@@ -218,7 +307,7 @@ const ReviewList = (props) => {
             className="form-control mb-2"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={sectionKey ? `请针对 ${sectionKey} 部分填写点评...` : "请填写点评内容..."}
+            placeholder={sectionKey ? `请针对 ${sectionLabel(sectionKey, lessonIndex)} 部分填写点评...` : "请填写点评内容..."}
           />
           <button className="btn btn-primary btn-sm" type="submit">
             提交点评
@@ -235,7 +324,10 @@ const ReviewList = (props) => {
         </form>
       )}
 
-      {message && <div className="alert alert-info py-2">{message}</div>}
+      {/* aiLoading takes priority over message: it's the one that must
+          survive a remount (see the aiPending/setAiPending comment above),
+          so it can't be baked into the local, mount-scoped message state. */}
+      {(aiLoading || message) && <div className="alert alert-info py-2">{aiLoading ? "AI点评生成中…" : message}</div>}
 
       {reviews.length === 0 && <div className="pl-empty">暂无点评</div>}
 
@@ -279,17 +371,21 @@ const ReviewList = (props) => {
                         <span className="pl-tag-expert">专家点评</span>
                       )}
                     </td>
-                    {isAggregateView && (
-                      <td>
-                        {review.sectionKey && onSelectSection ? (
-                          <button type="button" className="btn btn-link p-0" onClick={() => onSelectSection(review.sectionKey)}>
-                            {review.sectionKey}
-                          </button>
-                        ) : (
-                          review.sectionKey || "整体"
-                        )}
-                      </td>
-                    )}
+                    {isAggregateView &&
+                      (() => {
+                        const { label, navKey, clickable } = moduleCell(review);
+                        return (
+                          <td>
+                            {clickable && onSelectSection ? (
+                              <button type="button" className="btn btn-link p-0" onClick={() => onSelectSection(navKey, review.lessonIndex)}>
+                                {label}
+                              </button>
+                            ) : (
+                              label
+                            )}
+                          </td>
+                        );
+                      })()}
                     <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>
                     <td style={{ whiteSpace: "pre-wrap" }}>
                       {isLong && !isExpanded ? `${review.content.slice(0, CONTENT_PREVIEW_LENGTH)}...` : review.content}

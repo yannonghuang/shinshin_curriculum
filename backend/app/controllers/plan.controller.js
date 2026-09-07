@@ -608,20 +608,10 @@ exports.renderDoc = async (req, res) => {
 
     // "第二部分：分课时设计" is freeform per-课时 title+content (see
     // EMPTY_LESSON) -- not part of the field-template mechanism at all, so
-    // it's composed here as a hardcoded tail rather than driven by any
-    // schema, exactly like the old planDocGenerator.js used to.
-    const lessons = Array.isArray(plan.planFormData && plan.planFormData.lessons) ? plan.planFormData.lessons : [];
-    const lessonCount = plan.plannedLessonCount || lessons.length || 0;
-    const trailingChildren = [dynamicDocGenerator.h1("第二部分：分课时设计")];
-    if (lessonCount > 0) {
-      for (let i = 1; i <= lessonCount; i += 1) {
-        const lesson = lessons.find((l) => Number(l.index) === i) || {};
-        trailingChildren.push(dynamicDocGenerator.h3(`第${dynamicDocGenerator.lessonOrdinal(i)}课时：${lesson.title || ""}`));
-        trailingChildren.push(...dynamicDocGenerator.multiline(lesson.content));
-      }
-    } else {
-      trailingChildren.push(dynamicDocGenerator.plain(""));
-    }
+    // it's composed by a hardcoded tail rather than driven by any schema
+    // (see dynamicDocGenerator.js#buildLessonDesignTrailingChildren, shared
+    // with planContext.js's AI-review content).
+    const trailingChildren = dynamicDocGenerator.buildLessonDesignTrailingChildren(plan);
 
     const buffer = await dynamicDocGenerator.generateDoc({
       docTitle: "乡土课程设计方案",
