@@ -238,14 +238,31 @@ exports.create = async (req, res) => {
         attachmentMime: file.mimetype,
         attachmentSize: file.size,
       });
-      const text = await artifactKnowledgeText(attachmentPath, type, category, description, file.originalname);
-      await knowledgeIngest.ingestSource({
-        sourceType: "material_artifact",
-        sourceId: created.id,
-        materialTopicId: topicId,
-        text,
-      });
       return created;
+    };
+
+    // Extraction (especially a real-world PDF -- see textExtract.js, and the
+    // prod incident that motivated its timeout/memory guards) is the one
+    // part of this request that can run long and CPU-heavy. Deliberately not
+    // awaited before responding: the file is already safely saved by this
+    // point, so an upload should never appear to hang on it, and other
+    // requests shouldn't sit blocked behind this container's event loop
+    // while it runs. Swallows its own errors -- same best-effort contract
+    // knowledgeIngest itself already has -- since there's no response left
+    // to report a failure on; it just means this file's content isn't
+    // searchable yet.
+    const ingestOne = async (created, file) => {
+      try {
+        const text = await artifactKnowledgeText(created.attachmentPath, created.type, category, description, file.originalname);
+        await knowledgeIngest.ingestSource({
+          sourceType: "material_artifact",
+          sourceId: created.id,
+          materialTopicId: topicId,
+          text,
+        });
+      } catch (e) {
+        console.error("附件知识库摄取失败（不影响附件本身的保存）:", e.message);
+      }
     };
 
     // Single-file upload (field name "file") keeps the single-object response
@@ -254,16 +271,23 @@ exports.create = async (req, res) => {
     // an N-file drop shouldn't trigger N redundant LLM summarization calls.
     if (singleFile) {
       const data = await createOne(singleFile);
-      await knowledgeIngest.regenerateSkillCard(topicId);
-      return res.send(data);
+      res.send(data);
+      ingestOne(data, singleFile).then(() => knowledgeIngest.regenerateSkillCard(topicId));
+      return;
     }
 
     const created = [];
     for (const file of multiFiles) {
       created.push(await createOne(file));
     }
-    await knowledgeIngest.regenerateSkillCard(topicId);
-    return res.send(created);
+    res.send(created);
+    (async () => {
+      for (let i = 0; i < created.length; i++) {
+        await ingestOne(created[i], multiFiles[i]);
+      }
+      await knowledgeIngest.regenerateSkillCard(topicId);
+    })();
+    return;
   } catch (err) {
     return res.status(500).send({
       message: err.message || "创建附件时发生错误。",
@@ -808,16 +832,25 @@ exports.update = async (req, res) => {
 
     const finalPath = payload.attachmentPath || oldPath;
     const finalName = payload.attachmentName || artifact.attachmentName;
-    const text = await artifactKnowledgeText(finalPath, payload.type, payload.category, payload.description, finalName);
-    await knowledgeIngest.ingestSource({
-      sourceType: "material_artifact",
-      sourceId: artifact.id,
-      materialTopicId: artifact.materialTopicId,
-      text,
-    });
-    await knowledgeIngest.regenerateSkillCard(artifact.materialTopicId);
+    res.send({ message: "附件更新成功。" });
 
-    return res.send({ message: "附件更新成功。" });
+    // See the create handler's ingestOne comment -- same reasoning, not
+    // awaited before responding.
+    (async () => {
+      try {
+        const text = await artifactKnowledgeText(finalPath, payload.type, payload.category, payload.description, finalName);
+        await knowledgeIngest.ingestSource({
+          sourceType: "material_artifact",
+          sourceId: artifact.id,
+          materialTopicId: artifact.materialTopicId,
+          text,
+        });
+        await knowledgeIngest.regenerateSkillCard(artifact.materialTopicId);
+      } catch (e) {
+        console.error("附件知识库摄取失败（不影响附件本身的更新）:", e.message);
+      }
+    })();
+    return;
   } catch (err) {
     return res.status(500).send({
       message: err.message || `更新附件 id=${req.params.id} 时发生错误。`,

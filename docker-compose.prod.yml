@@ -89,6 +89,17 @@ services:
     # 1 core guarantees the other core stays available for sshd/dockerd/db
     # regardless of how hard a single extraction runs.
     cpus: "1"
+    # cpu_shares: a ceiling isn't the same as priority -- under contention
+    # for whatever CPU the VM actually gets (relevant if throttling happens
+    # above the guest, at the hypervisor level, where cpus: "1" can't reach),
+    # Docker's systemd cgroup driver puts this container's scope as a sibling
+    # of sshd.service/etc. under system.slice; the default share (1024) means
+    # it competes with them on equal footing. Dropping it to 256 -- roughly a
+    # quarter -- means the Linux scheduler favors sshd/dockerd/db first
+    # whenever CPU is actually contended, so a PDF extraction runs slower
+    # under load rather than starving the processes needed to even reach the
+    # box. Only matters when the CPU is saturated; free cycles are unaffected.
+    cpu_shares: 256
     environment:
       NODE_OPTIONS: --max-old-space-size=768
 
