@@ -34,6 +34,7 @@ db.sequelize = sequelize;
 db.QueryTypes = QueryTypes;
 
 db.role = require("./role.model.js")(sequelize, Sequelize);
+db.school = require("./school.model.js")(sequelize, Sequelize);
 db.user = require("./user.model.js")(sequelize, Sequelize);
 db.plan = require("./plan.model.js")(sequelize, Sequelize);
 db.artifact = require("./artifact.model.js")(sequelize, Sequelize);
@@ -68,6 +69,16 @@ db.user.belongsToMany(db.role, {
   through: UserRole,
   foreignKey: { name: "userId", field: "user_id" },
   otherKey: { name: "roleId", field: "role_id" },
+});
+
+// teacher (user) -> school (schools.code). Every teacher must have one --
+// enforced in auth.controller.js's validateSchoolFields plus the DB-level
+// triggers added in 20260907120000-teacher-school-enforcement.js; admin/
+// expert users stay NULL.
+db.user.belongsTo(db.school, {
+  foreignKey: "schoolCode",
+  targetKey: "code",
+  as: "School",
 });
 
 // teacher (user) -> plans
@@ -286,7 +297,9 @@ db.chatMessage.belongsTo(db.chatConversation, {
 });
 
 // Roles are exactly admin/teacher/expert — this app has no
-// volunteer/moderator/school/donor domain (see plan's "left behind" list).
+// volunteer/moderator/donor domain (see plan's "left behind" list). A real
+// `School` model does exist (db.school, above), but narrowly for teacher
+// school-affiliation -- not a general school-management domain.
 db.ROLES2 = ["admin", "teacher", "expert"];
 
 db.ROLES = [

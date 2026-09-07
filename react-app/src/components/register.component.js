@@ -147,6 +147,13 @@ export default class Register extends Component {
 
     this.form.validateAll();
 
+    // react-select's Select isn't a react-validation Input, so it's not
+    // covered by validateAll() above -- checked separately.
+    if (!this.state.school) {
+      this.setState({ successful: false, message: "请选择所在学校。" });
+      return;
+    }
+
     if (this.checkBtn.context._errors.length === 0) {
       AuthService.signup({
         username: this.state.username,
@@ -154,8 +161,7 @@ export default class Register extends Component {
         password: this.state.password,
         roles: ["teacher"],
         chineseName: this.state.chineseName,
-        schoolCode: this.state.school ? this.state.school.value : undefined,
-        schoolName: this.state.school ? this.state.school.label : undefined,
+        schoolCode: this.state.school.value,
       }).then(
         () => {
           this.emailVerification();
@@ -255,13 +261,14 @@ export default class Register extends Component {
               </div>
 
               <div className="form-group">
-                <label htmlFor="school">所在学校（可选）</label>
+                <label htmlFor="school">
+                  所在学校<span className="required">*</span>
+                </label>
                 <Select
                   inputId="school"
                   options={schoolOptions}
                   value={this.state.school}
                   onChange={this.onChangeSchool}
-                  isClearable
                   placeholder="搜索并选择学校..."
                 />
               </div>

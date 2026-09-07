@@ -4,13 +4,15 @@ import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
 import "../curriculum.css";
 
-// Manager/expert plan browser: a 2-level 年份-学期 -> 教师 navigation tree
-// (plans-list.component.js renders this in place of its own flat search/
-// paginate/grid whenever isManagerOrExpertView is true), styled after
+// Manager/expert plan browser: a 3-level 年份-学期 -> 学校 -> 教师 navigation
+// tree (plans-list.component.js renders this in place of its own flat
+// search/paginate/grid whenever isManagerOrExpertView is true), styled after
 // plan-detail.component.js's own file-explorer split view (.pl-explorer-*)
 // for visual consistency with the single-plan page -- same folder/leaf/
-// chevron language, just one level deeper (年份-学期 group -> 教师 leaf,
-// rather than 计划/实施 group -> section leaf).
+// chevron language. The 学校 layer reuses the .pl-explorer-subgroup /
+// .pl-explorer-folder.pl-explorer-subfolder / .pl-explorer-children-nested
+// classes already used for a second nesting level in
+// materials-library.component.js.
 //
 // Unlike the flat view, this fetches every visible plan in one go (up to
 // PAGE_SIZE) and builds the tree client-side -- there's no natural way to
@@ -22,30 +24,52 @@ const PAGE_SIZE = 1000;
 
 const seasonRank = (season) => (season === "秋季" ? 2 : season === "春季" ? 1 : 0);
 
-// Groups a flat plan list into { key, year, season, teacherList: [{ teacherId,
-// teacherName, plans }] }, sorted most-recent-学期 first, teachers
-// alphabetically. season/teacher are read straight off each plan (season may
-// be null for plans predating this field -- bucketed under "未设置学期" rather
-// than guessed).
+// Plans whose teacher has no school on file (legacy data predating the
+// school-required enforcement) are bucketed here rather than hidden.
+const UNASSIGNED_SCHOOL_KEY = "__unassigned__";
+const UNASSIGNED_SCHOOL_NAME = "未分配学校";
+
+// Groups a flat plan list into { key, year, season, schoolList: [{ schoolKey,
+// schoolName, teacherList: [{ teacherId, teacherName, plans }] }] }, sorted
+// most-recent-学期 first, schools alphabetically (unassigned last), teachers
+// alphabetically. season/teacher/school are read straight off each plan
+// (season may be null for plans predating that field -- bucketed under
+// "未设置学期" rather than guessed).
 const buildHierarchy = (plans) => {
   const groups = new Map();
   for (const plan of plans) {
     const season = plan.season || null;
     const key = `${plan.year}|${season || ""}`;
-    if (!groups.has(key)) groups.set(key, { key, year: plan.year, season, teachers: new Map() });
+    if (!groups.has(key)) groups.set(key, { key, year: plan.year, season, schools: new Map() });
     const group = groups.get(key);
-    const teacherId = plan.teacherId;
-    if (!group.teachers.has(teacherId)) {
-      const teacherName = (plan.Teacher && (plan.Teacher.chineseName || plan.Teacher.username)) || `教师 #${teacherId}`;
-      group.teachers.set(teacherId, { teacherId, teacherName, plans: [] });
+
+    const school = plan.Teacher && plan.Teacher.School;
+    const schoolKey = school ? String(school.code) : UNASSIGNED_SCHOOL_KEY;
+    if (!group.schools.has(schoolKey)) {
+      const schoolName = school ? school.name : UNASSIGNED_SCHOOL_NAME;
+      group.schools.set(schoolKey, { schoolKey, schoolName, teachers: new Map() });
     }
-    group.teachers.get(teacherId).plans.push(plan);
+    const schoolGroup = group.schools.get(schoolKey);
+
+    const teacherId = plan.teacherId;
+    if (!schoolGroup.teachers.has(teacherId)) {
+      const teacherName = (plan.Teacher && (plan.Teacher.chineseName || plan.Teacher.username)) || `教师 #${teacherId}`;
+      schoolGroup.teachers.set(teacherId, { teacherId, teacherName, plans: [] });
+    }
+    schoolGroup.teachers.get(teacherId).plans.push(plan);
   }
 
   const groupList = Array.from(groups.values());
   groupList.sort((a, b) => (a.year !== b.year ? b.year - a.year : seasonRank(b.season) - seasonRank(a.season)));
   for (const g of groupList) {
-    g.teacherList = Array.from(g.teachers.values()).sort((a, b) => a.teacherName.localeCompare(b.teacherName, "zh"));
+    g.schoolList = Array.from(g.schools.values()).sort((a, b) => {
+      if (a.schoolKey === UNASSIGNED_SCHOOL_KEY) return 1;
+      if (b.schoolKey === UNASSIGNED_SCHOOL_KEY) return -1;
+      return a.schoolName.localeCompare(b.schoolName, "zh");
+    });
+    for (const s of g.schoolList) {
+      s.teacherList = Array.from(s.teachers.values()).sort((a, b) => a.teacherName.localeCompare(b.teacherName, "zh"));
+    }
   }
   return groupList;
 };
@@ -55,7 +79,11 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
   const [message, setMessage] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
-  const [selected, setSelected] = useState(null); // { groupKey, teacherId }
+  // Keyed by `${groupKey}|${schoolKey}` -- a school can appear under
+  // multiple year/season groups, so its expand state must be scoped per
+  // group, not global.
+  const [expandedSchools, setExpandedSchools] = useState({});
+  const [selected, setSelected] = useState(null); // { groupKey, schoolKey, teacherId }
 
   const retrieveAll = useCallback(async () => {
     try {
@@ -78,40 +106,59 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
 
   const groups = useMemo(() => buildHierarchy(plans), [plans]);
 
-  // Auto-expand and select the most recent 年份-学期 group's first teacher on
-  // first load (and whenever the previously-selected group/teacher no longer
-  // exists, e.g. after a delete) -- an empty right panel on first load would
-  // just be a dead end the user has to know to click past.
+  // Auto-expand and select the most recent 年份-学期 group's first school's
+  // first teacher on first load (and whenever the previously-selected
+  // group/school/teacher no longer exists, e.g. after a delete) -- an empty
+  // right panel on first load would just be a dead end the user has to know
+  // to click past.
   useEffect(() => {
     if (groups.length === 0) {
       setSelected(null);
       return;
     }
     const stillValid =
-      selected && groups.some((g) => g.key === selected.groupKey && g.teacherList.some((t) => t.teacherId === selected.teacherId));
+      selected &&
+      groups.some((g) => {
+        if (g.key !== selected.groupKey) return false;
+        const s = g.schoolList.find((s) => s.schoolKey === selected.schoolKey);
+        return s && s.teacherList.some((t) => t.teacherId === selected.teacherId);
+      });
     if (stillValid) return;
 
     const firstGroup = groups[0];
     setExpandedGroups((prev) => ({ ...prev, [firstGroup.key]: true }));
-    if (firstGroup.teacherList.length > 0) {
-      setSelected({ groupKey: firstGroup.key, teacherId: firstGroup.teacherList[0].teacherId });
+    const firstSchool = firstGroup.schoolList[0];
+    if (firstSchool) {
+      setExpandedSchools((prev) => ({ ...prev, [`${firstGroup.key}|${firstSchool.schoolKey}`]: true }));
+    }
+    if (firstSchool && firstSchool.teacherList.length > 0) {
+      setSelected({ groupKey: firstGroup.key, schoolKey: firstSchool.schoolKey, teacherId: firstSchool.teacherList[0].teacherId });
     } else {
       setSelected(null);
     }
     // Only re-run when the set of groups actually changes shape (plans
-    // reloaded) -- not on every `selected`/`expandedGroups` update, which
-    // this effect itself causes.
+    // reloaded) -- not on every `selected`/`expandedGroups`/`expandedSchools`
+    // update, which this effect itself causes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups]);
 
   const toggleGroup = (key) => {
     setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
-    // Closing a group hides its teacher leaves, so a plan selected from
-    // that group would otherwise keep showing on the right with no
+    // Closing a group hides its school/teacher leaves, so a plan selected
+    // from that group would otherwise keep showing on the right with no
     // corresponding visible/expanded entry in the nav -- clear it.
     setSelected((prev) => (prev && prev.groupKey === key && expandedGroups[key] ? null : prev));
   };
-  const selectTeacher = (groupKey, teacherId) => setSelected({ groupKey, teacherId });
+  const toggleSchool = (groupKey, schoolKey) => {
+    const expandKey = `${groupKey}|${schoolKey}`;
+    setExpandedSchools((prev) => ({ ...prev, [expandKey]: !prev[expandKey] }));
+    // Same "closing hides the selection's home, so clear it" logic as
+    // toggleGroup above, one level deeper.
+    setSelected((prev) =>
+      prev && prev.groupKey === groupKey && prev.schoolKey === schoolKey && expandedSchools[expandKey] ? null : prev
+    );
+  };
+  const selectTeacher = (groupKey, schoolKey, teacherId) => setSelected({ groupKey, schoolKey, teacherId });
 
   const currentUserId = () => {
     const user = AuthService.getCurrentUser();
@@ -155,7 +202,8 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
   };
 
   const selectedGroup = selected ? groups.find((g) => g.key === selected.groupKey) : null;
-  const selectedTeacher = selectedGroup ? selectedGroup.teacherList.find((t) => t.teacherId === selected.teacherId) : null;
+  const selectedSchool = selectedGroup ? selectedGroup.schoolList.find((s) => s.schoolKey === selected.schoolKey) : null;
+  const selectedTeacher = selectedSchool ? selectedSchool.teacherList.find((t) => t.teacherId === selected.teacherId) : null;
 
   return (
     <div className="pl-explorer">
@@ -179,18 +227,42 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
               </button>
               {expandedGroups[g.key] && (
                 <div className="pl-explorer-children">
-                  {g.teacherList.map((t) => (
-                    <button
-                      key={t.teacherId}
-                      type="button"
-                      className={`pl-explorer-leaf ${
-                        selected && selected.groupKey === g.key && selected.teacherId === t.teacherId ? "is-active" : ""
-                      }`}
-                      onClick={() => selectTeacher(g.key, t.teacherId)}
-                    >
-                      {t.teacherName}（{t.plans.length}）
-                    </button>
-                  ))}
+                  {g.schoolList.map((s) => {
+                    const schoolExpandKey = `${g.key}|${s.schoolKey}`;
+                    return (
+                      <div className="pl-explorer-subgroup" key={s.schoolKey}>
+                        <button
+                          type="button"
+                          className="pl-explorer-folder pl-explorer-subfolder"
+                          onClick={() => toggleSchool(g.key, s.schoolKey)}
+                        >
+                          <i className={`fas fa-chevron-${expandedSchools[schoolExpandKey] ? "down" : "right"} pl-explorer-chevron`}></i>
+                          <i className="fas fa-school mr-1"></i> {s.schoolName}
+                        </button>
+                        {expandedSchools[schoolExpandKey] && (
+                          <div className="pl-explorer-children pl-explorer-children-nested">
+                            {s.teacherList.map((t) => (
+                              <button
+                                key={t.teacherId}
+                                type="button"
+                                className={`pl-explorer-leaf ${
+                                  selected &&
+                                  selected.groupKey === g.key &&
+                                  selected.schoolKey === s.schoolKey &&
+                                  selected.teacherId === t.teacherId
+                                    ? "is-active"
+                                    : ""
+                                }`}
+                                onClick={() => selectTeacher(g.key, s.schoolKey, t.teacherId)}
+                              >
+                                {t.teacherName}（{t.plans.length}）
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

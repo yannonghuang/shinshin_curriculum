@@ -120,8 +120,11 @@ const AdminUsersList = () => {
       setMessage("请至少选择一个角色。");
       return;
     }
+    if (form.roles.includes("teacher") && !form.school) {
+      setMessage("教师角色必须选择所在学校。");
+      return;
+    }
     const schoolCode = form.roles.includes("teacher") && form.school ? form.school.value : null;
-    const schoolName = form.roles.includes("teacher") && form.school ? form.school.label : null;
     try {
       if (editingId) {
         const payload = {
@@ -131,7 +134,6 @@ const AdminUsersList = () => {
           phone: form.phone,
           roles: form.roles,
           schoolCode,
-          schoolName,
           emailVerified: form.emailVerified,
         };
         if (form.password) payload.password = form.password;
@@ -146,7 +148,6 @@ const AdminUsersList = () => {
           password: form.password,
           roles: form.roles,
           schoolCode: schoolCode || undefined,
-          schoolName: schoolName || undefined,
         });
         setMessage("用户创建成功。");
       }
@@ -427,12 +428,13 @@ const AdminUsersList = () => {
               </div>
               {form.roles.includes("teacher") && (
                 <div className="form-group">
-                  <label>所在学校（可选）</label>
+                  <label>
+                    所在学校<span className="required">*</span>
+                  </label>
                   <Select
                     options={schoolOptions}
                     value={form.school}
                     onChange={(option) => setForm((prev) => ({ ...prev, school: option }))}
-                    isClearable
                     placeholder="搜索并选择学校..."
                   />
                 </div>

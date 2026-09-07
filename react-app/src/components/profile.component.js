@@ -88,6 +88,11 @@ const Profile = () => {
       return;
     }
 
+    if (isTeacher && !school) {
+      setMessage("请先选择所在学校。");
+      return;
+    }
+
     const payload = {
       username: form.username,
       chineseName: form.chineseName,
@@ -96,8 +101,7 @@ const Profile = () => {
     };
     if (form.password) payload.password = form.password;
     if (isTeacher) {
-      payload.schoolCode = school ? school.value : null;
-      payload.schoolName = school ? school.label : null;
+      payload.schoolCode = school.value;
     }
 
     try {
@@ -158,14 +162,10 @@ const Profile = () => {
 
             {isTeacher && (
               <div className="form-group">
-                <label>所在学校</label>
-                <Select
-                  options={schoolOptions}
-                  value={school}
-                  onChange={setSchool}
-                  isClearable
-                  placeholder="搜索并选择学校..."
-                />
+                <label>
+                  所在学校<span className="required">*</span>
+                </label>
+                <Select options={schoolOptions} value={school} onChange={setSchool} placeholder="搜索并选择学校..." />
               </div>
             )}
 

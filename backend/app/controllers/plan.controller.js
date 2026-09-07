@@ -236,7 +236,14 @@ exports.findAll = async (req, res) => {
 
     const data = await Plan.findAndCountAll({
       where: condition,
-      include: [{ model: User, as: "Teacher", attributes: ["id", "username", "chineseName"] }],
+      include: [
+        {
+          model: User,
+          as: "Teacher",
+          attributes: ["id", "username", "chineseName"],
+          include: [{ model: db.school, as: "School", attributes: ["code", "name"], required: false }],
+        },
+      ],
       distinct: true,
       limit,
       offset,
@@ -255,7 +262,12 @@ exports.findOne = async (req, res) => {
   try {
     const data = await Plan.findByPk(req.params.id, {
       include: [
-        { model: User, as: "Teacher", attributes: ["id", "username", "chineseName"] },
+        {
+          model: User,
+          as: "Teacher",
+          attributes: ["id", "username", "chineseName"],
+          include: [{ model: db.school, as: "School", attributes: ["code", "name"], required: false }],
+        },
         // The schema each form/doc renders from -- resolved here so the
         // frontend gets it in the same request that loads the plan, rather
         // than a second round-trip. Whole row (small JSON blob) is fine to
