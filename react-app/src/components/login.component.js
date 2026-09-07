@@ -227,7 +227,7 @@ export default class Login extends Component {
           </div>
           <h2 className="auth-title">{isReset ? "重置密码" : "欢迎回来"}</h2>
           <p className="auth-subtitle">
-            {isReset ? "请提供您的注册邮箱，我们将发送重置链接" : "乡土课程项目实施与案例分享系统"}
+            {isReset ? "请提供您的注册邮箱，我们将发送重置链接" : "乡土智课系统"}
           </p>
 
           <Form

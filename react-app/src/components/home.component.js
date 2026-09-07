@@ -15,9 +15,9 @@ const Home = () => {
   return (
     <div className="container pl-page">
       <div className="pl-hero">
-        <h4 className="pl-title">乡土课程项目实施与案例分享系统</h4>
+        <h4 className="pl-title">乡土智课系统</h4>
         <p className="pl-subtitle">
-          教师撰写、实施并分享乡土课程；专家与AI智能体协同点评；管理员维护共享学习材料库与优秀案例展示。
+          教师撰写、实施并分享乡土课程；专家与AI智能体协同点评；管理员维护学习资源库与优秀案例库。
         </p>
       </div>
 
@@ -58,16 +58,16 @@ const Home = () => {
         )}
         <div className="col-md-4">
           <div className="pl-card">
-            <h6>共享学习材料库</h6>
+            <h6>学习资源库</h6>
             <p className="text-muted">浏览讲座材料、培训视频等，可按乡土主题与年级筛选。</p>
             <Link className="btn btn-outline-primary btn-sm" to="/materials">
-              浏览学习材料库
+              浏览学习资源库
             </Link>
           </div>
         </div>
         <div className="col-md-4">
           <div className="pl-card">
-            <h6>优秀案例展示</h6>
+            <h6>优秀案例库</h6>
             <p className="text-muted">无需登录即可浏览的优秀乡土课程案例展示墙。</p>
             <Link className="btn btn-outline-primary btn-sm" to="/gallery">
               查看优秀案例

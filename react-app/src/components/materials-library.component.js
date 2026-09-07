@@ -8,7 +8,7 @@ import AuthService from "../services/auth.service";
 import LessonFileManager from "./lesson-file-manager.component";
 import "../curriculum.css";
 
-// 共享学习材料库 -- a Year -> Theme(主题/Event) tree, laid out like
+// 学习资源库 -- a Year -> Theme(主题/Event) tree, laid out like
 // plan-detail.component.js's own explorer (left nav tree, right content
 // pane). Purely admin-curated (unlike Plan's teacher ownership): admins
 // create/edit/delete every Theme and its contents, teachers/experts only
@@ -65,7 +65,7 @@ const MaterialsLibrary = () => {
       setTopics(Array.isArray(resp.data) ? resp.data : []);
     } catch (e) {
       console.log(e);
-      setMessage("加载共享学习材料库失败。");
+      setMessage("加载学习资源库失败。");
     } finally {
       setIsLoading(false);
     }
@@ -625,7 +625,7 @@ const MaterialsLibrary = () => {
   return (
     <div className="container pl-page">
       <div className="pl-hero">
-        <h4 className="pl-title">共享学习材料库</h4>
+        <h4 className="pl-title">学习资源库</h4>
       </div>
 
       <div className="pl-explorer">
@@ -743,7 +743,7 @@ const MaterialsLibrary = () => {
               <div className="pl-explorer-group" key={year}>
                 <button type="button" className="pl-explorer-folder" onClick={() => toggleYear(year)}>
                   <i className={`fas fa-chevron-${expandedYears[year] ? "down" : "right"} pl-explorer-chevron`}></i>
-                  <i className="fas fa-folder-open mr-1"></i> {year}
+                  <i className="fas fa-folder-open pl-folder-icon mr-1"></i> {year}
                 </button>
                 {expandedYears[year] && (
                   <div className="pl-explorer-children">

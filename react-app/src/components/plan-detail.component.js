@@ -1198,7 +1198,7 @@ const PlanDetail = (props) => {
                 }}
               >
                 <i className={`fas fa-chevron-${expandedGroups.plan ? "down" : "right"} pl-explorer-chevron`}></i>
-                <i className="fas fa-folder-open mr-1"></i> 计划
+                <i className="fas fa-folder-open pl-folder-icon mr-1"></i> 计划
               </button>
               {expandedGroups.plan && (
                 <div className="pl-explorer-children">
@@ -1286,7 +1286,7 @@ const PlanDetail = (props) => {
                 }}
               >
                 <i className={`fas fa-chevron-${expandedGroups.execution ? "down" : "right"} pl-explorer-chevron`}></i>
-                <i className="fas fa-folder-open mr-1"></i> 实施
+                <i className="fas fa-folder-open pl-folder-icon mr-1"></i> 实施
               </button>
               {expandedGroups.execution && (
                 <div className="pl-explorer-children">
