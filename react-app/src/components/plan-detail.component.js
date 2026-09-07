@@ -473,7 +473,7 @@ const PLAN_STATUS_LABELS = Object.fromEntries(PLAN_STATUSES.map((s) => [s.value,
 const PLAN_SECTIONS = [
   { key: "basic", label: "基本信息" },
   { key: "files", label: "课程设计文件" },
-  { key: "reviews", label: "整体点评" },
+  { key: "reviews", label: "计划整体点评" },
 ];
 
 const PlanDetail = (props) => {
@@ -516,6 +516,14 @@ const PlanDetail = (props) => {
   // looked at it.
   const [expandedGroups, setExpandedGroups] = useState({ plan: true, execution: true, planLessons: false });
   const [selected, setSelected] = useState({ type: "plan", key: "basic" });
+  // Lifted up from the two 整体点评 ReviewList widgets (design/implementation)
+  // rather than left as their own local state -- switching sidebar tabs
+  // unmounts/remounts those widgets, and an AI review request is a single
+  // synchronous call that can keep running well after that; keeping the
+  // "still generating" flag here, on a component that stays mounted for the
+  // whole page, means "AI点评生成中..." survives clicking away and back
+  // (see review-list.component.js's aiPending/setAiPending props).
+  const [aiReviewPending, setAiReviewPending] = useState({ design: false, implementation: false });
 
   const toggleGroup = (name) => setExpandedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
   const select = (type, key) => setSelected({ type, key });
@@ -917,19 +925,24 @@ const PlanDetail = (props) => {
     if (selected.type === "plan" && selected.key === "reviews") {
       return (
         <div className="pl-card">
-          <h6>整体点评</h6>
+          <h6>计划整体点评</h6>
           <ReviewList
             planId={planId}
             lessonIndex={null}
             embedded
             planContentVersionAt={plan.contentVersionAt}
             canTriggerAi={canEditPlan}
+            aiPending={aiReviewPending.design}
+            setAiPending={(v) => setAiReviewPending((prev) => ({ ...prev, design: v }))}
             // Lets the aggregate view's 模块 column jump straight to that
-            // section's own tab -- sectionKey is stored upper-cased (see the
-            // "planSection" branch's own ReviewList, which passes
-            // section.key.toUpperCase()), so this reverses that to match a
-            // schema section's actual key.
-            onSelectSection={(key) => select("planSection", key.toLowerCase())}
+            // section's own tab. "LESSON_DESIGN" rows carry their lessonIndex
+            // and route to that lesson's own tab; everything else is a
+            // schema section key stored upper-cased (see the "planSection"
+            // branch's own ReviewList, which passes section.key.toUpperCase()),
+            // so this reverses that to match the schema's actual key.
+            onSelectSection={(key, lessonIdx) =>
+              key === "LESSON_DESIGN" ? select("planLesson", lessonIdx) : select("planSection", key.toLowerCase())
+            }
           />
         </div>
       );
@@ -985,6 +998,14 @@ const PlanDetail = (props) => {
               </button>
             </div>
           )}
+          <hr />
+          <ReviewList
+            planId={planId}
+            lessonIndex={n}
+            sectionKey="LESSON_DESIGN"
+            embedded
+            planContentVersionAt={plan.contentVersionAt}
+          />
         </div>
       );
     }
@@ -1022,6 +1043,14 @@ const PlanDetail = (props) => {
               </button>
             </div>
           )}
+          <hr />
+          <ReviewList
+            planId={planId}
+            lessonIndex={n}
+            sectionKey="EXECUTION_RECORD"
+            embedded
+            planContentVersionAt={plan.contentVersionAt}
+          />
         </div>
       );
     }
@@ -1055,12 +1084,29 @@ const PlanDetail = (props) => {
       );
     }
 
-    if (selected.type === "executionReview") {
-      const n = selected.key;
+    if (selected.type === "executionReviews") {
       return (
         <div className="pl-card">
-          <h6>点评 · 课时 {n}</h6>
-          <ReviewList planId={planId} lessonIndex={n} embedded planContentVersionAt={plan.contentVersionAt} canTriggerAi={canEditPlan} />
+          <h6>实施整体点评</h6>
+          <ReviewList
+            planId={planId}
+            lessonIndex={null}
+            aggregateScope="implementation"
+            embedded
+            planContentVersionAt={plan.contentVersionAt}
+            canTriggerAi={canEditPlan}
+            aiPending={aiReviewPending.implementation}
+            setAiPending={(v) => setAiReviewPending((prev) => ({ ...prev, implementation: v }))}
+            onSelectSection={(key, lessonIdx) =>
+              key === "LESSON_DESIGN"
+                ? select("planLesson", lessonIdx)
+                : key === "EXECUTION_RECORD"
+                ? select("executionRecord", lessonIdx)
+                : key === "DESIGN_OVERALL"
+                ? select("plan", "reviews")
+                : select("planSection", key.toLowerCase())
+            }
+          />
         </div>
       );
     }
@@ -1245,13 +1291,13 @@ const PlanDetail = (props) => {
               {expandedGroups.execution && (
                 <div className="pl-explorer-children">
                   {/* Each 课时N is its own subgroup (same shape as 分课时设计's
-                      above), four leaves: 实施记录 (the online-fill form),
-                      课程实施文件 (its on-the-fly 上传/下载/预览 doc panel,
-                      mirroring 课程设计文件), then today's 支撑材料/点评
-                      (LessonFileManager/ReviewList), just no longer combined
-                      into one pane. No key seeding needed for the dynamic
-                      `exec_${n}` toggle -- expandedGroups[key] reads as
-                      collapsed (falsy) for any key not yet clicked. */}
+                      above): 实施记录 (the online-fill form, with its own
+                      embedded 点评 block -- see the executionRecord render
+                      branch above), 课程实施文件 (its on-the-fly 上传/下载/
+                      预览 doc panel, mirroring 课程设计文件), then 支撑材料
+                      (LessonFileManager). No key seeding needed for the
+                      dynamic `exec_${n}` toggle -- expandedGroups[key] reads
+                      as collapsed (falsy) for any key not yet clicked. */}
                   {lessons.map((n) => (
                     <div className="pl-explorer-subgroup" key={n}>
                       <button
@@ -1286,18 +1332,23 @@ const PlanDetail = (props) => {
                           >
                             支撑材料
                           </button>
-                          <button
-                            type="button"
-                            className={`pl-explorer-leaf ${selected.type === "executionReview" && selected.key === n ? "is-active" : ""}`}
-                            onClick={() => select("executionReview", n)}
-                          >
-                            点评
-                          </button>
                         </div>
                       )}
                     </div>
                   ))}
                   {lessons.length === 0 && <div className="pl-explorer-empty">尚未设置预计课时</div>}
+                  {/* 实施 section review, as a sibling of the 课时N subgroups --
+                      mirrors 计划's own "reviews" leaf above, but aggregates
+                      segment reviews from both 设计 and 实施 (see the
+                      executionReviews render branch above and
+                      review-list.component.js's aggregateScope prop). */}
+                  <button
+                    type="button"
+                    className={`pl-explorer-leaf ${selected.type === "executionReviews" ? "is-active" : ""}`}
+                    onClick={() => select("executionReviews")}
+                  >
+                    实施整体点评
+                  </button>
                 </div>
               )}
             </div>

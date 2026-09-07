@@ -27,7 +27,14 @@ module.exports = (sequelize, Sequelize) => {
         type: Sequelize.BIGINT, // FK users; NULL when reviewerType='ai'
       },
       sectionKey: {
-        type: Sequelize.STRING(64), // 'WHY'|'WHAT'|'HOW'|free text; expert-only
+        // Free text, no DB-level enum -- convention driven entirely by the
+        // frontend (review-list.component.js) and review.controller.js:
+        //   'WHY'|'WHAT'|'HOW'            -- 设计's top-level segments, lessonIndex=null
+        //   'LESSON_DESIGN'                -- 设计/分课时设计/课时N, paired with lessonIndex=N
+        //   'EXECUTION_RECORD'             -- 实施/课时N/实施记录, paired with lessonIndex=N
+        //   'IMPLEMENTATION_OVERALL'       -- 实施/整体点评's own comments/AI review, lessonIndex=null
+        //   null                           -- 设计/整体点评's own comments/AI review, lessonIndex=null
+        type: Sequelize.STRING(64),
       },
       score: {
         type: Sequelize.DECIMAL(4, 1),

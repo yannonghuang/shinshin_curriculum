@@ -33,6 +33,11 @@ const MAX_EXTRACTED_CHARS = 6000; // keeps the prompt bounded regardless of how 
 
 const extractArtifactText = async (artifact) => textExtract.extractTextFromFile(artifact.attachmentPath, artifact.type);
 
+// Caps the combined design+every-lesson text built by buildWholePlanContentText
+// -- MAX_EXTRACTED_CHARS above already bounds one lesson's artifact extract,
+// but nothing bounded the sum across every lesson once a plan has many.
+const MAX_TOTAL_CHARS = 12000;
+
 // Picks the highest-precedence tier with at least one artifact present, and
 // extracts as much of its files' text as fits in MAX_EXTRACTED_CHARS
 // (truncating the last file included, if any, rather than dropping it
@@ -64,63 +69,72 @@ const buildPrecedenceExtract = async (artifacts) => {
   return null;
 };
 
-// Renders the same plain-text summary of a plan (or one of its lessons) that
-// review.controller.js's AI-review prompt sends the model -- basic info,
-// then whichever of {online-filled record rendered to a doc and extracted,
-// uploaded artifacts' own extracted text} is actually available, in that
-// order of preference, matching exactly what a human reader would
-// download/preview.
-async function buildPlanContentText(plan, lessonIndex, artifacts) {
+const buildBasicInfoLines = (plan) => {
   const lines = [];
   lines.push(`课程标题：${plan.title || ""}`);
   if (plan.theme) lines.push(`乡土主题：${plan.theme}`);
   if (plan.grade) lines.push(`年级：${plan.grade}`);
   if (plan.plannedLessonCount) lines.push(`预计课时：${plan.plannedLessonCount}`);
+  return lines;
+};
 
-  const appendArtifactSection = async (introLine, listIntro) => {
-    lines.push(introLine);
-    lines.push(listIntro);
-    for (const a of artifacts) {
-      lines.push(`- [${a.category}] ${a.attachmentName}${a.description ? "：" + a.description : ""}`);
-    }
-    const extract = await buildPrecedenceExtract(artifacts);
-    if (extract && extract.text) {
-      lines.push(`\n以下是优先级最高的一类已上传文件（${extract.tierLabel}，共 ${extract.matchedCount} 个，已提取 ${extract.extractedCount} 个的文字内容）：`);
-      lines.push(extract.text);
-    }
-  };
+const appendArtifactSection = async (lines, artifacts, introLine, listIntro) => {
+  lines.push(introLine);
+  lines.push(listIntro);
+  for (const a of artifacts) {
+    lines.push(`- [${a.category}] ${a.attachmentName}${a.description ? "：" + a.description : ""}`);
+  }
+  const extract = await buildPrecedenceExtract(artifacts);
+  if (extract && extract.text) {
+    lines.push(`\n以下是优先级最高的一类已上传文件（${extract.tierLabel}，共 ${extract.matchedCount} 个，已提取 ${extract.extractedCount} 个的文字内容）：`);
+    lines.push(extract.text);
+  }
+};
 
-  if (lessonIndex) {
-    lines.push(`\n本次内容针对第 ${lessonIndex} 课时的乡土课程实施记录。`);
+// One lesson's 实施记录 content -- shared by buildPlanContentText's
+// single-lesson branch and buildWholePlanContentText's per-lesson loop.
+const buildLessonExecutionLines = async (plan, lessonIndex, artifacts) => {
+  const lines = [];
+  lines.push(`\n本次内容针对第 ${lessonIndex} 课时的乡土课程实施记录。`);
 
-    const record = findExecutionRecord(plan, lessonIndex);
-    const hasRecord = hasAnswerContent(record);
-    if (hasRecord) {
-      try {
-        const buffer = await dynamicDocGenerator.generateDoc({
-          docTitle: `课时实施记录 · 第${lessonIndex}课时`,
-          schema: plan.ExecutionTemplateVersion ? plan.ExecutionTemplateVersion.schemaJson : { sections: [] },
-          answers: record,
-        });
-        const docText = await textExtract.extractDocxTextFromBuffer(buffer);
-        lines.push("以下是该课时的实施记录（在线填写，优先参考）：");
-        lines.push(docText || "（文档内容为空）");
-      } catch (e) {
-        console.error("构建课时内容摘要：生成课时实施记录文档失败。", e.message);
-      }
+  const record = findExecutionRecord(plan, lessonIndex);
+  const hasRecord = hasAnswerContent(record);
+  if (hasRecord) {
+    try {
+      const buffer = await dynamicDocGenerator.generateDoc({
+        docTitle: `课时实施记录 · 第${lessonIndex}课时`,
+        schema: plan.ExecutionTemplateVersion ? plan.ExecutionTemplateVersion.schemaJson : { sections: [] },
+        answers: record,
+      });
+      const docText = await textExtract.extractDocxTextFromBuffer(buffer);
+      lines.push("以下是该课时的实施记录（在线填写，优先参考）：");
+      lines.push(docText || "（文档内容为空）");
+    } catch (e) {
+      console.error("构建课时内容摘要：生成课时实施记录文档失败。", e.message);
     }
+  }
 
-    if (artifacts && artifacts.length > 0) {
-      await appendArtifactSection("", hasRecord ? "补充上传的支撑材料：" : "该课时已上传的支撑材料：");
-    } else if (!hasRecord) {
-      lines.push("该课时暂无实施记录或已上传的支撑材料文件。");
-    }
-  } else if (plan.planFormData) {
+  if (artifacts && artifacts.length > 0) {
+    await appendArtifactSection(lines, artifacts, "", hasRecord ? "补充上传的支撑材料：" : "该课时已上传的支撑材料：");
+  } else if (!hasRecord) {
+    lines.push("该课时暂无实施记录或已上传的支撑材料文件。");
+  }
+  return lines;
+};
+
+// The whole design section's content -- shared by buildPlanContentText's
+// design branch and buildWholePlanContentText. Now includes 分课时设计 (via
+// dynamicDocGenerator's shared trailingChildren builder), which the design
+// AI review previously omitted entirely.
+const buildDesignLines = async (plan, artifacts) => {
+  const lines = [];
+  if (plan.planFormData) {
     try {
       const buffer = await dynamicDocGenerator.generateDoc({
         docTitle: "乡土课程设计方案",
         schema: plan.PlanTemplateVersion ? plan.PlanTemplateVersion.schemaJson : { sections: [] },
         answers: plan.planFormData,
+        trailingChildren: dynamicDocGenerator.buildLessonDesignTrailingChildren(plan),
       });
       const docText = await textExtract.extractDocxTextFromBuffer(buffer);
       lines.push("\n以下是该课程设计方案文档内容：");
@@ -131,12 +145,51 @@ async function buildPlanContentText(plan, lessonIndex, artifacts) {
       lines.push(JSON.stringify(plan.planFormData, null, 2));
     }
   } else if (artifacts && artifacts.length > 0) {
-    await appendArtifactSection("", "该课程设计未使用在线表单填写，已上传的课程设计文件：");
+    await appendArtifactSection(lines, artifacts, "", "该课程设计未使用在线表单填写，已上传的课程设计文件：");
   } else {
     lines.push("\n该课程设计暂无在线表单内容或上传文件。");
   }
+  return lines;
+};
 
+// Renders the same plain-text summary of a plan (or one of its lessons) that
+// review.controller.js's AI-review prompt sends the model -- basic info,
+// then whichever of {online-filled record rendered to a doc and extracted,
+// uploaded artifacts' own extracted text} is actually available, in that
+// order of preference, matching exactly what a human reader would
+// download/preview.
+async function buildPlanContentText(plan, lessonIndex, artifacts) {
+  const lines = buildBasicInfoLines(plan);
+  if (lessonIndex) {
+    lines.push(...(await buildLessonExecutionLines(plan, lessonIndex, artifacts)));
+  } else {
+    lines.push(...(await buildDesignLines(plan, artifacts)));
+  }
   return lines.join("\n");
+}
+
+// The combined 设计+实施 content behind 实施/整体点评's AI review ("AI review
+// on both sections") -- design content plus every lesson's execution
+// content, each lesson rendered even with no content (buildLessonExecutionLines
+// already degrades to a "暂无..." line, keeping lesson numbering intact).
+async function buildWholePlanContentText(plan) {
+  const lines = buildBasicInfoLines(plan);
+
+  const designArtifacts = plan.planFormData
+    ? []
+    : await db.artifact.findAll({ where: { planId: plan.id, lessonIndex: null } });
+  lines.push(...(await buildDesignLines(plan, designArtifacts)));
+
+  const lessons = Array.isArray(plan.planFormData && plan.planFormData.lessons) ? plan.planFormData.lessons : [];
+  const lessonCount = plan.plannedLessonCount || lessons.length || 0;
+  for (let i = 1; i <= lessonCount; i += 1) {
+    const lessonArtifacts = await db.artifact.findAll({ where: { planId: plan.id, lessonIndex: i } });
+    lines.push(`\n—— 第${dynamicDocGenerator.lessonOrdinal(i)}课时 ——`);
+    lines.push(...(await buildLessonExecutionLines(plan, i, lessonArtifacts)));
+  }
+
+  const text = lines.join("\n");
+  return text.length > MAX_TOTAL_CHARS ? `${text.slice(0, MAX_TOTAL_CHARS)}\n……（内容过长，已截断）` : text;
 }
 
 // OpenAI-style tool definition for the co-pilot agent loop (chat.controller.js)
@@ -175,4 +228,4 @@ async function getPlanDetails({ planId }) {
   return { title: plan.title, content };
 }
 
-module.exports = { buildPlanContentText, getPlanDetailsToolDef, getPlanDetails };
+module.exports = { buildPlanContentText, buildWholePlanContentText, getPlanDetailsToolDef, getPlanDetails };
