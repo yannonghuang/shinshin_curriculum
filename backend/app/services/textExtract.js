@@ -64,7 +64,14 @@ const extractPdfText = (filePath) => {
       .toString("utf8")
       .trim();
   } catch (e) {
-    return ""; // not a real/parseable PDF, or timed out -- fall through to "no text extracted"
+    // mutool exits 0 with empty output for a real, text-less (e.g. scanned)
+    // PDF -- that never reaches this catch. Landing here means mutool itself
+    // failed (missing binary, timed out, a corrupt/unreadable file), which
+    // used to be swallowed with no trace at all; log it so a real tooling
+    // failure is at least visible in the backend logs, even though the
+    // caller still treats "" as a normal, non-fatal outcome either way.
+    console.error("PDF 文本提取失败（mutool 执行出错）：", filePath, e.message);
+    return "";
   }
 };
 

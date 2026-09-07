@@ -56,14 +56,28 @@ function splitIntoChunks(text) {
 
 // Replaces every knowledge_chunks row for one polymorphic source with fresh
 // ones -- delete-then-insert is the simplest correct model for re-ingestion
-// on file replace/update, not a diff-and-patch.
+// on file replace/update, not a diff-and-patch. Deliberately does NOT touch
+// existing rows when the new extraction yields nothing: text extraction can
+// fail transiently (a timed-out mutool call, a corrupt temp file) in ways
+// indistinguishable here from "this document genuinely has no text", and an
+// artifact update/re-upload re-runs this against the *same* sourceId (see
+// material-artifact.controller.js#update) -- destroying first unconditionally
+// meant a single flaky re-extraction permanently wiped out a previously
+// good, already-ingested source, silently, with the knowledge_skills card
+// generated from it left dangling as the only surviving trace. Worst case
+// now is stale content lingering after a genuine intentional change to
+// something non-extractable -- far cheaper than losing real content outright.
 async function ingestSource({ sourceType, sourceId, materialTopicId, text }) {
-  await KnowledgeChunk.destroy({ where: { sourceType, sourceId } });
   const pieces = splitIntoChunks(text);
-  if (pieces.length === 0) return;
+  if (pieces.length === 0) {
+    console.warn(`知识库摄取：来源 ${sourceType}#${sourceId}（主题 ${materialTopicId}）提取到的文本为空，保留原有知识条目不变。`);
+    return { written: false, chunkCount: 0 };
+  }
+  await KnowledgeChunk.destroy({ where: { sourceType, sourceId } });
   await KnowledgeChunk.bulkCreate(
     pieces.map((content, chunkIndex) => ({ sourceType, sourceId, materialTopicId, chunkIndex, content }))
   );
+  return { written: true, chunkCount: pieces.length };
 }
 
 async function deleteSourceChunks({ sourceType, sourceId }) {

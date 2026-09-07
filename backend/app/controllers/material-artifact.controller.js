@@ -9,6 +9,7 @@ const db = require("../models");
 const MaterialArtifact = db.materialArtifact;
 const MaterialTopic = db.materialTopic;
 const MaterialFolder = db.materialFolder;
+const KnowledgeChunk = db.knowledgeChunk;
 const Op = db.Sequelize.Op;
 const textExtract = require("../services/textExtract");
 const knowledgeIngest = require("../services/knowledgeIngest");
@@ -514,7 +515,23 @@ exports.findByTopic = async (req, res) => {
       where: { materialTopicId: topicId },
       order: [["id", "DESC"]],
     });
-    return res.send(data);
+
+    // Computed live from knowledge_chunks (never stored on the artifact
+    // itself) rather than persisted at extraction time, so it always
+    // reflects current DB state -- including catching up automatically once
+    // ingestSource's own destroy-then-insert bug fix stops it from getting
+    // out of sync. Lets the file list flag "this file's text never made it
+    // into the knowledge base" (see lesson-file-manager.component.js), which
+    // previously only ever surfaced indirectly via the 知识卡片 tab's
+    // "该主题暂无已提取的材料内容" message, and only for the whole topic.
+    const chunkedRows = await KnowledgeChunk.findAll({
+      where: { materialTopicId: topicId, sourceType: "material_artifact" },
+      attributes: ["sourceId"],
+      group: ["sourceId"],
+    });
+    const extractedIds = new Set(chunkedRows.map((r) => String(r.sourceId)));
+
+    return res.send(data.map((a) => ({ ...a.toJSON(), hasExtractedContent: extractedIds.has(String(a.id)) })));
   } catch (err) {
     return res.status(500).send({
       message: err.message || "查询附件列表时发生错误。",
