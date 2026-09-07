@@ -216,14 +216,16 @@ exports.getActive = async (req, res) => {
   }
 };
 
-// GET /api/templates/:templateKey/blank-doc -- a blank .docx rendered from
-// the *currently active* version's schema with no answers (every field
-// shows "（未填写）", same as plan.controller.js#renderDoc/renderExecutionDoc
-// do for a plan that hasn't filled in a field yet), streamed back and never
-// persisted. Backs the "下载乡土课程设计方案模版"/"下载乡土课程实施记录模版"
-// buttons on the plans list -- generated from the same schema+engine every
-// other on-the-fly doc uses, so it's guaranteed to always match whatever an
-// admin last published, with no separate static file to fall out of sync.
+// GET /api/templates/:templateKey/blank-doc -- the currently active
+// version's document, streamed back for the "下载乡土课程设计方案模版"/
+// "下载乡土课程实施记录模版" buttons on the plans list. If that version came
+// from an upload (sourceFilePath set, see #upload above), this returns the
+// original .docx bytes as-is -- so what a user downloads is byte-identical
+// to what an admin uploaded, not a regenerated approximation. Only the
+// hand-authored seed versions (no file on disk) fall back to rendering a
+// blank .docx on the fly from schemaJson with every field "（未填写）", same
+// engine plan.controller.js#renderDoc/renderExecutionDoc use for a plan
+// that hasn't filled in a field yet.
 exports.downloadBlank = async (req, res) => {
   try {
     const templateKey = req.params.templateKey;
@@ -233,6 +235,14 @@ exports.downloadBlank = async (req, res) => {
     }
 
     const docTitle = TEMPLATE_DISPLAY_NAMES[templateKey] || templateKey;
+
+    if (version.sourceFilePath) {
+      if (!fs.existsSync(version.sourceFilePath)) {
+        return res.status(404).send({ message: "模板源文件已丢失。" });
+      }
+      return res.download(version.sourceFilePath, version.sourceFileName || `${docTitle}.docx`);
+    }
+
     const buffer = await dynamicDocGenerator.generateDoc({
       docTitle,
       schema: version.schemaJson,
