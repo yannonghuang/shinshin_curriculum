@@ -39,6 +39,7 @@ const MaterialsLibrary = () => {
 
   const [metaForm, setMetaForm] = useState(null);
   const [metaDirty, setMetaDirty] = useState(false);
+  const [isRegeneratingSkill, setIsRegeneratingSkill] = useState(false);
 
   const [links, setLinks] = useState([]);
   const [isLoadingLinks, setIsLoadingLinks] = useState(false);
@@ -51,6 +52,7 @@ const MaterialsLibrary = () => {
   const [isLoadingSkill, setIsLoadingSkill] = useState(false);
   const [skillForm, setSkillForm] = useState(null);
   const [skillDirty, setSkillDirty] = useState(false);
+  const [isSkillGenerating, setIsSkillGenerating] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState(null); // null = no search run yet
@@ -135,6 +137,43 @@ const MaterialsLibrary = () => {
     }
   }, [selected.key, selected.topicId, retrieveSkill]);
 
+  // While viewing 知识卡片, poll whether this topic's card is currently being
+  // (re)generated -- covers every trigger (基本信息 save, link add/edit, an
+  // upload's own background regeneration, or the 强制生成 button on 基本信息),
+  // not just a force-click made from this tab, since knowledgeIngest.js's
+  // generatingCounts is shared across all of them. On the true -> false edge
+  // (generation just finished), re-fetch the card so the freshly generated
+  // content shows without the admin having to manually refresh.
+  useEffect(() => {
+    if (selected.key !== "skill" || !selected.topicId) {
+      setIsSkillGenerating(false);
+      return undefined;
+    }
+    const topicId = selected.topicId;
+    let cancelled = false;
+    let wasGenerating = false;
+    const poll = async () => {
+      try {
+        const resp = await MaterialTopicDataService.getSkillGenerating(topicId);
+        if (cancelled) return;
+        const generating = !!(resp.data && resp.data.generating);
+        setIsSkillGenerating(generating);
+        if (wasGenerating && !generating) {
+          await retrieveSkill(topicId);
+        }
+        wasGenerating = generating;
+      } catch (e) {
+        // Non-critical -- just skip this tick and try again on the next poll.
+      }
+    };
+    poll();
+    const intervalId = setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [selected.key, selected.topicId, retrieveSkill]);
+
   const topicsByYear = useMemo(() => {
     const byYear = new Map();
     for (const t of topics) {
@@ -161,6 +200,28 @@ const MaterialsLibrary = () => {
       await retrieveTopics();
     } catch (err) {
       setMessage(err?.response?.data?.message || "保存失败。");
+    }
+  };
+
+  // 强制生成知识卡片: unlike the automatic regeneration fired after every
+  // save/upload (which silently no-ops once a card is admin-reviewed or
+  // nothing under the topic has changed -- see knowledgeIngest.js), this
+  // always calls the LLM and overwrites, reviewed or not. Refreshes the
+  // 知识卡片 tab's cached state too, in case it was already loaded, so
+  // switching to it shows the new card immediately rather than the stale one.
+  const forceRegenerateSkill = async () => {
+    if (!selectedTopic) return;
+    setIsRegeneratingSkill(true);
+    try {
+      const resp = await MaterialTopicDataService.regenerateSkill(selectedTopic.id);
+      setMessage(resp?.data?.message || "知识卡片已重新生成。");
+      if (selected.key === "skill") {
+        await retrieveSkill(selectedTopic.id);
+      }
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "生成知识卡片失败。");
+    } finally {
+      setIsRegeneratingSkill(false);
     }
   };
 
@@ -339,9 +400,19 @@ const MaterialsLibrary = () => {
         </div>
         {isAdmin && (
           <div className="d-flex justify-content-between">
-            <button type="button" className="btn btn-primary" disabled={!metaDirty} onClick={saveMeta}>
-              保存
-            </button>
+            <div>
+              <button type="button" className="btn btn-primary" disabled={!metaDirty} onClick={saveMeta}>
+                保存
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline-secondary ml-2"
+                disabled={isRegeneratingSkill}
+                onClick={forceRegenerateSkill}
+              >
+                {isRegeneratingSkill ? "生成中…" : "强制生成知识卡片"}
+              </button>
+            </div>
             <button type="button" className="btn btn-outline-danger" onClick={deleteTopic}>
               删除本主题
             </button>
@@ -461,7 +532,10 @@ const MaterialsLibrary = () => {
     if (isLoadingSkill || !skillForm) return <div className="pl-empty">加载中...</div>;
     return (
       <div className="pl-card">
-        {!skillCard && <div className="alert alert-info py-2">此主题暂无知识卡片（可能内容尚未生成，或生成失败）。</div>}
+        {isSkillGenerating && <div className="alert alert-info py-2">正在由AI生成知识卡片…</div>}
+        {!isSkillGenerating && !skillCard && (
+          <div className="alert alert-info py-2">此主题暂无知识卡片（可能内容尚未生成，或生成失败）。</div>
+        )}
         {skillCard && (
           <p className="pl-subtitle">
             {skillCard.sourceType === "admin" ? "管理员已审核" : "AI 自动生成，尚未审核"}

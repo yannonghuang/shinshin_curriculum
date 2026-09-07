@@ -35,6 +35,14 @@ class MaterialTopicDataService {
   updateSkill(topicId, data) {
     return http.put(`/material-topics/${topicId}/skill`, data, { headers: authHeader() });
   }
+
+  regenerateSkill(topicId) {
+    return http.post(`/material-topics/${topicId}/skill/regenerate`, null, { headers: authHeader() });
+  }
+
+  getSkillGenerating(topicId) {
+    return http.get(`/material-topics/${topicId}/skill/generating`, { headers: authHeader() });
+  }
 }
 
 export default new MaterialTopicDataService();

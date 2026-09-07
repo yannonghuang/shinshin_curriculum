@@ -268,3 +268,56 @@ exports.updateSkill = async (req, res) => {
     return res.status(500).send({ message: err.message || "更新知识卡片时发生错误。" });
   }
 };
+
+// GET /api/material-topics/:id/skill/generating -- any authenticated role,
+// polled by the 知识卡片 tab to show "正在由AI生成..." while true. Reflects
+// knowledgeIngest.js's generatingCounts, so it's accurate regardless of
+// which trigger (基本信息 save, link add/edit, upload, or 强制生成) is
+// currently running/queued for this topic -- not just the admin's own
+// force-click.
+exports.getSkillGenerating = async (req, res) => {
+  const topicId = Number(req.params.id);
+  if (!Number.isInteger(topicId) || topicId <= 0) {
+    return res.status(422).send({ message: "主题 ID 无效。" });
+  }
+  return res.send({ generating: knowledgeIngest.isGenerating(topicId) });
+};
+
+const REGENERATE_SKIP_MESSAGES = {
+  no_material: "该主题暂无已提取的材料内容，无法生成知识卡片。请先上传文件或添加链接。",
+  not_found: "主题不存在。",
+  error: "生成知识卡片时发生错误，请稍后重试。",
+  parse_error: "AI 返回内容解析失败，请稍后重试。",
+};
+
+// POST /api/material-topics/:id/skill/regenerate -- admin-only. The manual
+// "强制生成知识卡片" button on 基本信息: unlike the automatic regeneration
+// fired after every save/upload (see knowledgeIngest.js's guards), this
+// bypasses both the "already admin-reviewed" and "nothing changed since last
+// generation" skips -- that's the whole point of "force." It still goes
+// through the same per-topic queue as every other call (knowledgeIngest.js's
+// skillCardQueues) so it can't race an auto-regeneration still in flight from
+// a just-finished upload, and it's awaited here (unlike the fire-and-forget
+// call sites elsewhere) so the admin gets a real success/failure response
+// instead of a silent no-op.
+exports.forceRegenerateSkill = async (req, res) => {
+  try {
+    const topicId = Number(req.params.id);
+    if (!Number.isInteger(topicId) || topicId <= 0) {
+      return res.status(422).send({ message: "主题 ID 无效。" });
+    }
+    const topic = await MaterialTopic.findByPk(topicId);
+    if (!topic) {
+      return res.status(404).send({ message: "主题不存在。" });
+    }
+
+    const result = await knowledgeIngest.regenerateSkillCard(topicId, { force: true });
+    if (!result || !result.ok) {
+      const reason = result && result.reason;
+      return res.status(422).send({ message: REGENERATE_SKIP_MESSAGES[reason] || "本次未生成新的知识卡片。" });
+    }
+    return res.send({ message: "知识卡片已重新生成。", skill: result.skill });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "生成知识卡片时发生错误。" });
+  }
+};

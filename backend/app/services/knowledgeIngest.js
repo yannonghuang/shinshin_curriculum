@@ -96,24 +96,30 @@ async function getLatestMaterialActivity(topic) {
 // never blocks the material save that triggered it -- a missing/stale skill
 // card just means retrieval falls back to the raw chunks tier for that
 // topic, not a hard failure of the upload itself.
-async function regenerateSkillCardInner(materialTopicId) {
+async function regenerateSkillCardInner(materialTopicId, { force = false } = {}) {
   try {
     const topic = await MaterialTopic.findByPk(materialTopicId);
-    if (!topic) return;
+    if (!topic) return { ok: false, reason: "not_found" };
 
     // An admin who has edited or explicitly reviewed a card has taken
     // ownership of it -- silently regenerating over that on the next
     // unrelated upload would discard curation work for no reason. Auto
     // regeneration only ever applies to a still-AI-authored, not-yet-reviewed
-    // card (including the very first one).
+    // card (including the very first one). A `force` call (the admin's own
+    // "强制生成" button) is exactly the escape hatch for this -- it's an
+    // explicit request to overwrite, reviewed or not.
     const existing = await KnowledgeSkill.findOne({ where: { materialTopicId } });
-    if (existing && (existing.sourceType === "admin" || existing.reviewed)) return;
+    if (!force && existing && (existing.sourceType === "admin" || existing.reviewed)) {
+      return { ok: false, reason: "reviewed_locked" };
+    }
 
     // Incremental: skip the LLM call entirely if nothing under the topic has
-    // changed since the card currently on file was generated.
-    if (existing) {
+    // changed since the card currently on file was generated. `force` skips
+    // this too -- the whole point of the button is "regenerate right now
+    // regardless."
+    if (!force && existing) {
       const latestActivity = await getLatestMaterialActivity(topic);
-      if (latestActivity <= new Date(existing.updatedAt).getTime()) return;
+      if (latestActivity <= new Date(existing.updatedAt).getTime()) return { ok: false, reason: "up_to_date" };
     }
 
     const chunks = await KnowledgeChunk.findAll({ where: { materialTopicId }, order: [["id", "ASC"]] });
@@ -124,9 +130,10 @@ async function regenerateSkillCardInner(materialTopicId) {
     // meta chunk directly (knowledgeRetrieve.js), so an LLM call here would
     // just be paraphrasing the same title/year/lecturer fields back as a
     // "card." Skip it (slow + adds nothing); the first real link/file upload
-    // is what actually earns a generated card.
+    // is what actually earns a generated card. This guard applies even when
+    // forced -- there's nothing to summarize either way.
     const hasRealMaterial = chunks.some((c) => c.sourceType !== "material_topic_meta");
-    if (!hasRealMaterial) return;
+    if (!hasRealMaterial) return { ok: false, reason: "no_material" };
 
     const combinedText = chunks
       .map((c) => c.content)
@@ -154,10 +161,10 @@ async function regenerateSkillCardInner(materialTopicId) {
       parsed = JSON.parse(cleaned);
     } catch (e) {
       console.error("知识卡片生成：解析 JSON 失败，跳过本次生成。", e.message);
-      return;
+      return { ok: false, reason: "parse_error" };
     }
 
-    await KnowledgeSkill.upsert({
+    const [skill] = await KnowledgeSkill.upsert({
       materialTopicId,
       title: parsed.title || topic.theme,
       summary: parsed.summary || "",
@@ -166,8 +173,10 @@ async function regenerateSkillCardInner(materialTopicId) {
       sourceType: "ai",
       reviewed: false,
     });
+    return { ok: true, skill };
   } catch (e) {
     console.error("知识卡片生成失败（不影响材料本身的保存）:", e.message);
+    return { ok: false, reason: "error", message: e.message };
   }
 }
 
@@ -184,11 +193,30 @@ async function regenerateSkillCardInner(materialTopicId) {
 // immediately, so correctness costs nothing extra in the common case.
 const skillCardQueues = new Map();
 
-function regenerateSkillCard(materialTopicId) {
+// Count of regenerateSkillCard calls currently queued or running per topic --
+// lets the frontend's 知识卡片 tab poll "is this topic's card being generated
+// right now" (isGenerating below) regardless of which of the many call sites
+// triggered it (基本信息 save, link add/edit, an upload's fire-and-forget
+// regeneration, or the admin's 强制生成 button) -- unlike skillCardQueues'
+// tail promise, a plain count survives multiple overlapping calls for the
+// same topic without one's completion misreporting the others as done.
+const generatingCounts = new Map();
+
+function regenerateSkillCard(materialTopicId, options) {
+  generatingCounts.set(materialTopicId, (generatingCounts.get(materialTopicId) || 0) + 1);
   const tail = (skillCardQueues.get(materialTopicId) || Promise.resolve()).catch(() => {});
-  const run = tail.then(() => regenerateSkillCardInner(materialTopicId));
+  const run = tail.then(() => regenerateSkillCardInner(materialTopicId, options));
   skillCardQueues.set(materialTopicId, run.catch(() => {}));
+  run.finally(() => {
+    const remaining = (generatingCounts.get(materialTopicId) || 1) - 1;
+    if (remaining <= 0) generatingCounts.delete(materialTopicId);
+    else generatingCounts.set(materialTopicId, remaining);
+  });
   return run;
 }
 
-module.exports = { ingestSource, deleteSourceChunks, regenerateSkillCard, splitIntoChunks };
+function isGenerating(materialTopicId) {
+  return generatingCounts.has(materialTopicId);
+}
+
+module.exports = { ingestSource, deleteSourceChunks, regenerateSkillCard, isGenerating, splitIntoChunks };

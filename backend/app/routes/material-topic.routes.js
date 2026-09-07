@@ -20,6 +20,8 @@ module.exports = function (app) {
   app.delete("/api/material-topics/:id", [authJwt.verifyToken, authJwt.isAdmin], topics.delete);
   app.get("/api/material-topics/:id/skill", [authJwt.verifyToken], topics.getSkill);
   app.put("/api/material-topics/:id/skill", [authJwt.verifyToken, authJwt.isAdmin], topics.updateSkill);
+  app.get("/api/material-topics/:id/skill/generating", [authJwt.verifyToken], topics.getSkillGenerating);
+  app.post("/api/material-topics/:id/skill/regenerate", [authJwt.verifyToken, authJwt.isAdmin], topics.forceRegenerateSkill);
 
   app.get("/api/material-topics/:topicId/links", [authJwt.verifyToken], links.findByTopic);
   app.post("/api/material-topics/:topicId/links", [authJwt.verifyToken, authJwt.isAdmin], links.create);
