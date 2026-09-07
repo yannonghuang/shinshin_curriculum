@@ -196,7 +196,7 @@ export default class Register extends Component {
               <i className="fas fa-user-plus"></i>
             </div>
             <h2 className="auth-title">创建账号</h2>
-            <p className="auth-subtitle">加入乡土课程项目实施与案例分享系统</p>
+            <p className="auth-subtitle">加入乡土智课系统</p>
 
             <Form
               onSubmit={this.handleRegister}

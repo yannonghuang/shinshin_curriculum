@@ -435,6 +435,19 @@
   font-weight: 700;
 }
 
+/* Teacher names in plans-hierarchy.component.js's school -> teacher tree --
+   unlike a plain section leaf, this is the actual label a user is scanning
+   for, so it keeps --pl-muted's lighter weight (a whole subtree of them
+   would out-compete the school/school-year headers above) but not its
+   lighter color. */
+.pl-explorer-leaf-teacher {
+  color: var(--pl-text);
+}
+
+.pl-explorer-leaf-teacher.is-active {
+  color: var(--pl-accent);
+}
+
 .pl-explorer-top-leaf {
   margin-top: 6px;
   padding-left: 6px;
@@ -936,7 +949,17 @@
   border-radius: 10px;
 }
 
-.pl-fm-folder-glyph {
+/* The one folder-icon color used everywhere a folder glyph appears (this
+   file manager's own rows/tiles, plan-detail's/plans-hierarchy's/
+   materials-library's explorer-tree folders) -- previously each spot
+   inherited whatever color its container happened to set (dark explorer-tree
+   text, or losing the cascade to .pl-fm-icon-glyph's accent color in the
+   icon-grid view below), so the same kind of folder read as three different
+   colors depending on where you saw it. The `i.` prefix outranks
+   .pl-fm-icon-glyph's plain class selector so a folder tile that also
+   carries that class (the icon-grid view) still renders yellow, not green. */
+i.pl-fm-folder-glyph,
+i.pl-folder-icon {
   color: #e0a940;
 }
 

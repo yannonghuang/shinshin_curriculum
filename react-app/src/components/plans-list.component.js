@@ -16,7 +16,7 @@ const currentUserId = () => {
 // Migrated from shinshin's cases-list.component.js: functional component, server-side
 // pagination via @material-ui/lab Pagination, card-grid layout, slide-in drawer
 // create/edit form, and the `stylishPublic` unauthenticated-view styling (here also
-// forced on for the public "优秀案例展示" gallery via props.excellentOnly).
+// forced on for the public "优秀案例库" gallery via props.excellentOnly).
 //
 // One component/route serves every /plans context (a teacher's own plans, an admin's
 // full list, an expert's 待点评 queue, the public gallery) rather than separate pages --
@@ -118,7 +118,7 @@ const PlansList = (props) => {
     retrieveAll();
   }, [retrieveAll]);
 
-  // 新增乡土课程设计 creates an empty plan immediately (no upfront form) and
+  // 新增乡土课程 creates an empty plan immediately (no upfront form) and
   // takes the user straight into it -- 基本信息 there (manual edit + upload,
   // see plan-detail.component.js) is now the only place that fills in
   // title/theme/grade/year/season/预计课时, whether typed by hand or
@@ -207,12 +207,12 @@ const PlansList = (props) => {
   };
 
   const heading = excellentOnly
-    ? "优秀案例展示"
+    ? "优秀案例库"
     : effectiveMineOnly
     ? "我的乡土课程"
     : statusFilter === "submitted"
     ? "待点评案例"
-    : "乡土课程设计";
+    : "全部乡土课程";
 
   return (
     <div className={`container ${stylishPublic ? "pl-page" : ""}`}>
@@ -313,7 +313,7 @@ const PlansList = (props) => {
       {canCreate && (
         <div className={stylishPublic ? "pl-card" : "mb-3"}>
           <button className="btn btn-primary mr-3" type="button" onClick={createEmptyPlan}>
-            新增乡土课程设计
+            新增乡土课程
           </button>
           <button className="btn btn-link p-0 mr-3" type="button" onClick={() => downloadTemplateFile("plan_design")}>
             下载乡土课程设计方案模版

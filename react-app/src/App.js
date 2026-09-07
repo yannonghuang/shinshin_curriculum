@@ -72,7 +72,7 @@ class App extends Component {
         {!this.noNavBar() && (
           <nav className="navbar navbar-expand-sm navbar-dark navbar-custom mb-3">
             <Link to="/" className="navbar-brand">
-              乡土课程项目实施与案例分享系统
+              乡土智课系统
             </Link>
 
             <button
@@ -106,7 +106,7 @@ class App extends Component {
                 {AuthService.isAdmin() && (
                   <li className="nav-item">
                     <Link to="/plans" className="nav-link">
-                      全部课程设计
+                      全部乡土课程
                     </Link>
                   </li>
                 )}
@@ -126,12 +126,12 @@ class App extends Component {
                 )}
                 <li className="nav-item">
                   <Link to="/materials" className="nav-link">
-                    共享学习材料库
+                    学习资源库
                   </Link>
                 </li>
                 <li className="nav-item">
                   <Link to="/gallery" className="nav-link">
-                    优秀案例展示
+                    优秀案例库
                   </Link>
                 </li>
               </ul>

@@ -223,7 +223,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
             <div className="pl-explorer-group" key={g.key}>
               <button type="button" className="pl-explorer-folder" onClick={() => toggleGroup(g.key)}>
                 <i className={`fas fa-chevron-${expandedGroups[g.key] ? "down" : "right"} pl-explorer-chevron`}></i>
-                <i className="fas fa-folder-open mr-1"></i> {g.year}年 {g.season || "未设置学期"}
+                <i className="fas fa-folder-open pl-folder-icon mr-1"></i> {g.year}年 {g.season || "未设置学期"}
               </button>
               {expandedGroups[g.key] && (
                 <div className="pl-explorer-children">
@@ -245,7 +245,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
                               <button
                                 key={t.teacherId}
                                 type="button"
-                                className={`pl-explorer-leaf ${
+                                className={`pl-explorer-leaf pl-explorer-leaf-teacher ${
                                   selected &&
                                   selected.groupKey === g.key &&
                                   selected.schoolKey === s.schoolKey &&
@@ -255,7 +255,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
                                 }`}
                                 onClick={() => selectTeacher(g.key, s.schoolKey, t.teacherId)}
                               >
-                                {t.teacherName}（{t.plans.length}）
+                                {t.teacherName}
                               </button>
                             ))}
                           </div>
@@ -277,7 +277,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
         ) : (
           <div className="pl-card">
             <h6>
-              {selectedTeacher.teacherName} 的{excellentOnly ? "优秀案例" : "乡土课程设计"} -- {selectedGroup.year}年{" "}
+              {selectedTeacher.teacherName} 的{excellentOnly ? "优秀案例" : "乡土课程"} -- {selectedGroup.year}年{" "}
               {selectedGroup.season || "未设置学期"}
               （共 {selectedTeacher.plans.length} 项）
             </h6>
