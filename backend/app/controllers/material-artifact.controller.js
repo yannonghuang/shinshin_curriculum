@@ -21,11 +21,26 @@ const knowledgeIngest = require("../services/knowledgeIngest");
 // same tiering), so they contribute a metadata-only chunk instead
 // (description + filename) rather than nothing at all.
 const KB_EXTRACTABLE_CATEGORIES = ["Word文档", "课件PPT"];
+
+// pdfjs-dist's memory footprint doesn't scale predictably with file size --
+// a real 4.96MB image-heavy report measured ~800MB RSS to extract text from,
+// which (combined with the rest of the stack already running) triggered a
+// host-wide kernel OOM kill on the small prod VM, not just a contained
+// per-container one. A size cap that skips full extraction above it, falling
+// back to the same metadata-only chunk 图片/视频 already get, is a hard
+// guarantee independent of whatever memory limits are tuned on the
+// container -- this class of file simply never attempts the expensive path.
+const PDF_MAX_EXTRACT_BYTES = 3 * 1024 * 1024;
+
 const artifactKnowledgeText = async (attachmentPath, type, category, description, filename) => {
+  const metaFallback = () => `${description || ""}\n${filename}`.trim();
   if (KB_EXTRACTABLE_CATEGORIES.includes(category)) {
+    if (type === "pdf" && fs.statSync(attachmentPath).size > PDF_MAX_EXTRACT_BYTES) {
+      return metaFallback();
+    }
     return textExtract.extractTextFromFile(attachmentPath, type);
   }
-  return `${description || ""}\n${filename}`.trim();
+  return metaFallback();
 };
 
 const ARTIFACT_CATEGORIES = ["Word文档", "课件PPT", "图片", "视频"];

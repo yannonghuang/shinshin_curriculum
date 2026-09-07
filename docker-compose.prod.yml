@@ -67,20 +67,31 @@ services:
     command: node server.js
     restart: unless-stopped
     # See db's mem_limit comment -- this is the service actually implicated
-    # in the two prod freezes (PDF/doc text extraction). Normal baseline is
-    # ~100-150MB; bumped from an initial 512m after a real 5-7MB PDF still
-    # hit that ceiling (V8 "Reached heap limit" -- an uncatchable fatal
-    # abort, not something try/catch in textExtract.js could contain).
-    # --max-old-space-size is set explicitly below mem_limit so V8 always
-    # fails via that same clean, logged abort+restart well before the
-    # container's hard cgroup limit, leaving ~130MB of headroom in mem_limit
-    # itself for non-heap memory (buffers, native addons, thread stacks).
-    mem_limit: 900m
+    # in every prod freeze/crash so far (PDF/doc text extraction). Normal
+    # baseline is ~100-150MB. This was raised to 900m at one point to give a
+    # real 5-7MB PDF "room to succeed" -- wrong move: it let backend climb to
+    # ~820MB, which combined with db/frontend/host-daemon overhead (dockerd,
+    # containerd, mysqld, Aliyun's AliYunDun agents, etc. -- this small VM
+    # runs more background daemons than expected) exceeded the VM's total
+    # 1.6GB *before* backend ever reached its own limit -- a global,
+    # host-wide kernel OOM-kill (dmesg: "global_oom", CONSTRAINT_NONE), not a
+    # contained per-container one, and one that can take down any process on
+    # the host, not just backend. Lower is safer here: this ceiling needs to
+    # be low enough that backend reliably hits *its own* limit and fails
+    # cleanly (self-contained OOM-kill+restart) well before the host-wide
+    # total gets anywhere near 1.6GB -- see material-artifact.controller.js's
+    # PDF_MAX_EXTRACT_BYTES for the complementary fix that keeps backend from
+    # needing anywhere near this much in the first place.
+    # --max-old-space-size is set explicitly below mem_limit so V8 fails via
+    # that same clean, logged abort+restart before the container's own hard
+    # cgroup limit, leaving headroom in mem_limit for non-heap memory
+    # (buffers, native addons, thread stacks).
+    mem_limit: 600m
     # See db's memswap_limit comment -- PDF extraction is exactly the kind of
     # bursty, CPU-heavy, possibly-slow-under-real-world-throttling load that
     # swapping would make worse, not better (disk-backed swap I/O competing
     # with an already CPU-starved host). Force a clean OOM-kill instead.
-    memswap_limit: 900m
+    memswap_limit: 600m
     # cpus: this ECS instance has 2 vCPUs total. A real-world PDF upload
     # pegged CPU at 100%+ and coincided with the whole host (including sshd)
     # becoming unresponsive for several minutes -- consistent with a
@@ -101,7 +112,7 @@ services:
     # box. Only matters when the CPU is saturated; free cycles are unaffected.
     cpu_shares: 256
     environment:
-      NODE_OPTIONS: --max-old-space-size=768
+      NODE_OPTIONS: --max-old-space-size=450
 
   frontend:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-frontend:${IMAGE_TAG:-latest}
