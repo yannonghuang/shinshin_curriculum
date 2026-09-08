@@ -208,6 +208,73 @@ const isBasicInfoLabel = (label) => label === "基本信息";
 // field-schema mechanism -- including it here would render it twice.
 const isLessonBreakdownLabel = (label) => label.includes("分课时设计");
 
+// Finds the numeral span in a "分课时设计" instance marker's own text (e.g.
+// "课时1：" or "第一课时：") and splits around it -- arabic digits tried first,
+// then a run of Chinese numeral characters. Returns null if neither is
+// present (not a lesson marker at all). Kept generic rather than hardcoding
+// either wording: confirmed the real templates use both, one per template.
+const splitLessonMarker = (text) => {
+  let m = text.match(/\d+/);
+  if (m) return { before: text.slice(0, m.index), numeralStyle: "arabic", after: text.slice(m.index + m[0].length) };
+  m = text.match(/[一二三四五六七八九十百千]+/);
+  if (m) return { before: text.slice(0, m.index), numeralStyle: "chinese", after: text.slice(m.index + m[0].length) };
+  return null;
+};
+// A genuine lesson marker's *entire* text is "课时N"/"第N课时" plus
+// punctuation -- not just any field label that happens to mention "课时"
+// somewhere in a longer label (confirmed a real false positive: "1.课时标题：",
+// a legitimate per-课时 field meaning "lesson title", also contains "课时"
+// plus a leading digit, but is obviously not itself a lesson-boundary
+// marker). Stripping the matched numeral and punctuation and requiring what
+// remains to be exactly "课时" or "第课时" rules that out generically, without
+// hardcoding either template's exact wording.
+const isLessonMarkerText = (text) => {
+  const marker = splitLessonMarker(text);
+  if (!marker) return false;
+  const stripped = (marker.before + marker.after).replace(/[.:：\s]/g, "");
+  return stripped === "课时" || stripped === "第课时";
+};
+
+// Extracts a reusable per-课时 field template from "分课时设计"'s own subtree,
+// applied once per actual lesson at generation/online-fill time -- the same
+// "one schema, many instances" convention lesson_execution already uses for
+// 实施记录 (see dynamicDocGenerator.js#buildLessonDesignTrailingChildren and
+// plan-detail.component.js's `executionRecord` branch). 课时N may or may not
+// be its own heading -- confirmed to vary: a real Heading2 in one template, a
+// plain bold paragraph among 分课时设计's own flat fields in another -- so
+// both are detected the same generic way, via isLessonMarkerText, rather
+// than assuming either shape. Only the *first* instance is read (every
+// instance in a blank template repeats the same field set); returns null
+// when no repeating 课时-marker pattern is found at all, so the caller keeps
+// the freeform title+content model for that template.
+const extractLessonSchema = (node) => {
+  const headingInstances = node.subsections.filter((s) => isLessonMarkerText(s.label));
+  if (headingInstances.length > 0) {
+    const first = headingInstances[0];
+    let fieldCounter = 0;
+    const assignFieldKeys = (n) => {
+      n.fields.forEach((f) => {
+        f.key = `f${fieldCounter++}`;
+      });
+      n.subsections.forEach(assignFieldKeys);
+    };
+    assignFieldKeys(first);
+    return { marker: splitLessonMarker(first.label), markerIsHeading: true, fields: first.fields, subsections: first.subsections };
+  }
+
+  const markerIdx = node.fields.findIndex((f) => isLessonMarkerText(f.label));
+  if (markerIdx === -1) return null;
+  const nextMarkerIdx = node.fields.findIndex((f, i) => i > markerIdx && isLessonMarkerText(f.label));
+  const slice = node.fields.slice(markerIdx + 1, nextMarkerIdx === -1 ? undefined : nextMarkerIdx);
+  return {
+    marker: splitLessonMarker(node.fields[markerIdx].label),
+    markerIsHeading: false,
+    markerBold: node.fields[markerIdx].bold,
+    fields: slice.map((f, i) => ({ key: `f${i}`, label: f.label, group: null, bold: f.bold })),
+    subsections: [],
+  };
+};
+
 // Heading-style-driven structure discovery: walks paragraphs in document
 // order, using each one's resolved heading level (via headingLevelMap) to
 // build a true nested tree (stack-based -- a heading pops the stack down to
@@ -270,6 +337,7 @@ const parseHeadingSections = (xml, headingLevelMap) => {
   // "第二部分：分课时设计", which some other template might phrase differently
   // (or not at all). See dynamicDocGenerator.js#buildLessonDesignTrailingChildren.
   let lessonBreakdownLabel = null;
+  let lessonSchema = null;
   // Likewise, 基本信息's own fields (课程名称/任教年级/etc.) are dropped from the
   // schema (superseded by dedicated Plan columns -- see isBasicInfoLabel),
   // but their bold-ness is still captured, keyed by label with the trailing
@@ -288,6 +356,7 @@ const parseHeadingSections = (xml, headingLevelMap) => {
     }
     if (isLessonBreakdownLabel(s.label)) {
       lessonBreakdownLabel = s.label;
+      lessonSchema = extractLessonSchema(s);
       return false;
     }
     return true;
@@ -336,7 +405,7 @@ const parseHeadingSections = (xml, headingLevelMap) => {
   });
 
   if (sections.every((s) => s.fields.length === 0)) return null;
-  return { sections, lessonBreakdownLabel, basicInfoBold };
+  return { sections, lessonBreakdownLabel, basicInfoBold, lessonSchema };
 };
 
 // filePath: local path to the uploaded .docx (multer disk storage already

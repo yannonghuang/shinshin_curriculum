@@ -55,6 +55,12 @@ const p = (label, value, bold = true) => {
 
 const plain = (text) => new Paragraph({ text: text != null && text !== "" ? String(text) : "（未填写）" });
 
+// A pure section-label line -- unlike p(), which always follows a label with
+// either a real value or "（未填写）". Used for a schema-driven lesson's own
+// "课时N："/"第N课时：" marker (see buildLessonDesignTrailingChildren), which
+// is a section heading in the source template, not a `label: value` field.
+const labelOnly = (text, bold = true) => new Paragraph({ children: [new TextRun({ text, bold })] });
+
 // A field that can legitimately hold multiple lines (a 课时's own design
 // content) -- unlike `p`/`plain`, which show one "（未填写）" line for
 // anything falsy, this only does that for a genuinely empty field; a
@@ -196,21 +202,41 @@ async function generateDoc({ docTitle, meta, schema, answers, trailingChildren, 
 // heading text (e.g. "分课时设计") instead of assuming this exact wording.
 const DEFAULT_LESSON_BREAKDOWN_LABEL = "第二部分：分课时设计";
 
+// Rebuilds one lesson's own "课时N："/"第N课时：" marker text for index n from
+// the template's captured marker shape (see templateParser.js#
+// splitLessonMarker) -- arabic or Chinese-numeral, whichever the source
+// template itself used, rather than assuming either.
+const renderMarkerLabel = (marker, n) => `${marker.before}${marker.numeralStyle === "arabic" ? n : lessonOrdinal(n)}${marker.after}`;
+
 const buildLessonDesignTrailingChildren = (plan) => {
   const lessons = Array.isArray(plan.planFormData && plan.planFormData.lessons) ? plan.planFormData.lessons : [];
   const lessonCount = plan.plannedLessonCount || lessons.length || 0;
   const schema = plan.PlanTemplateVersion && plan.PlanTemplateVersion.schemaJson;
   const heading = (schema && schema.lessonBreakdownLabel) || DEFAULT_LESSON_BREAKDOWN_LABEL;
+  const lessonSchema = schema && schema.lessonSchema;
   const children = [h1(heading)];
   if (lessonCount > 0) {
     for (let i = 1; i <= lessonCount; i += 1) {
       const lesson = lessons.find((l) => Number(l.index) === i) || {};
-      // Plain bold-label paragraph, not a heading -- the real template has
-      // no heading style on "第一课时：" (confirmed: no w:pStyle, just a bold
-      // run), matching every other field label's shape (see p()) rather
-      // than inventing a heading level that isn't in the source.
-      children.push(p(`第${lessonOrdinal(i)}课时`, lesson.title));
-      children.push(...multiline(lesson.content));
+      if (lessonSchema) {
+        // Schema-driven: a reusable per-课时 field template extracted from
+        // the source template itself (see templateParser.js#
+        // extractLessonSchema) -- applied once per lesson index, the same
+        // "one schema, many instances" convention 实施记录 already uses.
+        const label = renderMarkerLabel(lessonSchema.marker, i);
+        children.push(lessonSchema.markerIsHeading ? h2(label) : labelOnly(label, lessonSchema.markerBold));
+        children.push(...buildFieldChildren(lessonSchema.fields, lesson));
+        lessonSchema.subsections.forEach((sub) => children.push(...renderSectionTree(sub, 3, lesson)));
+      } else {
+        // Freeform fallback -- every template that has no detectable
+        // repeating 课时-marker pattern (or was parsed before this existed).
+        // Plain bold-label paragraph, not a heading -- the real template has
+        // no heading style on "第一课时：" (confirmed: no w:pStyle, just a bold
+        // run), matching every other field label's shape (see p()) rather
+        // than inventing a heading level that isn't in the source.
+        children.push(p(`第${lessonOrdinal(i)}课时`, lesson.title));
+        children.push(...multiline(lesson.content));
+      }
     }
   } else {
     children.push(plain(""));
