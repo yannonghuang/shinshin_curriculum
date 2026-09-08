@@ -35,6 +35,38 @@ const mergeFormData = (data, schema) => {
   return { ...(data || {}), lessons };
 };
 
+// "Anchoring level" -- the granularity at which the online form splits into
+// separate sidebar pages and gets its own segment-level expert review block
+// (see ReviewList's sectionKey prop below). For a heading-style-parsed
+// template (see templateParser.js#parseHeadingSections), that's level 2 --
+// e.g. "WHY ·学习目标" nested one level under a single top-level "课程设计框架"
+// wrapper (level 1) -- so this pulls each top-level section's immediate
+// subsections out as the real pages instead of lumping WHY/WHAT/HOW into one
+// page under the wrapper. A top-level section with no subsections (the
+// hand-authored WHY/WHAT/HOW seed, where why/what/how already *are* the top-
+// level sections, and every table/flat-parsed schema) is already at the
+// right granularity and is used as-is -- so this is a no-op for every
+// existing (non-heading-parsed) template.
+const anchorSections = (schema) => {
+  const sections = (schema && schema.sections) || [];
+  const anchors = [];
+  sections.forEach((section) => {
+    if (section.subsections && section.subsections.length > 0) {
+      anchors.push(...section.subsections);
+    } else {
+      anchors.push(section);
+    }
+  });
+  return anchors;
+};
+
+// A node's own direct (non-descendant) fields: top-level schema.sections
+// entries carry both `fields` (flattened, all descendants, kept for legacy
+// flat-shape consumers -- see templateParser.js) and `ownFields` (direct-
+// only); every other node (a nested subsection, or an anchor pulled from
+// one) only ever has `fields`, which is already direct-only by construction.
+const directFields = (section) => (section.ownFields !== undefined ? section.ownFields : section.fields || []);
+
 // Renders one schema section's fields as labeled textareas, grouping
 // consecutive same-`group` fields under one sub-heading and repeating
 // "{group} · {label}" on each (same convention as HOW's own nested fields
@@ -42,7 +74,17 @@ const mergeFormData = (data, schema) => {
 // grouping logic on the doc-generation side). Shared by every online-fill
 // section (WHY/WHAT/HOW-equivalent and 实施记录-equivalent alike) instead of
 // each hand-rolling its own field list.
-const DynamicSectionFields = ({ fields, values, canEdit, onFieldChange }) => {
+//
+// `subsections`, when present (a heading-style-parsed template -- see
+// backend/app/services/templateParser.js#parseHeadingSections), recurses one
+// level per nested heading, indented by `depth`, so a template's real multi-
+// level outline (e.g. WHY/WHAT/HOW -> 最终成果 -> 个人成果/团队成果) renders as
+// true nested groups rather than collapsing to a single `group` label.
+// `values` stays the one flat per-top-level-section answers object at every
+// depth -- field keys are globally unique across the whole schema (see
+// onFormFieldChange/mergeFormData), so no per-depth answer namespacing is
+// needed.
+const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldChange, depth = 0 }) => {
   let lastGroup;
   return (
     <>
@@ -65,6 +107,19 @@ const DynamicSectionFields = ({ fields, values, canEdit, onFieldChange }) => {
           </React.Fragment>
         );
       })}
+      {(subsections || []).map((sub) => (
+        <div key={sub.key} style={{ marginLeft: depth * 16 }}>
+          <h6 className="mt-3 mb-2">{sub.label}</h6>
+          <DynamicSectionFields
+            fields={sub.fields}
+            subsections={sub.subsections}
+            values={values}
+            canEdit={canEdit}
+            onFieldChange={onFieldChange}
+            depth={depth + 1}
+          />
+        </div>
+      ))}
     </>
   );
 };
@@ -537,6 +592,8 @@ const PlanDetail = (props) => {
         title: resp.data.title || "",
         theme: resp.data.theme || "",
         grade: resp.data.grade || "",
+        studentCount: resp.data.studentCount ? String(resp.data.studentCount) : "",
+        instructorName: resp.data.instructorName || "",
         year: resp.data.year ? String(resp.data.year) : "",
         // Falls back to the current 学期 rather than "" -- covers both a
         // freshly-created plan and an older one from before this field
@@ -613,6 +670,8 @@ const PlanDetail = (props) => {
         title: metaForm.title,
         theme: metaForm.theme || null,
         grade: metaForm.grade || null,
+        studentCount: metaForm.studentCount ? Number(metaForm.studentCount) : null,
+        instructorName: metaForm.instructorName || null,
         year: Number(metaForm.year),
         season: metaForm.season || null,
         plannedLessonCount: metaForm.plannedLessonCount ? Number(metaForm.plannedLessonCount) : null,
@@ -763,6 +822,10 @@ const PlanDetail = (props) => {
   const lessons = Array.from({ length: lessonCount }, (_, i) => i + 1);
   const planTemplateSchema = (plan.PlanTemplateVersion && plan.PlanTemplateVersion.schemaJson) || { sections: [] };
   const planSchemaMultiSection = planTemplateSchema.sections.length > 1;
+  // The sidebar's WHY/WHAT/HOW-equivalent pages and their review blocks are
+  // built from these, not planTemplateSchema.sections directly -- see
+  // anchorSections' comment.
+  const planAnchorSections = anchorSections(planTemplateSchema);
   // Hoisted here (rather than locally inside the executionRecord branch
   // below) so it's available for executionNotEmpty too.
   const executionTemplateSchema = (plan.ExecutionTemplateVersion && plan.ExecutionTemplateVersion.schemaJson) || { sections: [] };
@@ -843,17 +906,40 @@ const PlanDetail = (props) => {
                 </select>
               </div>
             </div>
-            <div className="form-group">
-              <label>预计课时</label>
-              <input
-                className="form-control"
-                type="number"
-                min="1"
-                max="60"
-                value={metaForm.plannedLessonCount}
-                onChange={(e) => updateMetaForm({ plannedLessonCount: e.target.value })}
-                disabled={!canEditPlan}
-              />
+            <div className="form-row">
+              <div className="form-group col-md-4">
+                <label>学生人数</label>
+                <input
+                  className="form-control"
+                  type="number"
+                  min="0"
+                  value={metaForm.studentCount}
+                  onChange={(e) => updateMetaForm({ studentCount: e.target.value })}
+                  disabled={!canEditPlan}
+                />
+              </div>
+              <div className="form-group col-md-4">
+                <label>执教人</label>
+                <input
+                  className="form-control"
+                  type="text"
+                  value={metaForm.instructorName}
+                  onChange={(e) => updateMetaForm({ instructorName: e.target.value })}
+                  disabled={!canEditPlan}
+                />
+              </div>
+              <div className="form-group col-md-4">
+                <label>预计课时</label>
+                <input
+                  className="form-control"
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={metaForm.plannedLessonCount}
+                  onChange={(e) => updateMetaForm({ plannedLessonCount: e.target.value })}
+                  disabled={!canEditPlan}
+                />
+              </div>
             </div>
             {canEditPlan && (
               <button className="btn btn-primary" type="submit" disabled={!metaDirty}>
@@ -866,20 +952,22 @@ const PlanDetail = (props) => {
     }
 
     // WHY/WHAT/HOW-equivalent -- one generic branch driven by whichever
-    // sections plan.PlanTemplateVersion.schemaJson has, replacing what used
-    // to be three separate hand-written branches each hardcoding their own
-    // field list. selected.key is a section key (e.g. "why"/"what"/"how"
-    // for the seed template, or "main" for a re-uploaded one -- see the
-    // dynamic-templates plan's "one flat section" limitation for those).
+    // sections plan.PlanTemplateVersion.schemaJson has (at the anchoring
+    // level -- see anchorSections), replacing what used to be three separate
+    // hand-written branches each hardcoding their own field list.
+    // selected.key is an anchor section's key (e.g. "why"/"what"/"how" for
+    // the seed template, the heading-parsed WHY/WHAT/HOW's own auto-assigned
+    // keys for a re-uploaded one, or "main" for a table/flat-parsed one).
     if (selected.type === "planSection") {
-      const section = planTemplateSchema.sections.find((s) => s.key === selected.key);
+      const section = planAnchorSections.find((s) => s.key === selected.key);
       if (!section) return null;
       const values = planSchemaMultiSection ? formData[section.key] || {} : formData;
       return (
         <div className="pl-card pl-why-what-how">
           <h6>{section.label}</h6>
           <DynamicSectionFields
-            fields={section.fields}
+            fields={directFields(section)}
+            subsections={section.subsections}
             values={values}
             canEdit={canEditPlan}
             onFieldChange={(field, value) => onFormFieldChange(section.key, field, value)}
@@ -1026,7 +1114,8 @@ const PlanDetail = (props) => {
         <div className="pl-card pl-why-what-how">
           <h6>实施记录 · 课时 {n}</h6>
           <DynamicSectionFields
-            fields={section.fields}
+            fields={directFields(section)}
+            subsections={section.subsections}
             values={record}
             canEdit={canEditPlan}
             onFieldChange={(field, value) => onExecutionFieldChange(n, field, value)}
@@ -1214,13 +1303,16 @@ const PlanDetail = (props) => {
                   >
                     基本信息
                   </button>
-                  {/* WHY/WHAT/HOW-equivalent leaves, one per
-                      plan.PlanTemplateVersion.schemaJson section -- see the
-                      "planSection" render branch above. Online-only, like
-                      分课时设计 just below (an upload-mode plan has no online
-                      form to fill in). */}
+                  {/* WHY/WHAT/HOW-equivalent leaves, one per anchoring-level
+                      section (see anchorSections and the "planSection"
+                      render branch above) -- NOT one per top-level
+                      schema.sections entry, which for a heading-parsed
+                      template collapses to a single uninformative wrapper
+                      (e.g. "课程设计框架") instead of surfacing WHY/WHAT/HOW as
+                      their own pages. Online-only, like 分课时设计 just below
+                      (an upload-mode plan has no online form to fill in). */}
                   {plan.planMode === "online" &&
-                    planTemplateSchema.sections.map((s) => (
+                    planAnchorSections.map((s) => (
                       <button
                         key={s.key}
                         type="button"

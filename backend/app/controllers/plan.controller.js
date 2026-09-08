@@ -1,5 +1,6 @@
 const fs = require("fs");
 const dynamicDocGenerator = require("../services/dynamicDocGenerator");
+const templateParser = require("../services/templateParser");
 const { diffPlanFormDataSegments, diffExecutionFormDataSegments } = require("../services/segmentVersion");
 const db = require("../models");
 const Plan = db.plan;
@@ -48,6 +49,40 @@ const parseLessonCount = (value) => {
   return Number.isInteger(n) && n >= 0 ? n : null;
 };
 
+// Pulls the real template's own word/styles.xml (see
+// templateParser.js#extractStylesXml) so a generated/filled-in doc adopts
+// the source template's fonts/sizes instead of docx's own defaults --
+// only possible when the pinned template version came from an upload
+// (sourceFilePath set); the hand-authored seed versions have no source file
+// and simply keep today's default styling.
+const resolveStylesXml = (version) => {
+  if (!version || !version.sourceFilePath || !fs.existsSync(version.sourceFilePath)) return null;
+  return templateParser.extractStylesXml(version.sourceFilePath);
+};
+
+// See resolveStylesXml above and dynamicDocGenerator.js#generateDoc's
+// `numberingXml` -- a heading style's real multi-level numbering/indentation
+// lives in word/numbering.xml, not styles.xml.
+const resolveNumberingXml = (version) => {
+  if (!version || !version.sourceFilePath || !fs.existsSync(version.sourceFilePath)) return null;
+  return templateParser.extractNumberingXml(version.sourceFilePath);
+};
+
+// The real template can leave a meta label un-bold (confirmed: the 2026
+// template's own "课程名称：" isn't bold, while its schema fields elsewhere
+// are inconsistently bold/not) -- resolved per label from templateParser.js's
+// basicInfoBold, captured from that same "基本信息" heading before it was
+// dropped from the schema, so this reproduces the template's real choice
+// instead of the previous blanket-bold default. Undefined (not just a
+// missing key) for any schema that never captured one -- a table/flat-
+// parsed schema, the hand-authored seed, or a heading-parsed template with
+// no "基本信息" heading at all -- so generateDoc's own bold=true default
+// applies there, unchanged from before this existed.
+const metaBold = (version, label) => {
+  const bold = version && version.schemaJson && version.schemaJson.basicInfoBold;
+  return bold ? bold[label] : undefined;
+};
+
 const isAdminRequester = async (userId, t) => {
   const user = await User.findByPk(userId, { transaction: t });
   if (!user) return false;
@@ -79,6 +114,8 @@ exports.create = async (req, res) => {
       title,
       theme,
       grade,
+      studentCount,
+      instructorName,
       year,
       season,
       plannedLessonCount,
@@ -125,6 +162,12 @@ exports.create = async (req, res) => {
       return res.status(422).send({ message: "预计课时无效，必须是非负整数。" });
     }
 
+    const parsedStudentCount = studentCount !== undefined ? parseLessonCount(studentCount) : null;
+    if (studentCount !== undefined && studentCount !== null && studentCount !== "" && parsedStudentCount === null) {
+      await t.rollback();
+      return res.status(422).send({ message: "学生人数无效，必须是非负整数。" });
+    }
+
     if (status !== undefined && !PLAN_STATUSES.includes(status)) {
       await t.rollback();
       return res.status(422).send({ message: "状态 无效。" });
@@ -148,6 +191,8 @@ exports.create = async (req, res) => {
         title: normalizedTitle,
         theme: theme || null,
         grade: grade || null,
+        studentCount: parsedStudentCount,
+        instructorName: normalizeInput(instructorName) || null,
         year: parsedYear,
         season: season || null,
         plannedLessonCount: parsedLessonCount,
@@ -347,6 +392,8 @@ exports.update = async (req, res) => {
       title,
       theme,
       grade,
+      studentCount,
+      instructorName,
       year,
       season,
       plannedLessonCount,
@@ -374,6 +421,8 @@ exports.update = async (req, res) => {
       title,
       theme,
       grade,
+      studentCount,
+      instructorName,
       year,
       season,
       plannedLessonCount,
@@ -442,6 +491,19 @@ exports.update = async (req, res) => {
         return res.status(422).send({ message: "年级 无效。" });
       }
       payload.grade = grade || null;
+    }
+
+    if (studentCount !== undefined) {
+      const parsedStudentCount = parseLessonCount(studentCount);
+      if (studentCount !== null && studentCount !== "" && parsedStudentCount === null) {
+        await t.rollback();
+        return res.status(422).send({ message: "学生人数无效，必须是非负整数。" });
+      }
+      payload.studentCount = parsedStudentCount;
+    }
+
+    if (instructorName !== undefined) {
+      payload.instructorName = normalizeInput(instructorName) || null;
     }
 
     if (year !== undefined) {
@@ -636,13 +698,17 @@ exports.renderDoc = async (req, res) => {
     const buffer = await dynamicDocGenerator.generateDoc({
       docTitle: "乡土课程设计方案",
       meta: [
-        ["课程名称", plan.title],
-        ["任教年级", plan.grade],
-        ["预计课时", plan.plannedLessonCount],
+        ["课程名称", plan.title, metaBold(plan.PlanTemplateVersion, "课程名称")],
+        ["任教年级", plan.grade, metaBold(plan.PlanTemplateVersion, "任教年级")],
+        ["学生人数", plan.studentCount, metaBold(plan.PlanTemplateVersion, "学生人数")],
+        ["执教人", plan.instructorName, metaBold(plan.PlanTemplateVersion, "执教人")],
+        ["预计课时", plan.plannedLessonCount, metaBold(plan.PlanTemplateVersion, "预计课时")],
       ],
       schema: plan.PlanTemplateVersion ? plan.PlanTemplateVersion.schemaJson : { sections: [] },
       answers: plan.planFormData,
       trailingChildren,
+      stylesXml: resolveStylesXml(plan.PlanTemplateVersion),
+      numberingXml: resolveNumberingXml(plan.PlanTemplateVersion),
     });
     const fileName = `${plan.title || "乡土课程设计方案"}.docx`;
 
@@ -692,6 +758,8 @@ exports.renderExecutionDoc = async (req, res) => {
       docTitle: `课时实施记录 · 第${lessonIndex}课时`,
       schema: plan.ExecutionTemplateVersion ? plan.ExecutionTemplateVersion.schemaJson : { sections: [] },
       answers: record,
+      stylesXml: resolveStylesXml(plan.ExecutionTemplateVersion),
+      numberingXml: resolveNumberingXml(plan.ExecutionTemplateVersion),
     });
     const fileName = `${plan.title || "乡土课程设计方案"}-课时${lessonIndex}-实施记录.docx`;
 

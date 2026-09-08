@@ -75,6 +75,8 @@ CREATE TABLE plans (   -- 乡土课程计划
   title VARCHAR(255) NOT NULL,
   theme VARCHAR(255) NULL,             -- one of the 11 乡土主题 values, migrated taxonomy
   grade VARCHAR(32) NULL,              -- 一年级..六年级
+  student_count INT NULL,              -- 学生人数
+  instructor_name VARCHAR(255) NULL,   -- 执教人
   year INT NOT NULL,
   season ENUM('秋季','春季') NULL,      -- 学期 -- nullable (pre-existing rows), new plans always get one client-side
   planned_lesson_count INT NULL,       -- 预计课时 -> drives lesson tab count

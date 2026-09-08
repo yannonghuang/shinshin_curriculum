@@ -7,18 +7,32 @@
 // generic reliable way to tell a section-header apart from a real field --
 // both are just short standalone text with nothing after them. See the
 // dynamic-templates plan's "Reality check" section for what was actually
-// inspected in the two real templates before settling on this heuristic.
+// inspected in the two real templates before settling on the table/flat
+// heuristics below, and the layered-template-metadata plan for the heading-
+// style-aware parser added on top of them.
 //
-// Reads word/document.xml directly via `unzip -p` (same pattern
-// review.controller.js already uses for .pptx slide XML -- no new
-// dependency) rather than mammoth, since this needs raw run-level
-// bold/table structure mammoth's plain-text/HTML output doesn't expose.
+// Reads word/document.xml (and, for the heading-aware parser, word/styles.xml)
+// directly via `unzip -p` (same pattern review.controller.js already uses
+// for .pptx slide XML -- no new dependency) rather than mammoth, since this
+// needs raw run-level bold/style structure mammoth's plain-text/HTML output
+// doesn't expose.
 //
-// Result shape (always one flat section, no sub-groups -- see the plan):
-//   { sections: [ { key: "main", label: "字段", fields: [ { key: "f0", label, group: null }, ... ] } ] }
+// Three shapes can come out of parseTemplateDocx, tried in this order:
+//   1. Table-shaped (a <w:tbl> is present): unchanged from the original
+//      ad-hoc heuristic -- one flat section, bold table-cell runs as fields.
+//   2. Heading-styled (no table, but paragraphs use real Word heading
+//      styles -- Heading1..Heading9, resolved generically via styles.xml
+//      rather than hardcoded styleId strings): a true nested outline is
+//      built (see parseHeadingSections), then flattened into each top-level
+//      section's `fields` (with a `group` label) for backward compatibility
+//      with every existing flat-shape consumer, alongside the true
+//      `subsections` tree for consumers that want the real hierarchy.
+//   3. Flat/no-heading fallback: unchanged from the original ad-hoc
+//      heuristic -- every non-empty paragraph except the title is a field.
 const childProcess = require("child_process");
 
 const MAX_LABEL_CHARS = 30;
+const NO_FIELDS_ERROR = "未能从该文件中识别出任何字段，请确认文件包含加粗的字段标签或按行分隔的字段列表。";
 
 const readDocumentXml = (filePath) => {
   try {
@@ -27,6 +41,34 @@ const readDocumentXml = (filePath) => {
       .toString("utf8");
   } catch (e) {
     throw new Error("无法读取该 .docx 文件，请确认文件未损坏。");
+  }
+};
+
+// Styling/heading-structure metadata is a bonus on top of field discovery,
+// never a reason to fail the whole parse -- returns null on any problem
+// (missing entry, corrupt zip, etc.) rather than throwing.
+const readStylesXml = (filePath) => {
+  try {
+    return childProcess
+      .execFileSync("unzip", ["-p", filePath, "word/styles.xml"], { stdio: ["ignore", "pipe", "ignore"] })
+      .toString("utf8");
+  } catch (e) {
+    return null;
+  }
+};
+
+// A heading style's real multi-level numbering ("2.1", with each level's own
+// indentation) lives in word/numbering.xml, not styles.xml -- a heading
+// style's <w:numPr><w:numId .../></w:numPr> is just a reference into it (see
+// the real 2026 template's Heading1..4 styles). Same non-throwing contract
+// as readStylesXml. See dynamicDocGenerator.js#generateDoc's `numberingXml`.
+const readNumberingXml = (filePath) => {
+  try {
+    return childProcess
+      .execFileSync("unzip", ["-p", filePath, "word/numbering.xml"], { stdio: ["ignore", "pipe", "ignore"] })
+      .toString("utf8");
+  } catch (e) {
+    return null;
   }
 };
 
@@ -112,6 +154,191 @@ const parseFlatFields = (xml) => {
   return labels;
 };
 
+const asFlatSchema = (labels) => ({
+  sections: [{ key: "main", label: "字段", fields: labels.map((label, i) => ({ key: `f${i}`, label, group: null })) }],
+});
+
+// Resolves each paragraph style's heading depth (1-based, matching Word's
+// own "heading 1".."heading 9" naming) from word/styles.xml, generically --
+// via the style's declared <w:name> or <w:outlineLvl> rather than hardcoded
+// styleId strings like "Heading1", since a real-world .docx's styleIds
+// aren't guaranteed to match that literal spelling (confirmed to happen to
+// match on the real 2026 template, but nothing about the OOXML format
+// requires it).
+const buildHeadingLevelMap = (stylesXml) => {
+  const map = new Map();
+  if (!stylesXml) return map;
+  const styleRe = /<w:style\b[^>]*w:styleId="([^"]+)"[^>]*>([\s\S]*?)<\/w:style>/g;
+  let m;
+  while ((m = styleRe.exec(stylesXml))) {
+    const [, styleId, body] = m;
+    const nameMatch = body.match(/<w:name\s+w:val="([^"]+)"/);
+    const headingNameMatch = nameMatch && nameMatch[1].match(/^heading\s*(\d+)$/i);
+    if (headingNameMatch) {
+      map.set(styleId, Number(headingNameMatch[1]));
+      continue;
+    }
+    const outlineMatch = body.match(/<w:outlineLvl\s+w:val="(\d+)"/);
+    if (outlineMatch) map.set(styleId, Number(outlineMatch[1]) + 1);
+  }
+  return map;
+};
+
+const documentUsesAnyHeadingStyle = (xml, headingLevelMap) => {
+  const styleRe = /<w:pStyle\s+w:val="([^"]+)"/g;
+  let m;
+  while ((m = styleRe.exec(xml))) {
+    if (headingLevelMap.has(m[1])) return true;
+  }
+  return false;
+};
+
+// Top-level heading sections that map to something else entirely elsewhere
+// in the app, so a heading-based parse must drop them rather than surface
+// them a second time as generic schema sections (see the layered-template-
+// metadata plan). Modeled after planDocExtract.js's HARD_SECTION_BOUNDARIES
+// -- small, literal, and reviewed by hand rather than inferred.
+// 课程名称/任教年级/学生人数/执教人/预计课时 -- superseded by the plans table's own
+// dedicated columns (title/grade/studentCount/instructorName/
+// plannedLessonCount), rendered via dynamicDocGenerator.js's hardcoded
+// `meta` list, not the field-schema mechanism.
+const isBasicInfoLabel = (label) => label === "基本信息";
+// The per-课时 breakdown is freeform per-课时 title+content, rendered via
+// dynamicDocGenerator.js#buildLessonDesignTrailingChildren instead of the
+// field-schema mechanism -- including it here would render it twice.
+const isLessonBreakdownLabel = (label) => label.includes("分课时设计");
+
+// Heading-style-driven structure discovery: walks paragraphs in document
+// order, using each one's resolved heading level (via headingLevelMap) to
+// build a true nested tree (stack-based -- a heading pops the stack down to
+// its own level, then pushes itself as the new deepest node; a non-heading
+// paragraph becomes a field on whatever is currently deepest).
+const parseHeadingSections = (xml, headingLevelMap) => {
+  const paraRe = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g;
+  const root = { label: null, level: 0, fields: [], subsections: [] };
+  const stack = [root];
+  let m;
+  while ((m = paraRe.exec(xml))) {
+    const chunk = m[1];
+    const styleMatch = chunk.match(/<w:pStyle\s+w:val="([^"]+)"/);
+    const level = styleMatch ? headingLevelMap.get(styleMatch[1]) : undefined;
+    const runs = extractRuns(chunk);
+    const text = runs.map((r) => r.text).join("").trim();
+    if (!text) continue;
+
+    if (level) {
+      while (stack.length > 1 && stack[stack.length - 1].level >= level) stack.pop();
+      const node = { label: text, level, fields: [], subsections: [] };
+      stack[stack.length - 1].subsections.push(node);
+      stack.push(node);
+      continue;
+    }
+
+    if (isLabelCandidate(text)) {
+      // The real template is inconsistent about which field labels are bold
+      // (confirmed on the 2026 template -- e.g. "1.认知思维目标：" is bold,
+      // "课程名称：" isn't) -- captured per field here, rather than assuming
+      // every label should be bold, so generation can reproduce the
+      // template's own choice instead of inventing a blanket style (see
+      // dynamicDocGenerator.js#p's `bold` parameter).
+      stack[stack.length - 1].fields.push({ label: text, bold: runs.some((r) => r.bold) });
+    }
+  }
+
+  // A heading with nothing under it before the next heading of equal-or-
+  // higher level is itself the field/prompt, not a section -- e.g. "项目介绍
+  // （为什么做这个乡土主题？）" and "公开展示方式" in the real 2026 template have
+  // no field paragraph of their own, the heading text *is* the question.
+  const demoteEmptyHeadings = (node) => {
+    node.subsections = node.subsections.filter((child) => {
+      demoteEmptyHeadings(child);
+      if (child.fields.length === 0 && child.subsections.length === 0) {
+        // Demoted from a heading, not a body paragraph, so there's no run-
+        // level bold signal to read -- defaults to bold like the label it
+        // stood in for as a heading.
+        node.fields.push({ label: child.label, bold: true });
+        return false;
+      }
+      return true;
+    });
+  };
+  demoteEmptyHeadings(root);
+
+  // The lesson-breakdown heading's own wording is captured (not just
+  // dropped) so the generic trailing-tail renderer can use the template's
+  // actual text -- e.g. "分课时设计" here -- instead of a hardcoded guess like
+  // "第二部分：分课时设计", which some other template might phrase differently
+  // (or not at all). See dynamicDocGenerator.js#buildLessonDesignTrailingChildren.
+  let lessonBreakdownLabel = null;
+  // Likewise, 基本信息's own fields (课程名称/任教年级/etc.) are dropped from the
+  // schema (superseded by dedicated Plan columns -- see isBasicInfoLabel),
+  // but their bold-ness is still captured, keyed by label with the trailing
+  // colon stripped, so dynamicDocGenerator.js's hardcoded `meta` rendering
+  // can reproduce the template's real choice per field instead of assuming
+  // one -- confirmed the real 2026 template leaves "课程名称：" un-bold while
+  // bolding other labels elsewhere, so a blanket default would misrepresent it.
+  let basicInfoBold = null;
+  root.subsections = root.subsections.filter((s) => {
+    if (isBasicInfoLabel(s.label)) {
+      basicInfoBold = {};
+      s.fields.forEach((f) => {
+        basicInfoBold[f.label.replace(/[:：]\s*$/, "")] = f.bold;
+      });
+      return false;
+    }
+    if (isLessonBreakdownLabel(s.label)) {
+      lessonBreakdownLabel = s.label;
+      return false;
+    }
+    return true;
+  });
+  if (root.subsections.length === 0) return null;
+
+  let fieldCounter = 0;
+  let sectionCounter = 0;
+  const assignKeys = (node) => {
+    node.key = `s${sectionCounter++}`;
+    node.fields.forEach((f) => {
+      f.key = `f${fieldCounter++}`;
+    });
+    node.subsections.forEach(assignKeys);
+  };
+  root.subsections.forEach(assignKeys);
+
+  // Full descendant field list for one top-level node, flattened in document
+  // order -- group is the nearest ancestor heading below the top-level node
+  // itself (null for a field sitting directly under the top-level heading).
+  const collectFields = (node, isTop, out) => {
+    const group = isTop ? null : node.label;
+    node.fields.forEach((f) => out.push({ key: f.key, label: f.label, group, bold: f.bold }));
+    node.subsections.forEach((child) => collectFields(child, false, out));
+  };
+
+  // True nested shape, direct fields/subsections only at each depth --
+  // additive; absent from every legacy (table/flat) schema.
+  const toSubsectionNode = (node, level) => ({
+    key: node.key,
+    label: node.label,
+    level,
+    fields: node.fields.map((f) => ({ key: f.key, label: f.label, group: null, bold: f.bold })),
+    subsections: node.subsections.map((child) => toSubsectionNode(child, level + 1)),
+  });
+
+  // Top-level entries carry both shapes: `ownFields` (direct-only, like every
+  // nested subsection's own `fields`) for the new recursive doc/form
+  // renderers, and `fields` overwritten with the full flattened descendant
+  // list for backward compatibility with every existing flat-shape consumer.
+  const sections = root.subsections.map((top) => {
+    const flatFields = [];
+    collectFields(top, true, flatFields);
+    const node = toSubsectionNode(top, 1);
+    return { ...node, ownFields: node.fields, fields: flatFields };
+  });
+
+  if (sections.every((s) => s.fields.length === 0)) return null;
+  return { sections, lessonBreakdownLabel, basicInfoBold };
+};
+
 // filePath: local path to the uploaded .docx (multer disk storage already
 // gives the controller one). Throws on an unreadable file or a parse that
 // finds zero fields -- the only safety net in a review-less flow (see
@@ -119,12 +346,30 @@ const parseFlatFields = (xml) => {
 const parseTemplateDocx = (filePath) => {
   const xml = readDocumentXml(filePath);
   const hasTable = /<w:tbl>/.test(xml);
-  const labels = hasTable ? parseTableFields(xml) : parseFlatFields(xml);
-  if (labels.length === 0) {
-    throw new Error("未能从该文件中识别出任何字段，请确认文件包含加粗的字段标签或按行分隔的字段列表。");
+  if (hasTable) {
+    const labels = parseTableFields(xml);
+    if (labels.length === 0) throw new Error(NO_FIELDS_ERROR);
+    return asFlatSchema(labels);
   }
-  const fields = labels.map((label, i) => ({ key: `f${i}`, label, group: null }));
-  return { sections: [{ key: "main", label: "字段", fields }] };
+
+  const headingLevelMap = buildHeadingLevelMap(readStylesXml(filePath));
+  if (headingLevelMap.size > 0 && documentUsesAnyHeadingStyle(xml, headingLevelMap)) {
+    const schema = parseHeadingSections(xml, headingLevelMap);
+    if (schema) return schema;
+    // Fall through to the flat heuristic below if the heading-driven parse
+    // came up empty (e.g. every heading got excluded/demoted) rather than
+    // failing outright -- the flat heuristic still has a shot at the same
+    // paragraphs with no heading awareness at all.
+  }
+
+  const labels = parseFlatFields(xml);
+  if (labels.length === 0) throw new Error(NO_FIELDS_ERROR);
+  return asFlatSchema(labels);
 };
 
-module.exports = { parseTemplateDocx };
+// Non-throwing: styling is a bonus on generated documents, never required.
+// See dynamicDocGenerator.js#generateDoc's `stylesXml` option.
+const extractStylesXml = (filePath) => readStylesXml(filePath);
+const extractNumberingXml = (filePath) => readNumberingXml(filePath);
+
+module.exports = { parseTemplateDocx, extractStylesXml, extractNumberingXml };
