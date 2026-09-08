@@ -834,7 +834,11 @@ const PlanDetail = (props) => {
   // upload-extraction (see DesignDocPanel/LessonExecutionDocPanel below).
   const planNotEmpty =
     hasAnySectionContent(planTemplateSchema, formData) ||
-    (formData.lessons || []).some((l) => (l.title || "").trim() || (l.content || "").trim());
+    (formData.lessons || []).some((l) =>
+      planTemplateSchema.lessonSchema
+        ? Object.keys(l).some((k) => k !== "index" && l[k] != null && String(l[k]).trim() !== "")
+        : (l.title || "").trim() || (l.content || "").trim()
+    );
   const executionNotEmpty = executionFormData.some((r) => hasAnySectionContent(executionTemplateSchema, r));
 
   const renderContent = () => {
@@ -1045,34 +1049,52 @@ const PlanDetail = (props) => {
     // panes, which are for actual delivery evidence (uploaded artifacts, reviews).
     if (selected.type === "planLesson") {
       const n = selected.key;
-      // The template leaves each 课时 entirely freeform (see EMPTY_LESSON) --
-      // just an optional inline title after "第N课时：" plus a body -- so
-      // there's no fixed-field form here the way WHY/WHAT/HOW have one, just
-      // these two. lessons is a sparse array (see onLessonFieldChange), so a
-      // lesson with nothing written yet falls back to EMPTY_LESSON.
+      // lessons is a sparse array (see onLessonFieldChange), so a lesson with
+      // nothing written yet falls back to EMPTY_LESSON (harmless even when
+      // lessonSchema is present -- its unused title/content keys are just
+      // ignored by DynamicSectionFields, which only reads its own field keys).
       const lesson = formData.lessons.find((l) => Number(l.index) === n) || EMPTY_LESSON;
+      const lessonSchema = planTemplateSchema.lessonSchema;
       return (
         <div className="pl-card pl-why-what-how">
           <h6>分课时设计 · 课时 {n}</h6>
-          <div className="form-group">
-            <label>课时标题</label>
-            <input
-              className="form-control"
-              value={lesson.title}
-              disabled={!canEditPlan}
-              onChange={(e) => onLessonFieldChange(n, "title", e.target.value)}
+          {lessonSchema ? (
+            // Schema-driven: a reusable per-课时 field template extracted
+            // from the source template itself (see templateParser.js#
+            // extractLessonSchema) -- applied once per lesson index, same
+            // convention as the executionRecord branch below.
+            <DynamicSectionFields
+              fields={lessonSchema.fields}
+              subsections={lessonSchema.subsections}
+              values={lesson}
+              canEdit={canEditPlan}
+              onFieldChange={(field, value) => onLessonFieldChange(n, field, value)}
             />
-          </div>
-          <div className="form-group">
-            <label>课时设计内容</label>
-            <textarea
-              className="form-control"
-              rows="10"
-              value={lesson.content}
-              disabled={!canEditPlan}
-              onChange={(e) => onLessonFieldChange(n, "content", e.target.value)}
-            />
-          </div>
+          ) : (
+            // Freeform fallback -- every template with no detectable
+            // repeating 课时-marker pattern (or parsed before this existed).
+            <>
+              <div className="form-group">
+                <label>课时标题</label>
+                <input
+                  className="form-control"
+                  value={lesson.title}
+                  disabled={!canEditPlan}
+                  onChange={(e) => onLessonFieldChange(n, "title", e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label>课时设计内容</label>
+                <textarea
+                  className="form-control"
+                  rows="10"
+                  value={lesson.content}
+                  disabled={!canEditPlan}
+                  onChange={(e) => onLessonFieldChange(n, "content", e.target.value)}
+                />
+              </div>
+            </>
+          )}
           {canEditPlan && (
             <div className="d-flex mt-2">
               <button className="btn btn-primary mr-2" type="button" onClick={() => saveFormData()} disabled={!planDirty}>
