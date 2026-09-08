@@ -7,6 +7,31 @@ const TEMPLATE_KEYS = [
   { key: "lesson_execution", label: "课时实施记录模板" },
 ];
 
+// Recursively renders one schema section's true nested outline (section.
+// subsections -- see backend/app/services/templateParser.js#parseHeadingSections)
+// indented per depth, falling back to a flat field list for a legacy schema
+// with no subsections (table-shaped, flat-shaped, or hand-authored) --
+// exactly what this rendered before subsections existed.
+const SchemaOutline = ({ section, depth }) => {
+  const hasSubsections = section.subsections && section.subsections.length > 0;
+  // A top-level section's `fields` is the full flattened descendant list
+  // (kept for legacy flat-shape consumers -- see templateParser.js);
+  // `ownFields` (direct-only, present only alongside subsections) is what
+  // this recursive view needs so a nested field isn't listed twice.
+  const fields = hasSubsections ? section.ownFields || [] : section.fields || [];
+  return (
+    <div style={{ marginLeft: depth * 16 }} className="mb-2">
+      <b>{section.label}</b>
+      <ul className="mb-0">
+        {fields.map((field) => (
+          <li key={field.key}>{field.group ? `${field.group} · ${field.label}` : field.label}</li>
+        ))}
+      </ul>
+      {hasSubsections && section.subsections.map((sub) => <SchemaOutline key={sub.key} section={sub} depth={depth + 1} />)}
+    </div>
+  );
+};
+
 // Admin-only: upload a new version of either template, browse version
 // history, promote a version to active, delete a superseded/unreferenced
 // one, and leave a free-text note on any version. Parsing is automatic (no
@@ -264,16 +289,7 @@ const TemplateAdmin = () => {
                         <tr>
                           <td colSpan={8}>
                             {(v.schemaJson?.sections || []).map((section) => (
-                              <div key={section.key} className="mb-2">
-                                <b>{section.label}</b>
-                                <ul className="mb-0">
-                                  {(section.fields || []).map((field) => (
-                                    <li key={field.key}>
-                                      {field.group ? `${field.group} · ${field.label}` : field.label}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
+                              <SchemaOutline key={section.key} section={section} depth={0} />
                             ))}
                           </td>
                         </tr>

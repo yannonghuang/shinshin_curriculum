@@ -74,6 +74,8 @@ const buildBasicInfoLines = (plan) => {
   lines.push(`课程标题：${plan.title || ""}`);
   if (plan.theme) lines.push(`乡土主题：${plan.theme}`);
   if (plan.grade) lines.push(`年级：${plan.grade}`);
+  if (plan.studentCount) lines.push(`学生人数：${plan.studentCount}`);
+  if (plan.instructorName) lines.push(`执教人：${plan.instructorName}`);
   if (plan.plannedLessonCount) lines.push(`预计课时：${plan.plannedLessonCount}`);
   return lines;
 };

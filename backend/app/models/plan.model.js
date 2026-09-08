@@ -21,6 +21,16 @@ module.exports = (sequelize, Sequelize) => {
       grade: {
         type: Sequelize.STRING(32),
       },
+      // 学生人数/执教人 -- part of the template's "基本信息" heading section but
+      // rendered/edited like grade/plannedLessonCount (dedicated columns,
+      // hardcoded `meta` list on generation) rather than through the generic
+      // field-schema mechanism -- see templateParser.js's EXCLUDED_TOP_LEVEL_LABELS.
+      studentCount: {
+        type: Sequelize.INTEGER,
+      },
+      instructorName: {
+        type: Sequelize.STRING(255),
+      },
       year: {
         type: Sequelize.INTEGER,
         allowNull: false,
