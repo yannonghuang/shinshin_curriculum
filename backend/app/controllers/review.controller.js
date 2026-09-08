@@ -1,4 +1,5 @@
 const planContext = require("../services/planContext");
+const { segmentKeyForReview } = require("../services/segmentVersion");
 
 const db = require("../models");
 const Review = db.review;
@@ -40,9 +41,19 @@ exports.create = async (req, res) => {
     // wins if someone happens to hold both roles.
     const reviewerType = (await isExpertRequester(req.userId)) ? "expert" : "admin";
 
+    const reviewLessonIndex = normalizeLessonIndex(req.body.lessonIndex);
+    // Falls back to the plan-wide contentVersionAt when this segment has no
+    // recorded entry yet (e.g. content untouched since before this feature
+    // shipped) -- matches the pre-existing plan-level behavior until the
+    // segment's first individually-tracked edit. See segmentVersion.js.
+    const segmentKey = segmentKeyForReview(sectionKey || null, reviewLessonIndex);
+    const segmentVersionAt = segmentKey
+      ? (plan.segmentVersionAt && plan.segmentVersionAt[segmentKey]) || plan.contentVersionAt
+      : null;
+
     const data = await Review.create({
       planId,
-      lessonIndex: normalizeLessonIndex(req.body.lessonIndex),
+      lessonIndex: reviewLessonIndex,
       reviewerType,
       reviewerId: req.userId,
       sectionKey: sectionKey || null,
@@ -50,6 +61,7 @@ exports.create = async (req, res) => {
       content,
       aiModel: null,
       planVersionAt: plan.contentVersionAt,
+      segmentVersionAt,
     });
 
     return res.send(data);

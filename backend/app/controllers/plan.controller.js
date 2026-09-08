@@ -1,5 +1,6 @@
 const fs = require("fs");
 const dynamicDocGenerator = require("../services/dynamicDocGenerator");
+const { diffPlanFormDataSegments, diffExecutionFormDataSegments } = require("../services/segmentVersion");
 const db = require("../models");
 const Plan = db.plan;
 const User = db.user;
@@ -397,7 +398,26 @@ exports.update = async (req, res) => {
     // Bumping this (rather than relying on the plain updated_at column,
     // which MySQL bumps for every write regardless of which fields changed)
     // is what defines a new review "thread boundary" -- see review.model.js.
-    if (editingContent) payload.contentVersionAt = new Date();
+    const now = new Date();
+    if (editingContent) payload.contentVersionAt = now;
+
+    // Per-segment counterpart: planFormData/executionFormData are always
+    // sent wholesale (see plan-detail.component.js's saveFormData/
+    // saveExecutionRecord -- there's no per-tab save), so the only way to
+    // know which segment(s) a given save actually touched is to diff
+    // against what's already stored. Only the segments that actually
+    // changed get their segmentVersionAt entry bumped -- editing HOW must
+    // not mark a review of WHY as superseded. See segmentVersion.js and
+    // plan.model.js's segmentVersionAt comment.
+    const changedSegmentKeys = [
+      ...(planFormData !== undefined ? diffPlanFormDataSegments(data.planFormData, planFormData) : []),
+      ...(executionFormData !== undefined ? diffExecutionFormDataSegments(data.executionFormData, executionFormData) : []),
+    ];
+    if (changedSegmentKeys.length > 0) {
+      const nextSegmentVersionAt = { ...(data.segmentVersionAt || {}) };
+      for (const key of changedSegmentKeys) nextSegmentVersionAt[key] = now;
+      payload.segmentVersionAt = nextSegmentVersionAt;
+    }
 
     if (title !== undefined) {
       const normalizedTitle = normalizeInput(title);

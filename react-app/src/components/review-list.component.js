@@ -81,6 +81,23 @@ const sectionLabel = (key, lessonIdx) => {
   return key;
 };
 
+// Mirrors backend/app/services/segmentVersion.js#segmentKeyForReview -- the
+// key a review's sectionKey/lessonIndex resolves to in plan.segmentVersionAt.
+// Must stay in sync with the backend convention, or the "edited since this
+// review" comparison below silently never fires. IMPLEMENTATION_OVERALL and
+// plain 整体 comments (sectionKey null) have no single segment, so they
+// resolve to null and are never flagged here -- only the plan-wide
+// 历史版本 grouping applies to those.
+const segmentKeyForReview = (review) => {
+  const { sectionKey, lessonIndex } = review;
+  if (!sectionKey) return null;
+  if (sectionKey === "WHY" || sectionKey === "WHAT" || sectionKey === "HOW") return sectionKey;
+  if ((sectionKey === "LESSON_DESIGN" || sectionKey === "EXECUTION_RECORD") && lessonIndex) {
+    return `${sectionKey}:${lessonIndex}`;
+  }
+  return null;
+};
+
 const ReviewList = (props) => {
   const {
     planId,
@@ -89,6 +106,7 @@ const ReviewList = (props) => {
     aggregateScope,
     embedded,
     planContentVersionAt,
+    segmentVersionAt,
     canTriggerAi,
     onSelectSection,
     aiPending,
@@ -226,6 +244,24 @@ const ReviewList = (props) => {
   // plan's current content version -- once superseded by a later edit, it's
   // locked as history for everyone, admin included.
   const isCurrentVersion = (review) => review.planVersionAt === planContentVersionAt;
+  // Segment-level counterpart to the plan-wide 历史版本 grouping below: flags
+  // a specific row when its own segment (not just some unrelated part of the
+  // plan) was edited after this review was written -- see plan.model.js's
+  // segmentVersionAt comment. Only resolvable for a review with a real
+  // sectionKey+lessonIndex; a plain 整体/IMPLEMENTATION_OVERALL review has no
+  // single segment and keeps relying on the group-level tag only.
+  const isSegmentStale = (review) => {
+    const key = segmentKeyForReview(review);
+    if (!key || !segmentVersionAt) return false;
+    const current = segmentVersionAt[key];
+    if (!current) return false;
+    // A review with no stored snapshot predates this tracking feature
+    // entirely (segmentVersionAt didn't exist yet when it was created) --
+    // any recorded edit for its segment necessarily happened after it, so
+    // it's unconditionally stale rather than "unknown".
+    if (!review.segmentVersionAt) return true;
+    return new Date(current).getTime() !== new Date(review.segmentVersionAt).getTime();
+  };
   // A review is "this aggregate's own" iff it's tagged with this aggregate's
   // writeSectionKey and has no lessonIndex -- everything else shown in an
   // aggregate (a segment review, or, in 实施's aggregate, 设计's own AI
@@ -358,6 +394,11 @@ const ReviewList = (props) => {
                 {group.items.map((review) => {
                   const isLong = review.content && review.content.length > CONTENT_PREVIEW_LENGTH;
                   const isExpanded = expandedIds.has(review.id);
+                  const staleBadge = isSegmentStale(review) && (
+                    <span className="pl-tag pl-tag-warn ml-1" title="该模块内容已在此点评后被修改">
+                      内容已更新
+                    </span>
+                  );
                   return (
                   <tr key={review.id}>
                     <td>
@@ -370,6 +411,7 @@ const ReviewList = (props) => {
                       ) : (
                         <span className="pl-tag-expert">专家点评</span>
                       )}
+                      {!isAggregateView && staleBadge}
                     </td>
                     {isAggregateView &&
                       (() => {
@@ -383,6 +425,7 @@ const ReviewList = (props) => {
                             ) : (
                               label
                             )}
+                            {staleBadge}
                           </td>
                         );
                       })()}

@@ -906,6 +906,7 @@ const PlanDetail = (props) => {
             sectionKey={section.key.toUpperCase()}
             embedded
             planContentVersionAt={plan.contentVersionAt}
+            segmentVersionAt={plan.segmentVersionAt}
           />
         </div>
       );
@@ -931,6 +932,7 @@ const PlanDetail = (props) => {
             lessonIndex={null}
             embedded
             planContentVersionAt={plan.contentVersionAt}
+            segmentVersionAt={plan.segmentVersionAt}
             canTriggerAi={canEditPlan}
             aiPending={aiReviewPending.design}
             setAiPending={(v) => setAiReviewPending((prev) => ({ ...prev, design: v }))}
@@ -1005,6 +1007,7 @@ const PlanDetail = (props) => {
             sectionKey="LESSON_DESIGN"
             embedded
             planContentVersionAt={plan.contentVersionAt}
+            segmentVersionAt={plan.segmentVersionAt}
           />
         </div>
       );
@@ -1050,6 +1053,7 @@ const PlanDetail = (props) => {
             sectionKey="EXECUTION_RECORD"
             embedded
             planContentVersionAt={plan.contentVersionAt}
+            segmentVersionAt={plan.segmentVersionAt}
           />
         </div>
       );
@@ -1094,6 +1098,7 @@ const PlanDetail = (props) => {
             aggregateScope="implementation"
             embedded
             planContentVersionAt={plan.contentVersionAt}
+            segmentVersionAt={plan.segmentVersionAt}
             canTriggerAi={canEditPlan}
             aiPending={aiReviewPending.implementation}
             setAiPending={(v) => setAiReviewPending((prev) => ({ ...prev, implementation: v }))}
