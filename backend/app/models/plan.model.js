@@ -84,6 +84,20 @@ module.exports = (sequelize, Sequelize) => {
         allowNull: false,
         defaultValue: Sequelize.NOW,
       },
+      // Per-segment counterpart to contentVersionAt, bumped only for the
+      // segment(s) whose own content actually changed on a given update --
+      // see plan.controller.js#update's diffing. Keyed by sectionKey for
+      // WHY/WHAT/HOW, or "<sectionKey>:<lessonIndex>" for LESSON_DESIGN and
+      // EXECUTION_RECORD (both keyed per-lesson). Reviews snapshot the
+      // relevant entry at creation time (reviews.segment_version_at) so a
+      // review can be flagged as superseded only when its own segment was
+      // edited, not merely because some other part of the plan changed --
+      // see review-list.component.js.
+      segmentVersionAt: {
+        type: Sequelize.JSON,
+        allowNull: false,
+        defaultValue: {},
+      },
     },
     {
       tableName: "plans",

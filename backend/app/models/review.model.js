@@ -55,6 +55,18 @@ module.exports = (sequelize, Sequelize) => {
       planVersionAt: {
         type: Sequelize.DATE,
       },
+      // Snapshot of plans.segment_version_at[<this review's segment>] at the
+      // moment this review was created -- see plan.model.js's
+      // segmentVersionAt comment. NULL when the review's sectionKey/
+      // lessonIndex don't resolve to a trackable segment (e.g. IMPLEMENTATION_
+      // OVERALL, or a plain 整体 comment with no sectionKey) -- those fall
+      // back to the plan-wide planVersionAt comparison only. Once the plan's
+      // segmentVersionAt entry for this segment moves past this snapshot,
+      // the segment itself (not just the plan as a whole) was edited after
+      // this review -- see review-list.component.js.
+      segmentVersionAt: {
+        type: Sequelize.DATE,
+      },
     },
     {
       tableName: "reviews",
