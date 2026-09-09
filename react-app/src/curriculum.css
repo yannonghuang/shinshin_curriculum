@@ -955,11 +955,20 @@
    inherited whatever color its container happened to set (dark explorer-tree
    text, or losing the cascade to .pl-fm-icon-glyph's accent color in the
    icon-grid view below), so the same kind of folder read as three different
-   colors depending on where you saw it. The `i.` prefix outranks
-   .pl-fm-icon-glyph's plain class selector so a folder tile that also
-   carries that class (the icon-grid view) still renders yellow, not green. */
-i.pl-fm-folder-glyph,
-i.pl-folder-icon {
+   colors depending on where you saw it.
+   Deliberately NOT element-qualified (no "i." prefix, despite every icon
+   being authored as <i className="fas fa-folder...">) -- App.js imports
+   both @fortawesome/fontawesome-free's css/all.css (webfont) AND js/all.js,
+   and that JS auto-replaces every <i class="fa...">  in the DOM with an
+   inline <svg> at runtime, carrying the same classes over but changing the
+   tag. An "i."-qualified selector matched only the pre-replacement markup
+   and silently stopped applying (confirmed: !important on the old i.-
+   qualified rule still didn't render yellow, in two different browsers) --
+   a bare class selector matches the element regardless of which tag FA's JS
+   leaves it as. !important still guards against .pl-fm-icon-glyph's own
+   (non-important) color in the icon-grid view. */
+.pl-fm-folder-glyph,
+.pl-folder-icon {
   color: #e0a940 !important;
 }
 
