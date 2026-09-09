@@ -146,13 +146,24 @@ const PlansList = (props) => {
   // in public/ to fall out of sync with it.
   const downloadTemplateFile = async (templateKey) => {
     try {
-      const resp = await TemplateDataService.downloadBlank(templateKey);
+      // Real uploaded templates should download under their own original
+      // filename (see template.controller.js#downloadBlank/#upload's
+      // sourceFileName) -- the hardcoded generic name below is only a
+      // fallback for a hand-authored seed version, which has no uploaded
+      // file of its own to name itself after.
+      const [activeResp, blankResp] = await Promise.all([
+        TemplateDataService.getActive(templateKey),
+        TemplateDataService.downloadBlank(templateKey),
+      ]);
+      const fileName =
+        (activeResp.data && activeResp.data.sourceFileName) ||
+        `${templateKey === "plan_design" ? "乡土课程设计方案模版" : "课时实施记录模版"}.docx`;
       const url = window.URL.createObjectURL(
-        new Blob([resp.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
+        new Blob([blankResp.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
       );
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", `${templateKey === "plan_design" ? "乡土课程设计方案模版" : "课时实施记录模版"}.docx`);
+      link.setAttribute("download", fileName);
       document.body.appendChild(link);
       link.click();
       link.remove();

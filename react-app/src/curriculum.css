@@ -960,7 +960,7 @@
    carries that class (the icon-grid view) still renders yellow, not green. */
 i.pl-fm-folder-glyph,
 i.pl-folder-icon {
-  color: #e0a940;
+  color: #e0a940 !important;
 }
 
 .pl-fm-checkbox {
