@@ -830,6 +830,12 @@ const PlanDetail = (props) => {
   // built from these, not planTemplateSchema.sections directly -- see
   // anchorSections' comment.
   const planAnchorSections = anchorSections(planTemplateSchema);
+  // sectionKey -> real anchor label (e.g. "S0" -> "WHY ·学习目标") -- a
+  // heading-style-parsed template's anchors get auto-generated keys (see
+  // anchorSections/section.key), meaningless on their own in review-
+  // list.component.js's "点评（...）" header and 模块 column. See
+  // review-list.component.js's sectionLabel.
+  const planSectionLabels = Object.fromEntries(planAnchorSections.map((s) => [s.key.toUpperCase(), s.label]));
   // Hoisted here (rather than locally inside the executionRecord branch
   // below) so it's available for executionNotEmpty too.
   const executionTemplateSchema = (plan.ExecutionTemplateVersion && plan.ExecutionTemplateVersion.schemaJson) || { sections: [] };
@@ -1000,6 +1006,7 @@ const PlanDetail = (props) => {
             planId={planId}
             lessonIndex={null}
             sectionKey={section.key.toUpperCase()}
+            sectionLabels={planSectionLabels}
             embedded
             planContentVersionAt={plan.contentVersionAt}
             segmentVersionAt={plan.segmentVersionAt}
@@ -1026,6 +1033,7 @@ const PlanDetail = (props) => {
           <ReviewList
             planId={planId}
             lessonIndex={null}
+            sectionLabels={planSectionLabels}
             embedded
             planContentVersionAt={plan.contentVersionAt}
             segmentVersionAt={plan.segmentVersionAt}
@@ -1210,6 +1218,7 @@ const PlanDetail = (props) => {
           <ReviewList
             planId={planId}
             lessonIndex={null}
+            sectionLabels={planSectionLabels}
             aggregateScope="implementation"
             embedded
             planContentVersionAt={plan.contentVersionAt}
