@@ -70,15 +70,22 @@ const CONTENT_PREVIEW_LENGTH = 150;
 // additionally shows EXECUTION_RECORD (see the file header comment).
 const DESIGN_SEGMENT_KEYS = ["WHY", "WHAT", "HOW", "LESSON_DESIGN"];
 
-// sectionKey is an internal, code-shaped constant for LESSON_DESIGN/
-// EXECUTION_RECORD/IMPLEMENTATION_OVERALL (unlike WHY/WHAT/HOW, which already
-// read fine as-is) -- map those to a proper Chinese label instead of
-// surfacing the raw string in headerLabel/the 模块 column.
-const sectionLabel = (key, lessonIdx) => {
+// sectionKey is an internal, code-shaped constant -- fine to surface as-is
+// for the hand-authored seed's own "WHY"/"WHAT"/"HOW" keys, but a heading-
+// style-parsed template's anchor sections get auto-generated keys instead
+// ("S0"/"S1"/"S2", from section.key.toUpperCase() -- see plan-detail.
+// component.js's anchorSections), which are meaningless on their own. labels
+// (a sectionKey -> real anchor-label map, e.g. {S0: "WHY ·学习目标"} --
+// see plan-detail.component.js's planSectionLabels) resolves those to the
+// same label already shown in that section's own sidebar tab; falls back to
+// the raw key when no entry exists (a review tagged with a section the
+// current schema no longer has, or a template whose real "WHY"/"WHAT"/"HOW"
+// keys already read fine unresolved).
+const sectionLabel = (key, lessonIdx, labels) => {
   if (key === "LESSON_DESIGN") return `分课时设计·课时${lessonIdx}`;
   if (key === "EXECUTION_RECORD") return `实施记录·课时${lessonIdx}`;
   if (key === "IMPLEMENTATION_OVERALL") return "实施整体";
-  return key;
+  return (labels && labels[key]) || key;
 };
 
 // Mirrors backend/app/services/segmentVersion.js#segmentKeyForReview -- the
@@ -103,6 +110,7 @@ const ReviewList = (props) => {
     planId,
     lessonIndex,
     sectionKey,
+    sectionLabels,
     aggregateScope,
     embedded,
     planContentVersionAt,
@@ -281,7 +289,7 @@ const ReviewList = (props) => {
   // comment), so it's labeled distinctly and links back to 设计's aggregate.
   const moduleCell = (review) => {
     if (review.sectionKey) {
-      return { label: sectionLabel(review.sectionKey, review.lessonIndex), navKey: review.sectionKey, clickable: !isOwnAggregateRow(review) };
+      return { label: sectionLabel(review.sectionKey, review.lessonIndex, sectionLabels), navKey: review.sectionKey, clickable: !isOwnAggregateRow(review) };
     }
     if (aggregateScope === "implementation") {
       return { label: "设计整体", navKey: "DESIGN_OVERALL", clickable: true };
@@ -306,7 +314,7 @@ const ReviewList = (props) => {
   };
 
   const headerLabel = sectionKey
-    ? `点评（${sectionLabel(sectionKey, lessonIndex)}）`
+    ? `点评（${sectionLabel(sectionKey, lessonIndex, sectionLabels)}）`
     : aggregateScope === "implementation"
     ? "点评（实施整体）"
     : "点评（整体）";
@@ -343,7 +351,7 @@ const ReviewList = (props) => {
             className="form-control mb-2"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={sectionKey ? `请针对 ${sectionLabel(sectionKey, lessonIndex)} 部分填写点评...` : "请填写点评内容..."}
+            placeholder={sectionKey ? `请针对 ${sectionLabel(sectionKey, lessonIndex, sectionLabels)} 部分填写点评...` : "请填写点评内容..."}
           />
           <button className="btn btn-primary btn-sm" type="submit">
             提交点评

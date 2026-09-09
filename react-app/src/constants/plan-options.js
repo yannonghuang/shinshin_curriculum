@@ -1,18 +1,18 @@
-// Migrated from shinshin's react-app/src/constants/case-options.js's
-// CASE_CATEGORIES_BY_COURSE['乡土课程'] -- the already-curated 11-item local-curriculum-theme
-// taxonomy, reused here for 乡土课程设计 theme tagging/browsing.
+// 乡土主题 taxonomy for 乡土课程设计 theme tagging/browsing -- kept in sync with
+// backend/app/models/index.js's db.PLAN_THEMES (server-side validation).
 export const PLAN_THEMES = [
-  "家乡美食与饮食文化",
-  "非遗与传统手工艺",
-  "乡土游戏与童年记忆",
-  "传统节日与民俗活动",
-  "家乡名人与文化传承",
-  "植物探索与劳动实践",
-  "乡土艺术与创意表达",
-  "家乡物产与经济生活",
-  "家乡地理与生态保护",
-  "家乡历史与地方记忆",
-  "民谣方言/家乡服饰/家乡特色建筑",
+  "自然地理风貌",
+  "生计方式实践",
+  "家乡物产探索",
+  "家乡美食文化",
+  "村落民居文化",
+  "家族历史故事",
+  "传统节日民俗",
+  "家乡人物故事",
+  "童谣民歌俗语",
+  "民族服饰文化",
+  "家乡游戏娱乐",
+  "传统手艺制作",
 ];
 
 export const PLAN_GRADES = ["一年级", "二年级", "三年级", "四年级", "五年级", "六年级"];
