@@ -32,6 +32,12 @@ const SchemaOutline = ({ section, depth }) => {
   );
 };
 
+// "N" as a literal placeholder for the real per-课时 index -- see
+// backend/app/services/templateParser.js#splitLessonMarker / dynamicDocGenerator.js#
+// renderMarkerLabel, which reconstructs the real arabic/Chinese numeral per
+// lesson at generation time; this preview only needs to show the pattern.
+const renderLessonMarkerPlaceholder = (marker) => `${marker.before}N${marker.after}`;
+
 // Admin-only: upload a new version of either template, browse version
 // history, promote a version to active, delete a superseded/unreferenced
 // one, and leave a free-text note on any version. Parsing is automatic (no
@@ -291,6 +297,25 @@ const TemplateAdmin = () => {
                             {(v.schemaJson?.sections || []).map((section) => (
                               <SchemaOutline key={section.key} section={section} depth={0} />
                             ))}
+                            {v.schemaJson?.lessonSchema && (
+                              // Not part of `sections` -- see templateParser.js#extractLessonSchema's
+                              // comment: this is a reusable per-课时 field template applied once per
+                              // lesson index (plan.planFormData.lessons), not a single-instance
+                              // section like WHY/WHAT/HOW, so it's shown here only for admin
+                              // visibility into what was parsed, separate from the field-schema list.
+                              <SchemaOutline
+                                key="lessonSchema"
+                                depth={0}
+                                section={{
+                                  label: `${v.schemaJson.lessonBreakdownLabel || "分课时设计"} · 每课时重复（如：${renderLessonMarkerPlaceholder(
+                                    v.schemaJson.lessonSchema.marker
+                                  )}）`,
+                                  fields: v.schemaJson.lessonSchema.fields,
+                                  ownFields: v.schemaJson.lessonSchema.fields,
+                                  subsections: v.schemaJson.lessonSchema.subsections,
+                                }}
+                              />
+                            )}
                           </td>
                         </tr>
                       )}
