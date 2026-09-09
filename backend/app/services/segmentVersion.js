@@ -8,23 +8,73 @@
 // resolves to, or the "edited since this review" comparison silently never
 // fires.
 
+// Same "single lone wrapper" unwrap rule as plan-detail.component.js's
+// anchorSections -- kept in sync deliberately (a review's sectionKey is
+// stamped client-side from that same function's output, via
+// section.key.toUpperCase()), since this needs the identical list of anchor
+// sections to map a changed field back to the anchor a review might be
+// scoped to.
+const anchorSections = (schema) => {
+  const sections = (schema && schema.sections) || [];
+  if (sections.length === 1 && sections[0].subsections && sections[0].subsections.length > 0) {
+    return sections[0].subsections;
+  }
+  return sections;
+};
+
+// Every field key anywhere under one anchor (its own direct fields plus
+// every nested subsection's, recursively) -- an anchor like HOW can have all
+// its real content several levels deep (see templateParser.js's heading-
+// tree parsing), not just in its own `fields`.
+const collectFieldKeys = (node, out) => {
+  (node.fields || []).forEach((f) => out.push(f.key));
+  (node.subsections || []).forEach((child) => collectFieldKeys(child, out));
+};
+
+// fieldKey -> owning anchor's own sectionKey (upper-cased, matching the
+// convention review-list.component.js already writes), for a schema whose
+// answers are stored flat (a heading-style-parsed template, or a table/flat-
+// parsed one -- anything with exactly one top-level section, so
+// onFormFieldChange stores every field directly on planFormData rather than
+// nested under a section key). Null for a multi-section schema (the hand-
+// authored WHY/WHAT/HOW seed), where planFormData's own top-level keys
+// already *are* the section keys -- no field-level mapping needed there.
+const buildFieldKeyToAnchorMap = (schema) => {
+  if (!schema || !schema.sections || schema.sections.length > 1) return null;
+  const map = {};
+  anchorSections(schema).forEach((anchor) => {
+    const keys = [];
+    collectFieldKeys(anchor, keys);
+    keys.forEach((key) => {
+      map[key] = (anchor.key || "").toUpperCase();
+    });
+  });
+  return map;
+};
+
 // planFormData is nested by section key when the plan's template has more
 // than one section (e.g. { WHY: {...}, WHAT: {...}, HOW: {...} }), plus a
 // top-level "lessons" array (sparse, keyed by lesson index -- see
-// plan-detail.component.js's onLessonFieldChange) for 分课时设计. Every
-// other top-level key is treated as its own segment, keyed by its
-// upper-cased name to match the sectionKey convention review-list.component.js
-// already writes (section.key.toUpperCase()).
-const diffPlanFormDataSegments = (oldFormData, newFormData) => {
+// plan-detail.component.js's onLessonFieldChange) for 分课时设计. For a
+// single-section (flat-stored) schema, every other top-level key is instead
+// a *field* key, resolved back to its owning anchor via
+// buildFieldKeyToAnchorMap -- e.g. editing one of WHY's fields on a heading-
+// parsed template correctly bumps segment "S0" (WHY), not a meaningless
+// per-field segment. Falls back to upper-casing the raw key directly
+// (today's original behavior, exactly) whenever no schema is available or
+// the changed key isn't one of the schema's own known fields (a multi-
+// section schema's own "why"/"what"/"how" keys, or any other stray key).
+const diffPlanFormDataSegments = (oldFormData, newFormData, schema) => {
   const before = oldFormData || {};
   const after = newFormData || {};
   const changed = [];
+  const fieldKeyToAnchor = buildFieldKeyToAnchorMap(schema);
 
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
   keys.delete("lessons");
   for (const key of keys) {
     if (JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null)) {
-      changed.push(key.toUpperCase());
+      changed.push((fieldKeyToAnchor && fieldKeyToAnchor[key]) || key.toUpperCase());
     }
   }
 
@@ -39,7 +89,7 @@ const diffPlanFormDataSegments = (oldFormData, newFormData) => {
     }
   }
 
-  return changed;
+  return [...new Set(changed)];
 };
 
 // executionFormData is a flat sparse array of 实施记录 entries keyed by
@@ -66,14 +116,18 @@ const diffExecutionFormDataSegments = (oldExecutionFormData, newExecutionFormDat
 // to, or null when that combination isn't tracked at segment granularity
 // (IMPLEMENTATION_OVERALL and plain 整体 comments have no single segment --
 // they're reviews of the whole scope, and keep relying on the plan-wide
-// planVersionAt comparison only).
+// planVersionAt comparison only). Any plain sectionKey -- "WHY"/"WHAT"/"HOW"
+// for the hand-authored seed, or "S0"/"S1"/"S2"/... for a heading-style-
+// parsed template's auto-keyed anchors (see anchorSections above) -- maps to
+// itself; diffPlanFormDataSegments is what actually populates segmentVersionAt
+// under that same key for either shape.
 const segmentKeyForReview = (sectionKey, lessonIndex) => {
   if (!sectionKey) return null;
-  if (sectionKey === "WHY" || sectionKey === "WHAT" || sectionKey === "HOW") return sectionKey;
   if ((sectionKey === "LESSON_DESIGN" || sectionKey === "EXECUTION_RECORD") && lessonIndex) {
     return `${sectionKey}:${lessonIndex}`;
   }
-  return null;
+  if (sectionKey === "IMPLEMENTATION_OVERALL") return null;
+  return sectionKey;
 };
 
 module.exports = { diffPlanFormDataSegments, diffExecutionFormDataSegments, segmentKeyForReview };

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Prompt } from "react-router-dom";
 import mammoth from "mammoth/mammoth.browser";
 
@@ -538,6 +538,21 @@ const PLAN_SECTIONS = [
 const PlanDetail = (props) => {
   const planId = props.match.params.id;
   const [plan, setPlan] = useState(null);
+  // sectionKey -> real anchor label (e.g. "S0" -> "WHY ·学习目标") -- a
+  // heading-style-parsed template's anchors get auto-generated keys (see
+  // anchorSections/section.key below), meaningless on their own in review-
+  // list.component.js's "点评（...）" header, 模块 column, and aggregate-view
+  // filtering. Memoized on the plan's pinned template id (stable for the
+  // whole editing session) instead of recomputed fresh every render --
+  // ReviewList depends on this object's identity in a fetch-triggering
+  // useCallback, so a fresh object every render would refetch its review
+  // list on every keystroke elsewhere on the page. Declared here, before any
+  // of this component's early returns below, per the Rules of Hooks.
+  const planSectionLabels = useMemo(() => {
+    const schema = (plan && plan.PlanTemplateVersion && plan.PlanTemplateVersion.schemaJson) || { sections: [] };
+    return Object.fromEntries(anchorSections(schema).map((s) => [s.key.toUpperCase(), s.label]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan && plan.PlanTemplateVersion && plan.PlanTemplateVersion.id]);
   const [isLoadingPlan, setIsLoadingPlan] = useState(true);
   const [message, setMessage] = useState("");
   const [metaForm, setMetaForm] = useState(null);
@@ -830,12 +845,6 @@ const PlanDetail = (props) => {
   // built from these, not planTemplateSchema.sections directly -- see
   // anchorSections' comment.
   const planAnchorSections = anchorSections(planTemplateSchema);
-  // sectionKey -> real anchor label (e.g. "S0" -> "WHY ·学习目标") -- a
-  // heading-style-parsed template's anchors get auto-generated keys (see
-  // anchorSections/section.key), meaningless on their own in review-
-  // list.component.js's "点评（...）" header and 模块 column. See
-  // review-list.component.js's sectionLabel.
-  const planSectionLabels = Object.fromEntries(planAnchorSections.map((s) => [s.key.toUpperCase(), s.label]));
   // Hoisted here (rather than locally inside the executionRecord branch
   // below) so it's available for executionNotEmpty too.
   const executionTemplateSchema = (plan.ExecutionTemplateVersion && plan.ExecutionTemplateVersion.schemaJson) || { sections: [] };

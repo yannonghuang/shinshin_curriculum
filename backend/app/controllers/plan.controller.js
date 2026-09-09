@@ -404,7 +404,12 @@ exports.update = async (req, res) => {
       isExcellentCase,
     } = req.body;
 
-    const data = await Plan.findByPk(id, { transaction: t });
+    // PlanTemplateVersion included for diffPlanFormDataSegments below -- a
+    // heading-style-parsed template's WHY/WHAT/HOW-equivalent anchors don't
+    // correspond to planFormData's own top-level keys the way the hand-
+    // authored seed's "why"/"what"/"how" do (see segmentVersion.js), so the
+    // diff needs the schema to map a changed field back to its owning anchor.
+    const data = await Plan.findByPk(id, { include: [{ model: TemplateVersion, as: "PlanTemplateVersion" }], transaction: t });
     if (!data) {
       await t.rollback();
       return res.status(404).send({ message: `未找到乡土课程设计 id=${id}。` });
@@ -459,7 +464,9 @@ exports.update = async (req, res) => {
     // not mark a review of WHY as superseded. See segmentVersion.js and
     // plan.model.js's segmentVersionAt comment.
     const changedSegmentKeys = [
-      ...(planFormData !== undefined ? diffPlanFormDataSegments(data.planFormData, planFormData) : []),
+      ...(planFormData !== undefined
+        ? diffPlanFormDataSegments(data.planFormData, planFormData, data.PlanTemplateVersion && data.PlanTemplateVersion.schemaJson)
+        : []),
       ...(executionFormData !== undefined ? diffExecutionFormDataSegments(data.executionFormData, executionFormData) : []),
     ];
     if (changedSegmentKeys.length > 0) {

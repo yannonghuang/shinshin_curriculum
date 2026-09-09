@@ -66,8 +66,14 @@ const groupByVersion = (sortedReviews) => {
 // meant to be scannable.
 const CONTENT_PREVIEW_LENGTH = 150;
 
-// 设计's segment sectionKeys -- both aggregates show these; 实施's aggregate
-// additionally shows EXECUTION_RECORD (see the file header comment).
+// 设计's own segment sectionKeys -- both aggregates show these; 实施's
+// aggregate additionally shows EXECUTION_RECORD (see the file header
+// comment). "WHY"/"WHAT"/"HOW" cover the hand-authored seed directly; a
+// heading-style-parsed template's own anchors get auto-generated keys
+// instead ("S0"/"S1"/... -- see plan-detail.component.js's anchorSections),
+// so isDesignSegmentKey below also checks the current plan's own
+// sectionLabels map (built from those same anchors) rather than relying on
+// this fixed literal list alone.
 const DESIGN_SEGMENT_KEYS = ["WHY", "WHAT", "HOW", "LESSON_DESIGN"];
 
 // sectionKey is an internal, code-shaped constant -- fine to surface as-is
@@ -91,18 +97,23 @@ const sectionLabel = (key, lessonIdx, labels) => {
 // Mirrors backend/app/services/segmentVersion.js#segmentKeyForReview -- the
 // key a review's sectionKey/lessonIndex resolves to in plan.segmentVersionAt.
 // Must stay in sync with the backend convention, or the "edited since this
-// review" comparison below silently never fires. IMPLEMENTATION_OVERALL and
-// plain 整体 comments (sectionKey null) have no single segment, so they
-// resolve to null and are never flagged here -- only the plan-wide
-// 历史版本 grouping applies to those.
+// review" comparison below silently never fires. Any plain sectionKey --
+// "WHY"/"WHAT"/"HOW" for the hand-authored seed, or "S0"/"S1"/"S2"/... for a
+// heading-style-parsed template's auto-keyed anchors (see plan-detail.
+// component.js's anchorSections) -- maps to itself; the backend's
+// diffPlanFormDataSegments is what actually populates segmentVersionAt under
+// that same key for either shape. IMPLEMENTATION_OVERALL and plain 整体
+// comments (sectionKey null) have no single segment, so they resolve to
+// null and are never flagged here -- only the plan-wide 历史版本 grouping
+// applies to those.
 const segmentKeyForReview = (review) => {
   const { sectionKey, lessonIndex } = review;
   if (!sectionKey) return null;
-  if (sectionKey === "WHY" || sectionKey === "WHAT" || sectionKey === "HOW") return sectionKey;
   if ((sectionKey === "LESSON_DESIGN" || sectionKey === "EXECUTION_RECORD") && lessonIndex) {
     return `${sectionKey}:${lessonIndex}`;
   }
-  return null;
+  if (sectionKey === "IMPLEMENTATION_OVERALL") return null;
+  return sectionKey;
 };
 
 const ReviewList = (props) => {
@@ -176,7 +187,13 @@ const ReviewList = (props) => {
         : list.filter(
             (r) =>
               (r.sectionKey === writeSectionKey && (r.lessonIndex === null || r.lessonIndex === undefined)) ||
+              // See DESIGN_SEGMENT_KEYS' comment -- recognizes a heading-
+              // parsed template's own "S0"/"S1"/... anchor keys (via
+              // sectionLabels) in addition to the fixed literal list, so a
+              // segment review on one of those doesn't silently disappear
+              // from the aggregate view.
               DESIGN_SEGMENT_KEYS.includes(r.sectionKey) ||
+              (sectionLabels && Object.prototype.hasOwnProperty.call(sectionLabels, r.sectionKey)) ||
               (aggregateScope === "implementation" &&
                 (r.sectionKey === "EXECUTION_RECORD" ||
                   (r.sectionKey == null && r.reviewerType === "ai" && (r.lessonIndex === null || r.lessonIndex === undefined))))
@@ -187,7 +204,7 @@ const ReviewList = (props) => {
       console.log(e);
       setMessage("加载点评列表失败。");
     }
-  }, [planId, lessonIndex, sectionKey, aggregateScope, writeSectionKey]);
+  }, [planId, lessonIndex, sectionKey, aggregateScope, writeSectionKey, sectionLabels]);
 
   // Also reruns whenever aiLoading flips (in either direction) -- when
   // aiPending is lifted to a parent that outlives this widget's own mount
