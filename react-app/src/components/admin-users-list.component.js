@@ -6,7 +6,7 @@ import AuthService from "../services/auth.service";
 import { SCHOOLS } from "../constants/school-options";
 import "../curriculum.css";
 
-const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员" };
+const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员", super: "超级管理员" };
 const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name }));
 
 const emptyForm = {
@@ -20,8 +20,8 @@ const emptyForm = {
   emailVerified: true,
 };
 
-// Admin-only user management: list/search/paginate, create a user with any role
-// (including admin -- public signup can never do that, see verifySignUp.checkNotAdminRole),
+// Super-only user management: list/search/paginate, create a user with any role
+// (including admin/super -- public signup can never do that, see verifySignUp.checkOnlyTeacherRole),
 // suspend/unsuspend, and delete. Follows the same functional-component +
 // @material-ui/lab Pagination + pl-drawer-* pattern as plans-list.component.js.
 const AdminUsersList = () => {
@@ -191,12 +191,12 @@ const AdminUsersList = () => {
   };
 
   // Defense in depth for direct URL access -- the real security boundary is
-  // every backend endpoint's authJwt.isAdmin gate; this just avoids rendering
-  // a full admin UI (and firing requests that will 403) for a non-admin.
-  if (!AuthService.isAdmin()) {
+  // every backend endpoint's authJwt.isSuper gate; this just avoids rendering
+  // a full admin UI (and firing requests that will 403) for a non-super user.
+  if (!AuthService.isSuper()) {
     return (
       <div className="container">
-        <div className="alert alert-warning mt-3">无权限访问此页面，仅管理员可用。</div>
+        <div className="alert alert-warning mt-3">无权限访问此页面，仅超级管理员可用。</div>
       </div>
     );
   }
@@ -221,6 +221,7 @@ const AdminUsersList = () => {
               <option value="teacher">教师</option>
               <option value="expert">专家</option>
               <option value="admin">管理员</option>
+              <option value="super">超级管理员</option>
             </select>
           </div>
           <div className="form-group col-md-3">

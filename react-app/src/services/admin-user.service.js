@@ -9,16 +9,16 @@ class AdminUserDataService {
     return http.get("/auth/users", { params, headers: authHeader() });
   }
 
-  // Creates a user with any role (including "admin"). Public signup can
-  // never do this -- see backend/app/middleware/verifySignUp.checkNotAdminRole.
+  // Creates a user with any role (including "admin"/"super"). Public signup can
+  // never do this -- see backend/app/middleware/verifySignUp.checkOnlyTeacherRole.
   create(data) {
     return http.post("/auth/admin/users", data, { headers: authHeader() });
   }
 
   // Same PUT /api/auth/users/:id endpoint profile.component.js uses for
-  // self-edit -- authJwt.isSelfOrAdmin allows an admin to target any id, and
+  // self-edit -- authJwt.isSelfOrSuper allows a super user to target any id, and
   // auth.controller.js#update additionally unlocks roles/emailVerified when
-  // the requester is admin (isAdminActor).
+  // the requester is super (isSuperActor).
   update(id, data) {
     return http.put(`/auth/users/${id}`, data, { headers: authHeader() });
   }

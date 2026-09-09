@@ -57,7 +57,7 @@ class AuthService {
     return axios.get(API_URL + "roles");
   }
 
-  // Self-or-admin: PUT /api/auth/users/:id (authJwt.isSelfOrAdmin-gated).
+  // Self-or-super: PUT /api/auth/users/:id (authJwt.isSelfOrSuper-gated).
   // Used by profile.component.js for "everyone can edit their own user data
   // except id" -- id is simply never a writable field server-side, so
   // there's no way to alter it through this endpoint regardless of payload.
@@ -97,9 +97,20 @@ class AuthService {
     return !!(user && user.roles && user.roles.includes("ROLE_EXPERT"));
   }
 
+  // "super" carries every privilege "admin" does (see authJwt.js's
+  // isAdmin/isSuper split on the backend) -- so this also returns true for a
+  // super user, letting every existing `AuthService.isAdmin()` UI gate keep
+  // working for both roles without individually updating each call site.
   isAdmin() {
     const user = this.getCurrentUser();
-    return !!(user && user.roles && user.roles.includes("ROLE_ADMIN"));
+    return !!(user && user.roles && (user.roles.includes("ROLE_ADMIN") || user.roles.includes("ROLE_SUPER")));
+  }
+
+  // Super-only: user management is reserved for "super" and no longer
+  // granted to plain "admin" accounts.
+  isSuper() {
+    const user = this.getCurrentUser();
+    return !!(user && user.roles && user.roles.includes("ROLE_SUPER"));
   }
 }
 

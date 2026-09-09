@@ -296,16 +296,20 @@ db.chatMessage.belongsTo(db.chatConversation, {
   onDelete: "CASCADE",
 });
 
-// Roles are exactly admin/teacher/expert — this app has no
+// Roles are exactly admin/teacher/expert/super — this app has no
 // volunteer/moderator/donor domain (see plan's "left behind" list). A real
 // `School` model does exist (db.school, above), but narrowly for teacher
 // school-affiliation -- not a general school-management domain.
-db.ROLES2 = ["admin", "teacher", "expert"];
+// "super" carries every privilege "admin" does (see authJwt.isAdmin), plus
+// exclusive ownership of user management (authJwt.isSuper) -- see
+// authJwt.js's isAdmin/isSuper split.
+db.ROLES2 = ["admin", "teacher", "expert", "super"];
 
 db.ROLES = [
   { name: "teacher", label: "教师" },
   { name: "expert", label: "专家" },
   { name: "admin", label: "管理员" },
+  { name: "super", label: "超级管理员" },
 ];
 
 // 乡土主题 taxonomy -- kept in sync with react-app/src/constants/plan-options.js's

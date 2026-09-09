@@ -19,8 +19,8 @@ const emptyForm = {
 // writable field on PUT /api/auth/users/:id -- see auth.controller.js#update)
 // by clicking their own name in the top-right nav. Reuses the same
 // GET/PUT /api/auth/users/:id endpoints admin-users-list.component.js's
-// admin path uses, gated server-side by authJwt.isSelfOrAdmin instead of
-// authJwt.isAdmin -- a self-request for one's own id is always allowed.
+// super path uses, gated server-side by authJwt.isSelfOrSuper instead of
+// authJwt.isSuper -- a self-request for one's own id is always allowed.
 const Profile = () => {
   // AuthService.getCurrentUser() re-parses localStorage on every call, so it
   // returns a new object reference each render -- used directly as a

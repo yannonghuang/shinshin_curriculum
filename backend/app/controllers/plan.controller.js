@@ -83,11 +83,13 @@ const metaBold = (version, label) => {
   return bold ? bold[label] : undefined;
 };
 
+// "super" inherits every admin privilege, including the admin bypasses this
+// gates (edit/delete any plan regardless of ownership, suspend/unsuspend).
 const isAdminRequester = async (userId, t) => {
   const user = await User.findByPk(userId, { transaction: t });
   if (!user) return false;
   const roles = await user.getRoles({ transaction: t });
-  return roles.some((r) => r.name === "admin");
+  return roles.some((r) => r.name === "admin" || r.name === "super");
 };
 
 const isExpertRequester = async (userId, t) => {
