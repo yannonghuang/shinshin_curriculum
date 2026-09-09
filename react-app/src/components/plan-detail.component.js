@@ -38,26 +38,30 @@ const mergeFormData = (data, schema) => {
 // "Anchoring level" -- the granularity at which the online form splits into
 // separate sidebar pages and gets its own segment-level expert review block
 // (see ReviewList's sectionKey prop below). For a heading-style-parsed
-// template (see templateParser.js#parseHeadingSections), that's level 2 --
-// e.g. "WHY ·学习目标" nested one level under a single top-level "课程设计框架"
-// wrapper (level 1) -- so this pulls each top-level section's immediate
-// subsections out as the real pages instead of lumping WHY/WHAT/HOW into one
-// page under the wrapper. A top-level section with no subsections (the
-// hand-authored WHY/WHAT/HOW seed, where why/what/how already *are* the top-
-// level sections, and every table/flat-parsed schema) is already at the
-// right granularity and is used as-is -- so this is a no-op for every
-// existing (non-heading-parsed) template.
+// template with a single top-level wrapper (see templateParser.js#
+// parseHeadingSections) -- e.g. "WHY ·学习目标" nested one level under a lone
+// top-level "课程设计框架" (confirmed on two real templates) -- that wrapper
+// itself is never a real page (it has no content of its own, purely a
+// grouping label), so this pulls its immediate subsections out as the real
+// pages instead of lumping WHY/WHAT/HOW into one page under it.
+//
+// Unwrapping only fires when there's *exactly one* top-level section,
+// though -- a third real template has no such wrapper at all (基本信息/WHY/
+// WHAT/HOW/分课时设计 are all separate top-level Heading1s, with HOW's own
+// 入项/探究/制作与迭代/出项 nested under it as Heading2). There, WHY/WHAT/HOW
+// are already at the right granularity as top-level sections, exactly like
+// the hand-authored seed and every table/flat-parsed schema -- and HOW must
+// stay intact as one page (with its own subsections grouped inside it, per
+// "same anchoring level -> same page"), not itself be unwrapped just because
+// it happens to have subsections while its siblings don't. Deciding this per
+// schema (sections.length) rather than per individual section is what makes
+// that distinction correctly.
 const anchorSections = (schema) => {
   const sections = (schema && schema.sections) || [];
-  const anchors = [];
-  sections.forEach((section) => {
-    if (section.subsections && section.subsections.length > 0) {
-      anchors.push(...section.subsections);
-    } else {
-      anchors.push(section);
-    }
-  });
-  return anchors;
+  if (sections.length === 1 && sections[0].subsections && sections[0].subsections.length > 0) {
+    return sections[0].subsections;
+  }
+  return sections;
 };
 
 // A node's own direct (non-descendant) fields: top-level schema.sections
