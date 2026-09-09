@@ -99,7 +99,7 @@ const MaterialsLibrary = () => {
       setLinks(Array.isArray(resp.data) ? resp.data : []);
     } catch (e) {
       console.log(e);
-      setMessage("加载材料链接失败。");
+      setMessage("加载视频链接失败。");
     } finally {
       setIsLoadingLinks(false);
     }
@@ -428,7 +428,7 @@ const MaterialsLibrary = () => {
         <div className="pl-empty">加载中...</div>
       ) : (
         <>
-          {links.length === 0 && <div className="pl-empty">暂无材料链接。</div>}
+          {links.length === 0 && <div className="pl-empty">暂无视频链接。</div>}
           <ul className="list-group mb-3">
             {links.map((link) =>
               editingLinkId === link.id ? (
@@ -778,7 +778,7 @@ const MaterialsLibrary = () => {
                               className={`pl-explorer-leaf ${selected.topicId === topic.id && selected.key === "links" ? "is-active" : ""}`}
                               onClick={() => select(topic.id, "links")}
                             >
-                              材料链接
+                              视频链接
                             </button>
                             <button
                               type="button"
