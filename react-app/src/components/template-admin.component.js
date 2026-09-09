@@ -123,30 +123,29 @@ const TemplateAdmin = () => {
 
   const handleDownload = async (templateKey, version) => {
     setMessage("");
-    // Opened synchronously, before the await, so popup blockers see it as a
-    // direct result of the click; the blob URL is dropped in once the
-    // (auth-header-gated) request resolves.
-    const newWindow = window.open("", "_blank");
     try {
       const resp = await TemplateDataService.download(templateKey, version.id);
       const url = window.URL.createObjectURL(
         new Blob([resp.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
       );
-      if (newWindow) {
-        newWindow.location = url;
-      } else {
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", version.sourceFileName || `${templateKey}-v${version.version}.docx`);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }
+      // Always a real download with the right filename, not "open in a new
+      // window" -- a blob: URL carries no Content-Disposition, so navigating
+      // a window to it (as this used to do whenever the popup wasn't
+      // blocked, which is almost always) made the browser save it under some
+      // generic name instead of the original upload's own filename. Same
+      // fix already applied correctly in plan-detail.component.js's own
+      // handleDownload (see its handlePreview for the actual new-window
+      // pattern, used there only for viewing, never for a named download).
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", version.sourceFileName || `${templateKey}-v${version.version}.docx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
       setTimeout(() => window.URL.revokeObjectURL(url), 60000);
     } catch (err) {
       console.log(err);
       setMessage("模板下载失败。");
-      if (newWindow) newWindow.close();
     }
   };
 
