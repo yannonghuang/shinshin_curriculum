@@ -97,9 +97,25 @@ const isExpertRequester = async (userId, t) => {
   return roles.some((r) => r.name === "expert");
 };
 
-exports.getOptions = (req, res) => {
+// 乡土主题 options come from the active plan_design template's own "附件"
+// section when it has one (see templateParser.js#extractThemeOptionsFromFields)
+// -- e.g. a template can define its own theme list without a code change --
+// falling back to the hardcoded PLAN_THEMES for every template without one
+// (every existing uploaded/hand-authored version, none of which had this
+// section before this feature existed).
+exports.getOptions = async (req, res) => {
+  let themes = PLAN_THEMES;
+  try {
+    const active = await TemplateVersion.findOne({ where: { templateKey: "plan_design", isActive: true } });
+    if (active && Array.isArray(active.schemaJson.themeOptions) && active.schemaJson.themeOptions.length > 0) {
+      themes = active.schemaJson.themeOptions;
+    }
+  } catch (err) {
+    // Falls back to PLAN_THEMES below -- a broken lookup here shouldn't
+    // block every other option (grades/seasons/etc.) from loading.
+  }
   return res.send({
-    themes: PLAN_THEMES,
+    themes,
     grades: GRADE_OPTIONS,
     seasons: PLAN_SEASONS,
     planModes: PLAN_MODES,

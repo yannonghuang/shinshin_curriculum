@@ -208,6 +208,33 @@ const isBasicInfoLabel = (label) => label === "基本信息";
 // field-schema mechanism -- including it here would render it twice.
 const isLessonBreakdownLabel = (label) => label.includes("分课时设计");
 
+// "附件：2026秋季学期乡土主题名称" followed by one label per line -- feeds the
+// 乡土主题 dropdown (see plan.controller.js#getOptions), not surfaced
+// anywhere else (not a schema section, not rendered into a generated doc).
+// Confirmed on the real template to be a *plain* paragraph, not its own
+// heading, so it ends up glued onto whatever heading happens to precede it
+// in document order (分课时设计, in that template) rather than getting its
+// own root.subsections entry -- extractThemeOptionsFromFields below handles
+// that shape; isAppendixSectionLabel is kept too for a template that does
+// give it a real heading of its own.
+const isAppendixMarker = (label) => /^附件[:：]/.test(label.trim());
+const isAppendixSectionLabel = (label) => label.trim().startsWith("附件");
+
+// Finds an appendix marker among one node's own direct fields and, if
+// present, returns everything after it as the theme option list, removing
+// the marker and those trailing entries from node.fields in place (they
+// aren't real fields of whatever section they got glued onto).
+const extractThemeOptionsFromFields = (node) => {
+  const idx = node.fields.findIndex((f) => isAppendixMarker(f.label));
+  if (idx === -1) return null;
+  const options = node.fields
+    .slice(idx + 1)
+    .map((f) => f.label.trim())
+    .filter(Boolean);
+  node.fields = node.fields.slice(0, idx);
+  return options.length > 0 ? options : null;
+};
+
 // Finds the numeral span in a "分课时设计" instance marker's own text (e.g.
 // "课时1：" or "第一课时：") and splits around it -- arabic digits tried first,
 // then a run of Chinese numeral characters. Returns null if neither is
@@ -346,6 +373,17 @@ const parseHeadingSections = (xml, headingLevelMap) => {
   // one -- confirmed the real 2026 template leaves "课程名称：" un-bold while
   // bolding other labels elsewhere, so a blanket default would misrepresent it.
   let basicInfoBold = null;
+  // 乡土主题 dropdown options (see plan.controller.js#getOptions) -- captured
+  // from an "附件" marker wherever it's found among the top-level nodes' own
+  // fields (see extractThemeOptionsFromFields), before the exclusion filter
+  // below runs, so this works whichever top-level node the marker happened
+  // to end up glued onto (分课时设计 on the real template, but not assumed to
+  // be there specifically).
+  let themeOptions = null;
+  root.subsections.forEach((s) => {
+    if (themeOptions) return;
+    themeOptions = extractThemeOptionsFromFields(s);
+  });
   root.subsections = root.subsections.filter((s) => {
     if (isBasicInfoLabel(s.label)) {
       basicInfoBold = {};
@@ -357,6 +395,17 @@ const parseHeadingSections = (xml, headingLevelMap) => {
     if (isLessonBreakdownLabel(s.label)) {
       lessonBreakdownLabel = s.label;
       lessonSchema = extractLessonSchema(s);
+      return false;
+    }
+    // A template that gives 附件 its own real heading instead of leaving it
+    // as trailing plain paragraphs (see extractThemeOptionsFromFields above,
+    // which only catches the latter shape) -- every one of its own fields is
+    // a theme option, no marker-splitting needed since the whole node is it.
+    if (isAppendixSectionLabel(s.label)) {
+      if (!themeOptions) {
+        const options = s.fields.map((f) => f.label.trim()).filter(Boolean);
+        themeOptions = options.length > 0 ? options : null;
+      }
       return false;
     }
     return true;
@@ -405,7 +454,7 @@ const parseHeadingSections = (xml, headingLevelMap) => {
   });
 
   if (sections.every((s) => s.fields.length === 0)) return null;
-  return { sections, lessonBreakdownLabel, basicInfoBold, lessonSchema };
+  return { sections, lessonBreakdownLabel, basicInfoBold, lessonSchema, themeOptions };
 };
 
 // filePath: local path to the uploaded .docx (multer disk storage already

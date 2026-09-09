@@ -553,6 +553,20 @@ const PlanDetail = (props) => {
     return Object.fromEntries(anchorSections(schema).map((s) => [s.key.toUpperCase(), s.label]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan && plan.PlanTemplateVersion && plan.PlanTemplateVersion.id]);
+  // 乡土主题 dropdown options -- defaults to the static PLAN_THEMES list
+  // (matches today's behavior, and covers a slow/failed fetch) then swapped
+  // for the active plan_design template's own "附件"-derived list, if it has
+  // one (see plan.controller.js#getOptions/templateParser.js#
+  // extractThemeOptionsFromFields) -- a template can define its own theme
+  // taxonomy without a code change.
+  const [themeOptions, setThemeOptions] = useState(PLAN_THEMES);
+  useEffect(() => {
+    PlanDataService.getOptions()
+      .then((resp) => {
+        if (Array.isArray(resp.data && resp.data.themes) && resp.data.themes.length > 0) setThemeOptions(resp.data.themes);
+      })
+      .catch(() => {});
+  }, []);
   const [isLoadingPlan, setIsLoadingPlan] = useState(true);
   const [message, setMessage] = useState("");
   const [metaForm, setMetaForm] = useState(null);
@@ -910,7 +924,7 @@ const PlanDetail = (props) => {
                 <label>乡土主题</label>
                 <select className="form-control" value={metaForm.theme} onChange={(e) => updateMetaForm({ theme: e.target.value })} disabled={!canEditPlan}>
                   <option value="">不限</option>
-                  {PLAN_THEMES.map((t) => (
+                  {themeOptions.map((t) => (
                     <option key={t} value={t}>
                       {t}
                     </option>
