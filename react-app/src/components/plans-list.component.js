@@ -38,6 +38,17 @@ const PlansList = (props) => {
   const [totalPages, setTotalPages] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
   const [searchTheme, setSearchTheme] = useState("");
+  // 乡土主题 filter options -- see plan-detail.component.js's identical
+  // themeOptions state for why (the active plan_design template's own
+  // "附件"-derived list, falling back to the static PLAN_THEMES).
+  const [themeOptions, setThemeOptions] = useState(PLAN_THEMES);
+  useEffect(() => {
+    PlanDataService.getOptions()
+      .then((resp) => {
+        if (Array.isArray(resp.data && resp.data.themes) && resp.data.themes.length > 0) setThemeOptions(resp.data.themes);
+      })
+      .catch(() => {});
+  }, []);
   const [searchGrade, setSearchGrade] = useState("");
   const [searchYear, setSearchYear] = useState("");
 
@@ -309,7 +320,7 @@ const PlansList = (props) => {
               }}
             >
               <option value="">全部主题</option>
-              {PLAN_THEMES.map((theme) => (
+              {themeOptions.map((theme) => (
                 <option key={theme} value={theme}>
                   {theme}
                 </option>
