@@ -110,7 +110,7 @@ class App extends Component {
                     </Link>
                   </li>
                 )}
-                {AuthService.isAdmin() && (
+                {AuthService.isSuper() && (
                   <li className="nav-item">
                     <Link to="/admin/users" className="nav-link">
                       用户管理

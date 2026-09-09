@@ -54,12 +54,29 @@ const hasAnyRole = async (req, roleNames) => {
   return roles.some((r) => roleNames.includes(r.name));
 };
 
+// "super" carries every privilege "admin" does (see isSuper below for the one
+// exception -- user management, which moved to super-exclusive) -- so any
+// route gated on isAdmin (materials, templates, plan suspend, etc.) accepts
+// either role here rather than needing every call site updated individually.
 isAdmin = async (req, res, next) => {
   try {
-    if (await hasRole(req, "admin")) {
+    if (await hasAnyRole(req, ["admin", "super"])) {
       return next();
     }
     return res.status(403).send({ message: "Require Admin Role!" });
+  } catch (e) {
+    return res.status(500).send({ message: e.message });
+  }
+};
+
+// Super-only: user management (create/list/edit/delete/suspend) is reserved
+// for "super" and no longer granted to plain "admin" accounts.
+isSuper = async (req, res, next) => {
+  try {
+    if (await hasRole(req, "super")) {
+      return next();
+    }
+    return res.status(403).send({ message: "Require Super Role!" });
   } catch (e) {
     return res.status(500).send({ message: e.message });
   }
@@ -89,7 +106,7 @@ isExpert = async (req, res, next) => {
 
 isTeacherOrAdmin = async (req, res, next) => {
   try {
-    if (await hasAnyRole(req, ["teacher", "admin"])) {
+    if (await hasAnyRole(req, ["teacher", "admin", "super"])) {
       return next();
     }
     return res.status(403).send({ message: "Require Teacher or Admin Role!" });
@@ -100,7 +117,7 @@ isTeacherOrAdmin = async (req, res, next) => {
 
 isExpertOrAdmin = async (req, res, next) => {
   try {
-    if (await hasAnyRole(req, ["expert", "admin"])) {
+    if (await hasAnyRole(req, ["expert", "admin", "super"])) {
       return next();
     }
     return res.status(403).send({ message: "Require Expert or Admin Role!" });
@@ -109,20 +126,21 @@ isExpertOrAdmin = async (req, res, next) => {
   }
 };
 
-// Allows a request to proceed if the caller is either an admin or acting on
-// their own account (req.params.id). Sets req.isAdminActor so the controller
-// can decide which fields are safe to change (e.g. only an admin may
+// Allows a request to proceed if the caller is either "super" or acting on
+// their own account (req.params.id). Sets req.isSuperActor so the controller
+// can decide which fields are safe to change (e.g. only a super user may
 // reassign roles or flip emailVerified via PUT /api/auth/users/:id --
-// otherwise any logged-in user could PUT their own id with {roles:["admin"]}
-// and self-promote).
-isSelfOrAdmin = async (req, res, next) => {
+// otherwise any logged-in user could PUT their own id with {roles:["super"]}
+// and self-promote). Deliberately excludes plain "admin" -- user management
+// is super-exclusive.
+isSelfOrSuper = async (req, res, next) => {
   try {
-    const isAdmin = await hasRole(req, "admin");
-    req.isAdminActor = isAdmin;
-    if (isAdmin || String(req.userId) === String(req.params.id)) {
+    const isSuperActor = await hasRole(req, "super");
+    req.isSuperActor = isSuperActor;
+    if (isSuperActor || String(req.userId) === String(req.params.id)) {
       return next();
     }
-    return res.status(403).send({ message: "Require Self or Admin!" });
+    return res.status(403).send({ message: "Require Self or Super!" });
   } catch (e) {
     return res.status(500).send({ message: e.message });
   }
@@ -131,7 +149,7 @@ isSelfOrAdmin = async (req, res, next) => {
 hasAdminRole = async (req) => {
   if (!req.userId) return false;
   try {
-    return await hasRole(req, "admin");
+    return await hasAnyRole(req, ["admin", "super"]);
   } catch (e) {
     console.log(e);
     return false;
@@ -142,11 +160,12 @@ const authJwt = {
   verifyToken: verifyToken,
   attachUserIfPresent: attachUserIfPresent,
   isAdmin: isAdmin,
+  isSuper: isSuper,
   isTeacher: isTeacher,
   isExpert: isExpert,
   isTeacherOrAdmin: isTeacherOrAdmin,
   isExpertOrAdmin: isExpertOrAdmin,
-  isSelfOrAdmin: isSelfOrAdmin,
+  isSelfOrSuper: isSelfOrSuper,
   hasAdminRole: hasAdminRole,
 };
 module.exports = authJwt;

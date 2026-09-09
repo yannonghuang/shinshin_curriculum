@@ -68,8 +68,8 @@ exports.signup = async (req, res) => {
   }
 };
 
-// Admin-only user creation (POST /api/auth/admin/users, authJwt.isAdmin-gated).
-// Unlike public signup, this can assign any role including "admin" and skips
+// Super-only user creation (POST /api/auth/admin/users, authJwt.isSuper-gated).
+// Unlike public signup, this can assign any role including "admin"/"super" and skips
 // the email-verification requirement entirely -- the creating admin is
 // vouching for the account, so it's marked emailVerified immediately.
 exports.adminCreateUser = async (req, res) => {
@@ -298,14 +298,14 @@ exports.findOne = (req, res) => {
     });
 };
 
-// Update a user profile (PUT /api/auth/users/:id, authJwt.isSelfOrAdmin-gated).
-// isAdminActor (set by isSelfOrAdmin) gates which fields are writable: a
-// self-update can only touch its own basic profile fields; only an admin may
-// reassign roles or flip emailVerified -- without this split, any logged-in
-// user could PUT their own id with {roles:["admin"]} and self-promote.
+// Update a user profile (PUT /api/auth/users/:id, authJwt.isSelfOrSuper-gated).
+// isSuperActor (set by isSelfOrSuper) gates which fields are writable: a
+// self-update can only touch its own basic profile fields; only a "super"
+// user may reassign roles or flip emailVerified -- without this split, any
+// logged-in user could PUT their own id with {roles:["super"]} and self-promote.
 exports.update = async (req, res) => {
   const id = req.params.id;
-  const isAdminActor = !!req.isAdminActor;
+  const isSuperActor = !!req.isSuperActor;
 
   try {
     const { password, roles, ...otherParameters } = req.body;
@@ -316,7 +316,7 @@ exports.update = async (req, res) => {
     // 20260907120000-teacher-school-enforcement.js, derived via the School
     // association instead) -- silently ignored if a caller still sends it.
     const allowed = ["username", "email", "chineseName", "phone", "schoolCode"];
-    if (isAdminActor) allowed.push("emailVerified");
+    if (isSuperActor) allowed.push("emailVerified");
 
     const updateParams = {};
     for (const key of allowed) {
@@ -335,7 +335,7 @@ exports.update = async (req, res) => {
 
     // Effective new role set: roles being assigned in this same request
     // (admin only), else the user's current roles unchanged.
-    const nextRoleNames = roles && isAdminActor ? roles : null;
+    const nextRoleNames = roles && isSuperActor ? roles : null;
     let effectiveRoleNames = nextRoleNames;
     if (updateParams.schoolCode !== undefined) {
       if (!effectiveRoleNames) {
@@ -364,7 +364,7 @@ exports.update = async (req, res) => {
       }
     };
     const applyRoles = async () => {
-      if (roles && isAdminActor) {
+      if (roles && isSuperActor) {
         const foundRoles = await Role.findAll({ where: { name: { [Op.or]: roles } } });
         await user.setRoles(foundRoles);
       }
@@ -379,7 +379,7 @@ exports.update = async (req, res) => {
       await applyRoles();
     }
 
-    if (roles && isAdminActor) {
+    if (roles && isSuperActor) {
       return res.send({ message: "User and roles were updated successfully!" });
     }
 
@@ -389,7 +389,7 @@ exports.update = async (req, res) => {
   }
 };
 
-// Delete a user (DELETE /api/auth/users/:id, authJwt.isAdmin-gated).
+// Delete a user (DELETE /api/auth/users/:id, authJwt.isSuper-gated).
 exports.delete = (req, res) => {
   const id = req.params.id;
 
@@ -412,7 +412,7 @@ exports.delete = (req, res) => {
     });
 };
 
-// Suspend / unsuspend a user (PUT /api/auth/users/:id/suspend|unsuspend, authJwt.isAdmin-gated).
+// Suspend / unsuspend a user (PUT /api/auth/users/:id/suspend|unsuspend, authJwt.isSuper-gated).
 // A suspended account can't sign in (see exports.signin) but isn't deleted.
 exports.suspend = async (req, res) => {
   const id = req.params.id;
@@ -439,7 +439,7 @@ exports.unsuspend = async (req, res) => {
   }
 };
 
-// List/search users (GET /api/auth/users, authJwt.isAdmin-gated).
+// List/search users (GET /api/auth/users, authJwt.isSuper-gated).
 // Same paginated-envelope convention as plan/review/learning-material
 // controllers: {totalItems, rows, totalPages, currentPage}.
 const getPagination = (page, size) => {

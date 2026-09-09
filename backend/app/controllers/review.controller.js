@@ -213,11 +213,13 @@ exports.findByPlan = async (req, res) => {
   }
 };
 
+// "super" inherits every admin privilege, including deleting any review
+// regardless of authorship.
 const isAdminRequester = async (userId) => {
   const user = await User.findByPk(userId);
   if (!user) return false;
   const roles = await user.getRoles();
-  return roles.some((r) => r.name === "admin");
+  return roles.some((r) => r.name === "admin" || r.name === "super");
 };
 
 const isExpertRequester = async (userId) => {

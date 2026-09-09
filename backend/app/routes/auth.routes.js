@@ -13,13 +13,14 @@ module.exports = function (app) {
     controller.signup
   );
 
-  // Admin-only: create a user with any role, including "admin"/"expert".
-  // Public signup is teacher-only (see checkOnlyTeacherRole above).
+  // Super-only: create a user with any role, including "admin"/"expert"/"super".
+  // Public signup is teacher-only (see checkOnlyTeacherRole above). User
+  // management is reserved for "super" -- plain "admin" no longer has it.
   app.post(
     "/api/auth/admin/users",
     [
       authJwt.verifyToken,
-      authJwt.isAdmin,
+      authJwt.isSuper,
       verifySignUp.checkDuplicateUsernameOrEmail,
       verifySignUp.checkRolesExisted,
     ],
@@ -36,17 +37,17 @@ module.exports = function (app) {
 
   app.get("/api/auth/roles", controller.getRoles);
 
-  // Admin-only: list/search all users (must come before the /:id route below).
-  app.get("/api/auth/users", [authJwt.verifyToken, authJwt.isAdmin], controller.findAll);
+  // Super-only: list/search all users (must come before the /:id route below).
+  app.get("/api/auth/users", [authJwt.verifyToken, authJwt.isSuper], controller.findAll);
 
   app.get("/api/auth/users/:id", [authJwt.verifyToken], controller.findOne);
 
-  // isSelfOrAdmin: a user may edit their own profile; only an admin may edit
+  // isSelfOrSuper: a user may edit their own profile; only "super" may edit
   // someone else's (or reassign roles / flip emailVerified -- see update()).
-  app.put("/api/auth/users/:id", [authJwt.verifyToken, authJwt.isSelfOrAdmin], controller.update);
+  app.put("/api/auth/users/:id", [authJwt.verifyToken, authJwt.isSelfOrSuper], controller.update);
 
-  // Admin-only: delete another user, or suspend/unsuspend one without deleting.
-  app.delete("/api/auth/users/:id", [authJwt.verifyToken, authJwt.isAdmin], controller.delete);
-  app.put("/api/auth/users/:id/suspend", [authJwt.verifyToken, authJwt.isAdmin], controller.suspend);
-  app.put("/api/auth/users/:id/unsuspend", [authJwt.verifyToken, authJwt.isAdmin], controller.unsuspend);
+  // Super-only: delete another user, or suspend/unsuspend one without deleting.
+  app.delete("/api/auth/users/:id", [authJwt.verifyToken, authJwt.isSuper], controller.delete);
+  app.put("/api/auth/users/:id/suspend", [authJwt.verifyToken, authJwt.isSuper], controller.suspend);
+  app.put("/api/auth/users/:id/unsuspend", [authJwt.verifyToken, authJwt.isSuper], controller.unsuspend);
 };

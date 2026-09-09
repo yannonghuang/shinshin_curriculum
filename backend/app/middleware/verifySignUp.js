@@ -50,8 +50,8 @@ checkRolesExisted = (req, res, next) => {
 };
 
 // Public signup (POST /api/auth/signup) is teacher-only — anyone wanting an
-// 专家/管理员 account needs one created for them via the authJwt.isAdmin-gated
-// POST /api/auth/admin/users endpoint instead. Enforced server-side (not just
+// 专家/管理员/超级管理员 account needs one created for them via the
+// authJwt.isSuper-gated POST /api/auth/admin/users endpoint instead. Enforced server-side (not just
 // by the frontend hiding the choice) since the frontend alone can always be
 // bypassed by posting to the API directly.
 checkOnlyTeacherRole = (req, res, next) => {

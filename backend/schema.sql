@@ -13,7 +13,7 @@ SET NAMES utf8mb4;
 
 CREATE TABLE roles (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  name VARCHAR(32) NOT NULL UNIQUE  -- 'admin' | 'teacher' | 'expert'
+  name VARCHAR(32) NOT NULL UNIQUE  -- 'admin' | 'teacher' | 'expert' | 'super'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE users (
@@ -169,12 +169,14 @@ CREATE TABLE learning_materials (   -- 共享学习材料库
 
 -- Seed roles. AI智能体 is not a login role — AI-authored reviews are written
 -- by the server itself (reviews.reviewer_type='ai', reviewer_id=NULL,
--- ai_model set for audit). No AI user account needed.
-INSERT INTO roles (name) VALUES ('admin'), ('teacher'), ('expert');
+-- ai_model set for audit). No AI user account needed. 'super' carries every
+-- privilege 'admin' does, plus exclusive ownership of user management (see
+-- authJwt.js's isAdmin/isSuper split).
+INSERT INTO roles (name) VALUES ('admin'), ('teacher'), ('expert'), ('super');
 
 -- Pre-seeded 管理员 account so a fresh deployment always has at least one
--- admin able to sign in and create further admins via POST /api/auth/admin/users
--- (public signup can never mint an admin account — see verifySignUp.checkNotAdminRole).
+-- admin able to sign in (though user management now requires the 'super'
+-- account below to create further admins).
 -- Password hash below is bcrypt.hashSync('manager', 8) from this app's own
 -- bcryptjs — change this password immediately after first login in any real
 -- deployment.
@@ -183,6 +185,18 @@ VALUES ('manager', 'manager@example.com', '$2a$08$W8d2hCSpmg858uQw9hYLT.ejIzlm9/
 
 INSERT INTO user_roles (user_id, role_id)
 SELECT u.id, r.id FROM users u, roles r WHERE u.username = 'manager' AND r.name = 'admin';
+
+-- Pre-seeded 超级管理员 account (username/password: super/super) so a fresh
+-- deployment always has at least one account able to manage users via
+-- POST /api/auth/admin/users (authJwt.isSuper-gated -- see
+-- verifySignUp.checkOnlyTeacherRole comment). Password hash below is
+-- bcrypt.hashSync('super', 8) from this app's own bcryptjs — change this
+-- password immediately after first login in any real deployment.
+INSERT INTO users (username, email, password, chinese_name, email_verified)
+VALUES ('super', 'super@example.com', '$2a$08$mE3NRd9QeCfauhXRUSWA0ur5ilUNu9PdGD/e7Uqpn/Ho4pUQahxjy', '超级管理员', 1);
+
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.id, r.id FROM users u, roles r WHERE u.username = 'super' AND r.name = 'super';
 
 -- Seed template_versions v1 for both template_key values, hand-authored to
 -- exactly match the structure that used to be hard-coded in
