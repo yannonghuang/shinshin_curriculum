@@ -297,7 +297,7 @@ const extractLessonSchema = (node) => {
     marker: splitLessonMarker(node.fields[markerIdx].label),
     markerIsHeading: false,
     markerBold: node.fields[markerIdx].bold,
-    fields: slice.map((f, i) => ({ key: `f${i}`, label: f.label, group: null, bold: f.bold })),
+    fields: slice.map((f, i) => ({ key: `f${i}`, label: f.label, group: null, bold: f.bold, hint: f.hint || null })),
     subsections: [],
   };
 };
@@ -325,6 +325,27 @@ const parseHeadingSections = (xml, headingLevelMap) => {
       const node = { label: text, level, fields: [], subsections: [] };
       stack[stack.length - 1].subsections.push(node);
       stack.push(node);
+      continue;
+    }
+
+    if (text.startsWith("-")) {
+      // Hint/example text for the *preceding* field's response area, not a
+      // field (or any other structural construct) of its own -- e.g.
+      // "探究问题:" followed by "-您的驱动问题是：" in the real 2026模板6 template.
+      // Folded onto whatever field was pushed most recently within the
+      // currently open node (deepest stack entry), joined with "\n" when
+      // more than one hint line follows the same field; deliberately not
+      // length-capped like isLabelCandidate below since a hint can run
+      // longer than a real label ever would. Silently dropped if there's no
+      // preceding field in this node yet (e.g. a stray leading dash line) --
+      // there's nothing to attach it to, and per the same "not a construct
+      // of its own" rule it must not fall through and become a field either.
+      const node = stack[stack.length - 1];
+      const lastField = node.fields[node.fields.length - 1];
+      if (lastField) {
+        const hintText = text.replace(/^-\s*/, "");
+        lastField.hint = lastField.hint ? `${lastField.hint}\n${hintText}` : hintText;
+      }
       continue;
     }
 
@@ -428,7 +449,7 @@ const parseHeadingSections = (xml, headingLevelMap) => {
   // itself (null for a field sitting directly under the top-level heading).
   const collectFields = (node, isTop, out) => {
     const group = isTop ? null : node.label;
-    node.fields.forEach((f) => out.push({ key: f.key, label: f.label, group, bold: f.bold }));
+    node.fields.forEach((f) => out.push({ key: f.key, label: f.label, group, bold: f.bold, hint: f.hint || null }));
     node.subsections.forEach((child) => collectFields(child, false, out));
   };
 
@@ -438,7 +459,7 @@ const parseHeadingSections = (xml, headingLevelMap) => {
     key: node.key,
     label: node.label,
     level,
-    fields: node.fields.map((f) => ({ key: f.key, label: f.label, group: null, bold: f.bold })),
+    fields: node.fields.map((f) => ({ key: f.key, label: f.label, group: null, bold: f.bold, hint: f.hint || null })),
     subsections: node.subsections.map((child) => toSubsectionNode(child, level + 1)),
   });
 

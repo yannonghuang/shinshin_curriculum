@@ -106,6 +106,7 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
                 value={(values && values[field.key]) || ""}
                 disabled={!canEdit}
                 onChange={(e) => onFieldChange(field.key, e.target.value)}
+                placeholder={field.hint || undefined}
               />
             </div>
           </React.Fragment>
