@@ -87,8 +87,27 @@ const findLabel = (text, label) => {
 // Section/sub-section headings that aren't fields themselves but mark hard
 // content boundaries, used only as a fallback when the upload isn't shaped like
 // the template's table (see extractSectionsFromText) and there's no row/cell
-// structure to bound content instead.
-const HARD_SECTION_BOUNDARIES = ["WHY", "WHAT", "HOW", "活动设计", "探究与制作", "三、出项", "第二部分：分课时设计"];
+// structure to bound content instead. Both "第二部分：分课时设计" and bare
+// "分课时设计" are listed -- older template versions heading the lesson
+// breakdown with the "第二部分：" prefix, a newer one (see extractLessonsFromText's
+// same 第二部分-optional handling) dropping it -- since findLabel only matches
+// a label at its own line start, listing both is safe: whichever a real
+// upload doesn't use simply never matches, and the two can never both match
+// (one's a superset of the other's line, not the same line). Without a
+// matching boundary, the field right before this heading (复盘反思, in every
+// template seen so far) had no stopping point and silently absorbed the
+// entire 分课时设计 section into its own value (confirmed bug on a newer
+// template's upload).
+const HARD_SECTION_BOUNDARIES = [
+  "WHY",
+  "WHAT",
+  "HOW",
+  "活动设计",
+  "探究与制作",
+  "三、出项",
+  "第二部分：分课时设计",
+  "分课时设计",
+];
 
 // Finds every known label's position within one block of text (in document
 // order, not list order) and takes each field's content as the text up to
@@ -236,8 +255,20 @@ export const hasAnySectionContent = (schema, answers) => {
 // space -- so this covers ordinary spaces/tabs plus the common Unicode space
 // variants, not just " ".
 const PART2_LEADING_WS = "[ \\t\\u00a0\\u2000-\\u200a\\u3000]*";
-const PART2_HEADING_RE = new RegExp(`^${PART2_LEADING_WS}第二部分[：:]?${PART2_LEADING_WS}分课时设计`, "m");
-const LESSON_HEADING_RE = new RegExp(`^${PART2_LEADING_WS}第[0-9一二三四五六七八九十百]+课时[：:]?${PART2_LEADING_WS}([^\\n]*)`, "gm");
+// "第二部分：" is optional -- a newer template heads this section with bare
+// "分课时设计" (no part number/colon at all), confirmed on a real upload that
+// otherwise lost its entire lesson breakdown (see HARD_SECTION_BOUNDARIES'
+// same 第二部分-optional handling for extractFieldsFromBlock's boundary use).
+const PART2_HEADING_RE = new RegExp(`^${PART2_LEADING_WS}(?:第二部分[：:]?${PART2_LEADING_WS})?分课时设计`, "m");
+// Each lesson heading is either "第N课时" (older templates) or "课时N" (a
+// newer one, number after the word instead of before) -- same confirmed-bug
+// upload as above had "课时1："/"课时2："/... which the "第N课时"-only pattern
+// never matched, so no lesson headings were found at all even once
+// PART2_HEADING_RE above was fixed to find the section itself.
+const LESSON_HEADING_RE = new RegExp(
+  `^${PART2_LEADING_WS}(?:第[0-9一二三四五六七八九十百]+课时|课时[0-9一二三四五六七八九十百]+)[：:]?${PART2_LEADING_WS}([^\\n]*)`,
+  "gm"
+);
 const PART3_HEADING_RE = new RegExp(`^${PART2_LEADING_WS}第三部分`, "m");
 
 // Best-effort extraction of "第二部分：分课时设计" into the same
@@ -256,7 +287,23 @@ const PART3_HEADING_RE = new RegExp(`^${PART2_LEADING_WS}第三部分`, "m");
 // entirely). Content runs from right after one heading to the next, capped at
 // "第三部分" for the last lesson if present (otherwise end of document) so it
 // doesn't swallow the materials/resources section that can follow.
-export const extractLessonsFromText = (text) => {
+//
+// lessonSchema (optional, a template_versions row's schemaJson.lessonSchema
+// -- see templateParser.js#extractLessonSchema) is what plan-detail.component.js's
+// planLesson pane actually reads once a template has one: DynamicSectionFields
+// there renders one input per lessonSchema.fields entry and looks up each
+// value by that field's own key (f0, f1, ...) directly on the lesson object,
+// never touching title/content at all in that branch (see EMPTY_LESSON's
+// comment there). Without this, an upload against such a template extracted
+// each lesson's heading/content correctly but the content sat in `content`
+// where nothing read it -- confirmed bug: 分课时设计 content stopped bleeding
+// into the previous field (the earlier fix) but then didn't show up
+// anywhere either. When lessonSchema is given, each lesson's own field
+// values are extracted from its content block the same generic way
+// extractSectionsFromText extracts a table row's fields, and merged in
+// alongside title/content (harmless when a schema-driven template falls back
+// to the freeform UI, and vice versa -- each branch only reads its own keys).
+export const extractLessonsFromText = (text, lessonSchema) => {
   const part2Idx = text.search(PART2_HEADING_RE);
   if (part2Idx === -1) return [];
   const part2Text = text.slice(part2Idx);
@@ -264,6 +311,8 @@ export const extractLessonsFromText = (text) => {
   if (matches.length === 0) return [];
   const part3Idx = part2Text.search(PART3_HEADING_RE);
   const end = part3Idx === -1 ? part2Text.length : part3Idx;
+  const lessonFieldLabels =
+    lessonSchema && lessonSchema.fields ? lessonSchema.fields.map((f) => [f.key, f.label]) : null;
 
   return matches
     .map((m, i) => {
@@ -272,7 +321,8 @@ export const extractLessonsFromText = (text) => {
       if (contentEnd <= m.index) return null;
       const title = (m[1] || "").trim();
       const content = part2Text.slice(contentStart, contentEnd).trim();
-      return { index: i + 1, title, content };
+      const fieldValues = lessonFieldLabels && lessonFieldLabels.length ? extractFieldsFromBlock(content, lessonFieldLabels) : {};
+      return { index: i + 1, title, content, ...fieldValues };
     })
     .filter((l) => l && (l.title || l.content));
 };
