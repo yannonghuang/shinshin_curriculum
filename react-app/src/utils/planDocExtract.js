@@ -4,7 +4,14 @@ import { PLAN_GRADES } from "../constants/plan-options";
 // uploaded .docx) and plan-detail.component.js (the 课程设计文件 panel's 上传
 // command, which overrides an existing plan's online content the same way).
 
-export const UPLOAD_FIELD_LABELS = { title: "标题", grade: "年级", plannedLessonCount: "预计课时" };
+export const UPLOAD_FIELD_LABELS = {
+  title: "标题",
+  grade: "年级",
+  studentCount: "学生人数",
+  instructorName: "执教人",
+  plannedLessonCount: "预计课时",
+  theme: "乡土主题",
+};
 
 const GRADE_DIGIT_TO_LABEL = {
   "1": "一年级", "2": "二年级", "3": "三年级", "4": "四年级", "5": "五年级", "6": "六年级",
@@ -12,8 +19,15 @@ const GRADE_DIGIT_TO_LABEL = {
 };
 
 // Best-effort field extraction against curriculum_template/乡土课程设计方案模版.docx's
-// labeled header (课程名称/任教年级/预计课时 -- 乡土主题 和 年份 aren't labeled in
-// the template at all, so those are never guessed, only ever filled in by hand).
+// labeled header (课程名称/任教年级/学生人数/执教人/预计课时 -- 年份 isn't labeled
+// in the template at all, so it's never guessed, only ever filled in by hand).
+// 乡土主题 is labeled in some template versions but not others (added in a
+// later upload -- see templateParser.js's isAppendixMarker for the separate,
+// older 附件-derived *options* list), so result.theme is only ever the raw
+// matched text here; the caller (plan-detail.component.js's handleUploadFile)
+// still has to validate it against that plan's actual themeOptions before
+// applying it, since an older upload's raw text may not match any current
+// option, or the label may be entirely absent.
 export const extractPlanFieldsFromText = (text) => {
   const result = {};
 
@@ -33,6 +47,15 @@ export const extractPlanFieldsFromText = (text) => {
     const found = PLAN_GRADES.find((g) => raw.includes(g)) || GRADE_DIGIT_TO_LABEL[(raw.match(/[1-6一二三四五六]/) || [])[0]];
     if (found) result.grade = found;
   }
+
+  const studentCountMatch = text.match(/学生人数[：:]\s*(\d+)/);
+  if (studentCountMatch) result.studentCount = studentCountMatch[1];
+
+  const instructorMatch = text.match(/执教人[：:][ \t]*([^\n]+)/);
+  if (instructorMatch && instructorMatch[1].trim()) result.instructorName = instructorMatch[1].trim();
+
+  const themeMatch = text.match(/乡土主题[：:][ \t]*([^\n]+)/);
+  if (themeMatch && themeMatch[1].trim()) result.theme = themeMatch[1].trim();
 
   const lessonMatch = text.match(/预计课时[：:]\s*(\d+)/);
   if (lessonMatch) result.plannedLessonCount = lessonMatch[1];

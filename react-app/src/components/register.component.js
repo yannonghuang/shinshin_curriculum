@@ -13,7 +13,20 @@ import emailjsConfig from "../config/emailjs.config";
 import { SCHOOLS } from "../constants/school-options";
 import "../curriculum.css";
 
-const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name }));
+const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, address: s.address }));
+
+// Shows each school's address as a muted second line under its name, so a
+// teacher picking from 392 similarly-named schools (many share a county/town
+// name) has enough to tell same-named schools apart -- react-select renders
+// this for both the open dropdown's option rows and the collapsed selected
+// value alike, since formatOptionLabel isn't given a context arg to
+// distinguish them.
+const formatSchoolOptionLabel = (option) => (
+  <div>
+    <div>{option.label}</div>
+    {option.address && <div style={{ fontSize: "0.85em", color: "#6c757d" }}>{option.address}</div>}
+  </div>
+);
 
 const jwt = require("jsonwebtoken");
 
@@ -270,6 +283,7 @@ export default class Register extends Component {
                   value={this.state.school}
                   onChange={this.onChangeSchool}
                   placeholder="搜索并选择学校..."
+                  formatOptionLabel={formatSchoolOptionLabel}
                 />
               </div>
 
