@@ -236,7 +236,10 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadReplace, themeOptions }
 
       const schema = (plan && plan.PlanTemplateVersion && plan.PlanTemplateVersion.schemaJson) || { sections: [] };
       const bodyExtracted = extractSectionsFromText(text, html, schema);
-      const lessons = extractLessonsFromText(text);
+      // schema.lessonSchema (when present) is how a template's own per-课时
+      // fields (e.g. "1.课时标题：") get extracted into each lesson too, not
+      // just the heading/raw-content -- see extractLessonsFromText's comment.
+      const lessons = extractLessonsFromText(text, schema.lessonSchema);
       if (!hasAnySectionContent(schema, bodyExtracted) && lessons.length === 0) {
         setMessage("未能从文件中识别到有效内容，请确认文件是按课程设计方案模版填写的 .docx。");
         return;
