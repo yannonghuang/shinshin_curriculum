@@ -7,7 +7,19 @@ import { SCHOOLS } from "../constants/school-options";
 import "../curriculum.css";
 
 const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员", super: "超级管理员" };
-const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name }));
+const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, address: s.address }));
+
+// Shows each school's address as a muted second line under its name, so an
+// admin/super picking from 392 similarly-named schools (many share a
+// county/town name) has enough to tell same-named schools apart --
+// react-select renders this for both the open dropdown's option rows and
+// the collapsed selected value alike.
+const formatSchoolOptionLabel = (option) => (
+  <div>
+    <div>{option.label}</div>
+    {option.address && <div style={{ fontSize: "0.85em", color: "#6c757d" }}>{option.address}</div>}
+  </div>
+);
 
 const emptyForm = {
   username: "",
@@ -437,6 +449,7 @@ const AdminUsersList = () => {
                     value={form.school}
                     onChange={(option) => setForm((prev) => ({ ...prev, school: option }))}
                     placeholder="搜索并选择学校..."
+                    formatOptionLabel={formatSchoolOptionLabel}
                   />
                 </div>
               )}

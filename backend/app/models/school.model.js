@@ -11,11 +11,15 @@ module.exports = (sequelize, Sequelize) => {
         type: Sequelize.STRING(255),
         allowNull: false,
       },
+      address: {
+        type: Sequelize.STRING(255),
+        allowNull: true,
+      },
     },
     {
       tableName: "schools",
       freezeTableName: true,
-      // Static seed lookup table (id/code, name only) -- no created_at/
+      // Static seed lookup table (id/code, name, address) -- no created_at/
       // updated_at columns, matching role.model.js's same pattern.
       timestamps: false,
     }

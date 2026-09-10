@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import mammoth from "mammoth";
 import TemplateDataService from "../services/template.service";
 import "../curriculum.css";
 
@@ -149,6 +150,34 @@ const TemplateAdmin = () => {
     }
   };
 
+  // Opens a blank window synchronously, before the first await, so the
+  // browser attributes it to this click and doesn't treat it as a
+  // popup-blocked async open -- then fills it in once the doc's converted.
+  // Same pattern as plan-detail.component.js's DesignDocPanel#handlePreview.
+  const handlePreview = async (templateKey, version) => {
+    setMessage("");
+    const label = version.sourceFileName || `${templateKey}-v${version.version}.docx`;
+    const win = window.open("", "_blank");
+    if (win) win.document.write(`<title>预览：${label}</title><body>预览加载中...</body>`);
+    try {
+      const resp = await TemplateDataService.download(templateKey, version.id);
+      const result = await mammoth.convertToHtml({ arrayBuffer: resp.data });
+      if (win) {
+        win.document.open();
+        win.document.write(
+          `<!doctype html><html><head><meta charset="utf-8"><title>预览：${label}</title>` +
+            `<style>body{max-width:800px;margin:24px auto;padding:0 16px;font-family:sans-serif;line-height:1.6;}</style>` +
+            `</head><body>${result.value || "<p>文档内容为空。</p>"}</body></html>`
+        );
+        win.document.close();
+      }
+    } catch (err) {
+      console.log(err);
+      setMessage("模板预览失败。");
+      if (win) win.close();
+    }
+  };
+
   const startEditNote = (version) => {
     setEditingNoteId(version.id);
     setNoteDraft(version.notes || "");
@@ -267,6 +296,13 @@ const TemplateAdmin = () => {
                             onClick={() => handleDownload(t.key, v)}
                           >
                             下载
+                          </button>
+                          <button
+                            className="btn btn-outline-primary btn-sm mr-1"
+                            type="button"
+                            onClick={() => handlePreview(t.key, v)}
+                          >
+                            预览
                           </button>
                           {!v.isActive && (
                             <button

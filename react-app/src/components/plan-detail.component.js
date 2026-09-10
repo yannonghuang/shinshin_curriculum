@@ -141,7 +141,7 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
 // utils/planDocExtract.js) and overwrites the plan's planFormData wholesale
 // after an explicit confirm -- a destructive action, so it's gated behind a
 // warning rather than a silent merge.
-const DesignDocPanel = ({ planId, plan, canEdit, onUploadReplace }) => {
+const DesignDocPanel = ({ planId, plan, canEdit, onUploadReplace, themeOptions }) => {
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(""); // "" | "download" | "preview"
   const [showUpload, setShowUpload] = useState(false);
@@ -242,12 +242,23 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadReplace }) => {
         return;
       }
       const newFormData = { ...bodyExtracted, lessons };
-      // 课程名称/任教年级 -- best-effort labeled-header extraction (乡土主题 has
-      // no labeled field in the template, so it's never touched here, only
-      // ever filled in by hand). This previously ran nowhere at all despite
-      // existing in planDocExtract.js -- an upload replaced the WHY/WHAT/HOW
-      // content but silently left 标题/年级 untouched (confirmed bug).
+      // 课程名称/任教年级/学生人数/执教人/乡土主题 -- best-effort labeled-header
+      // extraction. This previously ran nowhere at all despite existing in
+      // planDocExtract.js -- an upload replaced the WHY/WHAT/HOW content but
+      // silently left 标题/年级 untouched (confirmed bug); 学生人数/执教人 had
+      // the same gap even after their regexes were added, since this call
+      // site never read them off the result either.
       const extractedFields = extractPlanFieldsFromText(text);
+      // 乡土主题 isn't labeled in every template version (see
+      // planDocExtract.js's comment), and even when it is, the raw text an
+      // uploader typed might not exactly match any of *this* plan's current
+      // themeOptions (a stale/renamed option, a typo) -- applying an
+      // unmatched value would either get silently rejected by the backend
+      // (theme must be one of db.PLAN_THEMES, see plan.controller.js#update)
+      // or just not appear in the dropdown, so only apply it on an exact
+      // (trimmed) match against a real option.
+      const matchedTheme =
+        extractedFields.theme && (themeOptions || []).find((t) => t.trim() === extractedFields.theme.trim());
       // 课时N/分课时设计 tabs are driven by plan.plannedLessonCount, a
       // separate top-level field -- not by formData.lessons.length. Without
       // updating it here too, lessons beyond the plan's *existing* count
@@ -260,6 +271,9 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadReplace }) => {
         planFormData: newFormData,
         ...(extractedFields.title ? { title: extractedFields.title } : {}),
         ...(extractedFields.grade ? { grade: extractedFields.grade } : {}),
+        ...(extractedFields.studentCount ? { studentCount: Number(extractedFields.studentCount) } : {}),
+        ...(extractedFields.instructorName ? { instructorName: extractedFields.instructorName } : {}),
+        ...(matchedTheme ? { theme: matchedTheme } : {}),
         ...(lessons.length > 0
           ? { plannedLessonCount: lessons.length }
           : extractedFields.plannedLessonCount
@@ -1044,7 +1058,13 @@ const PlanDetail = (props) => {
           <div className="mb-2">
             <h6 className="mb-0">课程设计文件</h6>
           </div>
-          <DesignDocPanel planId={planId} plan={plan} canEdit={canEditPlan} onUploadReplace={onUploadReplace} />
+          <DesignDocPanel
+            planId={planId}
+            plan={plan}
+            canEdit={canEditPlan}
+            onUploadReplace={onUploadReplace}
+            themeOptions={themeOptions}
+          />
         </div>
       );
     }

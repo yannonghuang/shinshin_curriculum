@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import mammoth from "mammoth";
 import PlanDataService from "../services/plan.service";
 import TemplateDataService from "../services/template.service";
 import AuthService from "../services/auth.service";
@@ -185,6 +186,33 @@ const PlansList = (props) => {
     }
   };
 
+  // Opens a blank window synchronously, before the first await, so the
+  // browser attributes it to this click and doesn't treat it as a
+  // popup-blocked async open -- then fills it in once the doc's converted.
+  // Same pattern as plan-detail.component.js's DesignDocPanel#handlePreview.
+  const previewTemplateFile = async (templateKey) => {
+    const label = templateKey === "plan_design" ? "乡土课程设计方案模版" : "乡土课程实施记录模版";
+    const win = window.open("", "_blank");
+    if (win) win.document.write(`<title>预览：${label}</title><body>预览加载中...</body>`);
+    try {
+      const blankResp = await TemplateDataService.downloadBlank(templateKey);
+      const result = await mammoth.convertToHtml({ arrayBuffer: blankResp.data });
+      if (win) {
+        win.document.open();
+        win.document.write(
+          `<!doctype html><html><head><meta charset="utf-8"><title>预览：${label}</title>` +
+            `<style>body{max-width:800px;margin:24px auto;padding:0 16px;font-family:sans-serif;line-height:1.6;}</style>` +
+            `</head><body>${result.value || "<p>文档内容为空。</p>"}</body></html>`
+        );
+        win.document.close();
+      }
+    } catch (e) {
+      console.log(e);
+      setMessage("模板预览失败。");
+      if (win) win.close();
+    }
+  };
+
   const onDelete = async (item) => {
     const ok = window.confirm("此操作将永久删除该课程设计及其所有附件与点评，且无法撤销。确定继续吗？");
     if (!ok) return;
@@ -337,12 +365,28 @@ const PlansList = (props) => {
           <button className="btn btn-primary mr-3" type="button" onClick={createEmptyPlan}>
             新增乡土课程
           </button>
-          <button className="btn btn-link p-0 mr-3" type="button" onClick={() => downloadTemplateFile("plan_design")}>
-            下载乡土课程设计方案模版
-          </button>
-          <button className="btn btn-link p-0" type="button" onClick={() => downloadTemplateFile("lesson_execution")}>
-            下载乡土课程实施记录模版
-          </button>
+          <span className="mr-3">
+            乡土课程设计方案模版：
+            <button className="btn btn-link p-0 ml-1 mr-2" type="button" onClick={() => downloadTemplateFile("plan_design")}>
+              下载
+            </button>
+            <button className="btn btn-link p-0" type="button" onClick={() => previewTemplateFile("plan_design")}>
+              预览
+            </button>
+          </span>
+          <span>
+            乡土课程实施记录模版：
+            <button
+              className="btn btn-link p-0 ml-1 mr-2"
+              type="button"
+              onClick={() => downloadTemplateFile("lesson_execution")}
+            >
+              下载
+            </button>
+            <button className="btn btn-link p-0" type="button" onClick={() => previewTemplateFile("lesson_execution")}>
+              预览
+            </button>
+          </span>
         </div>
       )}
 
