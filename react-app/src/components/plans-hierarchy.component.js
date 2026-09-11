@@ -74,11 +74,22 @@ const buildHierarchy = (plans) => {
   return groupList;
 };
 
-const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
+const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) => {
   const [plans, setPlans] = useState([]);
   const [message, setMessage] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
+
+  // The three review-status toggles only make sense on the admin's plain
+  // "全部乡土课程" view (bare /plans, no fixed statusFilter and not the
+  // excellent-case gallery) -- matches exactly the condition
+  // plans-list.component.js's own `heading` uses to decide that's what this
+  // is. The expert's ?status=submitted queue and the public gallery keep
+  // browsing their own fixed set with no filter bar.
+  const showReviewFilters = !statusFilter && !excellentOnly;
+  const [filterSubmitted, setFilterSubmitted] = useState(false);
+  const [filterAiReviewed, setFilterAiReviewed] = useState(false);
+  const [filterExpertReviewed, setFilterExpertReviewed] = useState(false);
   // Keyed by `${groupKey}|${schoolKey}` -- a school can appear under
   // multiple year/season groups, so its expand state must be scoped per
   // group, not global.
@@ -104,7 +115,32 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
     retrieveAll();
   }, [retrieveAll]);
 
-  const groups = useMemo(() => buildHierarchy(plans), [plans]);
+  // aiReviewed/expertReviewed come pre-computed from plan.controller.js#findAll
+  // (derived, not stored -- see that controller's own comment); filtering
+  // here is purely client-side over the already-fully-fetched `plans` array,
+  // consistent with this component's "fetch everything once, browse the tree
+  // client-side" design (see PAGE_SIZE above). Toggles AND together, same as
+  // every other multi-filter bar in this app.
+  const filteredPlans = useMemo(() => {
+    if (!showReviewFilters) return plans;
+    return plans.filter(
+      (p) =>
+        (!filterSubmitted || p.status === "submitted") &&
+        (!filterAiReviewed || p.aiReviewed) &&
+        (!filterExpertReviewed || p.expertReviewed)
+    );
+  }, [plans, showReviewFilters, filterSubmitted, filterAiReviewed, filterExpertReviewed]);
+
+  const groups = useMemo(() => buildHierarchy(filteredPlans), [filteredPlans]);
+
+  // Reports the filtered count up to plans-list.component.js so it can show
+  // it next to the page's own "全部乡土课程" title instead of duplicating it
+  // here in the filter bar -- this component doesn't know the heading text
+  // (that's the parent's own heading/excellentOnly/mineOnly logic), so the
+  // count is the only thing worth lifting up.
+  useEffect(() => {
+    if (onFilteredCountChange) onFilteredCountChange(filteredPlans.length);
+  }, [filteredPlans, onFilteredCountChange]);
 
   // Auto-expand and select the most recent 年份-学期 group's first school's
   // first teacher on first load (and whenever the previously-selected
@@ -206,7 +242,33 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
   const selectedTeacher = selectedSchool ? selectedSchool.teacherList.find((t) => t.teacherId === selected.teacherId) : null;
 
   return (
-    <div className="pl-explorer">
+    <>
+      {showReviewFilters && (
+        <div className="pl-filter-bar mb-3">
+          <button
+            type="button"
+            className={`pl-filter-toggle ${filterSubmitted ? "is-active" : ""}`}
+            onClick={() => setFilterSubmitted((prev) => !prev)}
+          >
+            已提交
+          </button>
+          <button
+            type="button"
+            className={`pl-filter-toggle pl-filter-toggle-ai ${filterAiReviewed ? "is-active" : ""}`}
+            onClick={() => setFilterAiReviewed((prev) => !prev)}
+          >
+            AI已点评
+          </button>
+          <button
+            type="button"
+            className={`pl-filter-toggle pl-filter-toggle-expert ${filterExpertReviewed ? "is-active" : ""}`}
+            onClick={() => setFilterExpertReviewed((prev) => !prev)}
+          >
+            专家已点评
+          </button>
+        </div>
+      )}
+      <div className="pl-explorer">
       <button
         type="button"
         className="pl-explorer-hide-toggle"
@@ -298,6 +360,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly }) => {
         )}
       </div>
     </div>
+    </>
   );
 };
 

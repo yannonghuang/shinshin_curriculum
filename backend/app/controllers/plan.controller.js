@@ -323,6 +323,29 @@ exports.findAll = async (req, res) => {
       order: [["id", "DESC"]],
     });
 
+    // aiReviewed/expertReviewed are derived, not stored -- "has this plan
+    // received at least one review of that reviewerType", computed with one
+    // extra lightweight query for this page's plan ids rather than N+1 or an
+    // eager Review include (which would pull full review content into a
+    // list response, including the up-to-1000-row hierarchy-view fetch).
+    // "expert" means reviewerType='expert' specifically, not 'admin' -- see
+    // review.model.js's own comment on why those stay distinct.
+    const planIds = data.rows.map((r) => r.id);
+    const reviewRows = planIds.length
+      ? await Review.findAll({
+          where: { planId: { [Op.in]: planIds }, reviewerType: { [Op.in]: ["ai", "expert"] } },
+          attributes: ["planId", "reviewerType"],
+        })
+      : [];
+    const aiReviewedIds = new Set(reviewRows.filter((r) => r.reviewerType === "ai").map((r) => r.planId));
+    const expertReviewedIds = new Set(reviewRows.filter((r) => r.reviewerType === "expert").map((r) => r.planId));
+    data.rows = data.rows.map((row) => {
+      const plain = row.get({ plain: true });
+      plain.aiReviewed = aiReviewedIds.has(plain.id);
+      plain.expertReviewed = expertReviewedIds.has(plain.id);
+      return plain;
+    });
+
     return res.send(getPagingData(data, page, limit));
   } catch (err) {
     return res.status(500).send({
@@ -376,6 +399,11 @@ exports.findOne = async (req, res) => {
             "aiModel",
             "createdAt",
           ],
+          // Reviewer name -- used by plan-detail.component.js's 基本信息 tab to
+          // list expert reviewers' names when expertReviewed is true. aiReviewed/
+          // expertReviewed themselves are derived client-side from this same
+          // array (see that component), not duplicated here.
+          include: [{ model: User, as: "Reviewer", attributes: ["chineseName", "username"] }],
         },
       ],
       order: [

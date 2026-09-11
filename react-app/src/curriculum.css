@@ -327,6 +327,64 @@
   border: 1px solid #e4d3fb;
 }
 
+/* 全部乡土课程's 已提交/AI已点评/专家已点评 filter toggles (plans-hierarchy.component.js) --
+   same pill shape as .pl-tag, but interactive: inactive reads as a plain
+   outlined tag, active fills in with the same color an individual review's
+   own badge would use (.pl-tag-ai/.pl-tag-expert), so a lit-up toggle visually
+   echoes what it's filtering for. */
+.pl-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pl-filter-toggle {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: #fff;
+  color: var(--pl-muted);
+  border: 1px solid var(--pl-line);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.pl-filter-toggle:hover {
+  border-color: var(--pl-accent);
+  color: var(--pl-accent);
+}
+
+.pl-filter-toggle.is-active {
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+  border-color: #ccebdd;
+  font-weight: 600;
+}
+
+.pl-filter-toggle-ai.is-active {
+  background: #eef1ff;
+  color: #3b3fa0;
+  border-color: #cfd4f5;
+}
+
+.pl-filter-toggle-expert.is-active {
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+  border-color: #ccebdd;
+}
+
+/* Now shown next to plans-list.component.js's own page title (h4), not
+   inside the filter bar itself -- see plans-hierarchy.component.js's
+   onFilteredCountChange. */
+.pl-filter-bar-count {
+  color: var(--pl-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 /* plan-detail.component.js's file-explorer layout: a collapsible/hide-able left
    nav tree (.pl-explorer-nav, entirely removed from the DOM when hidden -- see
    .pl-explorer-hide-toggle) driving a single-section content pane on the right
