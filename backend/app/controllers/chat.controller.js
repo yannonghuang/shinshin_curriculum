@@ -7,6 +7,8 @@ const { QueryTypes } = db.Sequelize;
 const agentLoop = require("../services/agentLoop");
 const { searchKnowledgeBase, searchKnowledgeBaseToolDef } = require("../services/knowledgeRetrieve");
 const { getPlanDetailsToolDef, getPlanDetails } = require("../services/planContext");
+const chatCompaction = require("../services/chatCompaction");
+const llmClient = require("../services/llmClient");
 
 // How many past turns feed back into the model as conversation context --
 // caps token usage/cost as a thread grows long, rather than sending its
@@ -29,9 +31,17 @@ const TITLE_MAX_LEN = 40;
 // on purpose is a different action than passively landing on a page.
 const CONVERSATION_FRESH_START_MS = 24 * 60 * 60 * 1000;
 
+// Same primary/secondary framing as review.controller.js's
+// AI_REVIEW_SYSTEM_PROMPT: when a question concerns a specific plan/review
+// (its theme, grade, locality are surfaced via get_plan_details, see
+// planContext.js#buildBasicInfoLines), lead with what's specific to that
+// theme and place -- generic teaching-methodology advice stays available but
+// brief, since that's the human专家's primary lane.
 const COPILOT_SYSTEM_PROMPT =
   "你是「乡土课程项目实施与案例分享系统」的助手，帮助教师解答关于乡土课程设计、实施与共享学习材料库的问题。" +
-  "如有需要，可调用 search_knowledge_base 工具查询共享学习材料库中的相关参考资料；不需要参考资料时无需调用。用中文简明清晰地回复。";
+  "如果问题涉及某个具体的课程设计，请优先给出结合该课程具体主题、年级与学校/地区的针对性建议（本地资源、主题特有的注意事项等）；" +
+  "通用教学方法方面的建议可以提及，但请保持简短，这类问题通常由人类专家给出更全面的指导。" +
+  "如有需要，可调用 search_knowledge_base 工具查询共享学习材料库中的相关参考资料（可结合课程主题或所在地区检索）；不需要参考资料时无需调用。用中文简明清晰地回复。";
 
 // Scopes a conversation to whatever the user is currently looking at, so
 // switching between plans (or leaving a review discussion) doesn't drag
@@ -122,6 +132,17 @@ const buildContextAddition = async (pageContext) => {
   return "";
 };
 
+// Admin-only "分享到共享知识库" draft step (see chat.routes.js's share-draft
+// route) -- same strict-JSON knowledge-card shape as
+// knowledgeIngest.js#regenerateSkillCardInner's prompt, so the resulting
+// draft is a drop-in payload for the existing
+// PUT /api/material-topics/:id/skill (material-topic.controller.js#updateSkill).
+const SHARE_DRAFT_SYSTEM_PROMPT =
+  "你是共享知识库的整理助手。请阅读以下管理员与AI智能体对话的内容（可能是摘要与关键信息，也可能是原始对话），" +
+  "从中提炼出已经讨论并达成一致、值得分享给所有教师参考的内容，整理成一张知识卡片。" +
+  '严格以 JSON 格式回复，不要包含其他文字或代码块标记：{"title": "...", "summary": "...", "keyPoints": ["...", "..."], "tags": ["...", "..."]}。' +
+  "summary 控制在150字以内，keyPoints 3-5条，tags 3-6个关键词。";
+
 const normalizePageContextQuery = (query) => ({
   planId: query.planId ? Number(query.planId) : undefined,
   reviewId: query.reviewId ? Number(query.reviewId) : undefined,
@@ -137,6 +158,15 @@ const appendTurn = async (conversation, content, pageContext) => {
     await conversation.update({ title: content.slice(0, TITLE_MAX_LEN) });
   }
 
+  // Multi-level context compaction ("LCM") -- a no-op fast-path under the
+  // threshold (see chatCompaction.js's RAW_WINDOW_MESSAGES/
+  // COMPACTION_BATCH_MESSAGES), so this costs nothing on the common
+  // short-conversation case. `conversation` is reloaded afterward since
+  // compactConversationInner updates its own freshly-fetched instance of
+  // this row, not the one already held here.
+  await chatCompaction.maybeCompact(conversation.id);
+  await conversation.reload();
+
   const priorMessages = await ChatMessage.findAll({
     where: { conversationId: conversation.id },
     order: [["id", "DESC"]],
@@ -144,7 +174,7 @@ const appendTurn = async (conversation, content, pageContext) => {
   });
   const history = priorMessages.reverse().map((m) => ({ role: m.role, content: m.content }));
 
-  let systemPrompt = COPILOT_SYSTEM_PROMPT;
+  let systemPrompt = COPILOT_SYSTEM_PROMPT + chatCompaction.renderCompactedContext(conversation);
   try {
     systemPrompt += await buildContextAddition(pageContext);
   } catch (e) {
@@ -330,6 +360,71 @@ exports.sendMessageToConversation = async (req, res) => {
     return res.send({ userMessage, assistantMessage });
   } catch (err) {
     return res.status(500).send({ message: err.message || "发送消息时发生错误。" });
+  }
+};
+
+// POST /api/chat/conversations/:id/share-draft -- admin-only (route-gated).
+// Turns this conversation's own compacted context (falling back to its raw
+// recent messages if compaction hasn't triggered yet, see chatCompaction.js)
+// into a *draft* knowledge-card payload for the admin to review/edit --
+// nothing is written to the shared knowledge base here. Saving is still the
+// existing PUT /api/material-topics/:id/skill, so "an admin explicitly
+// decides to share" stays a real, reviewable step rather than anything
+// automatic or silent (see the knowledge-scope design in the plan for this
+// feature: teacher conversations are never shared; only an admin's own
+// conversation, and only on this explicit action).
+exports.shareDraft = async (req, res) => {
+  try {
+    const conversation = await ChatConversation.findOne({ where: { id: req.params.id, userId: req.userId } });
+    if (!conversation) return res.status(404).send({ message: "未找到该对话。" });
+
+    let sourceText = "";
+    if (conversation.runningSummary || conversation.factSheet) {
+      const factSheet = conversation.factSheet || {};
+      const factLines = [
+        ...(factSheet.decisions || []).map((d) => `决定：${d}`),
+        ...(factSheet.constraints || []).map((c) => `约束：${c}`),
+      ];
+      sourceText = [conversation.runningSummary, ...factLines].filter(Boolean).join("\n");
+    }
+    if (!sourceText) {
+      const messages = await ChatMessage.findAll({
+        where: { conversationId: conversation.id },
+        order: [["id", "DESC"]],
+        limit: HISTORY_TURNS * 2,
+      });
+      sourceText = messages
+        .reverse()
+        .map((m) => `${m.role === "user" ? "管理员" : "助手"}：${m.content}`)
+        .join("\n");
+    }
+    if (!sourceText.trim()) {
+      return res.status(422).send({ message: "该对话暂无内容，无法生成分享草稿。" });
+    }
+
+    const result = await llmClient.llmChat({
+      systemPrompt: SHARE_DRAFT_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: sourceText }],
+      maxTokens: 800,
+      temperature: 0.2,
+    });
+
+    let parsed;
+    try {
+      const cleaned = (result.text || "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch (e) {
+      return res.status(500).send({ message: "生成分享草稿失败：AI 返回内容解析失败，请稍后重试。" });
+    }
+
+    return res.send({
+      title: parsed.title || conversation.title || "",
+      summary: parsed.summary || "",
+      keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
+      tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+    });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "生成分享草稿时发生错误。" });
   }
 };
 

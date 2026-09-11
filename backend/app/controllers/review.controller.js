@@ -74,9 +74,21 @@ exports.create = async (req, res) => {
 
 // Fixed across every AI-review scope (single lesson, whole design, or the
 // combined design+every-lesson scope below) -- only the user content varies.
+//
+// Deliberately split into two labeled, unevenly-weighted parts rather than
+// one undifferentiated point-of-view: human专家 already own general teaching
+// methodology/best-practice review, so the AI agent's distinguishing value is
+// digging into what's specific to *this* plan's theme, grade and locality
+// (surfaced in the content below via buildBasicInfoLines' 学校/地区 line,
+// once `plan` is loaded with the Teacher->School include -- see
+// createAiReview). Generic-methodology commentary stays present but capped,
+// so it reads as a brief secondary note rather than crowding out the
+// theme/locality-specific part that only the AI agent's angle provides.
 const AI_REVIEW_SYSTEM_PROMPT =
-  "你是乡土课程教学专家，请对以下课程设计/实施记录整体做点评，从目标达成、内容设计、可操作性、创新性等维度给出优点、不足和改进建议，用中文回复，200-500字。" +
-  "如果需要参考共享学习材料库中与该课程主题相关的资料（例如同主题的其他课程案例、专家讲解等）来支撑你的点评，可以调用 search_knowledge_base 工具查询；不需要参考资料时无需调用。";
+  "你是乡土课程教学专家，请对以下课程设计/实施记录做点评，用中文回复，200-500字，分成两部分，并使用如下标题：\n" +
+  "【主题与本地特色相关建议】（主，约占篇幅的三分之二）：结合本课程的具体主题、年级与学校/地区，给出只针对这个主题和这个地方才成立的观察——例如可利用的本地资源、这个主题特有的风险或机会、适合本地实际的案例或调整建议。避免泛泛而谈、换成任何主题都适用的内容。\n" +
+  "【通用教学方法提示】（次，1-2条要点即可）：如有明显的通用教学方法（目标达成、内容设计、可操作性等）问题再简要提及，这部分通常由人类专家把关，此处从简。\n" +
+  "如果需要参考共享学习材料库中与该课程主题或所在地区相关的资料（例如同主题的其他课程案例、专家讲解等）来支撑你的点评，可以调用 search_knowledge_base 工具查询；不需要参考资料时无需调用。";
 
 // Content-rendering itself lives in planContext.js (shared with the
 // co-pilot's own pageContext awareness, see chat.controller.js) -- this just
@@ -100,6 +112,7 @@ exports.createAiReview = async (req, res) => {
       include: [
         { model: TemplateVersion, as: "PlanTemplateVersion" },
         { model: TemplateVersion, as: "ExecutionTemplateVersion" },
+        { model: User, as: "Teacher", include: [{ model: db.school, as: "School" }] },
       ],
     });
     if (!plan) {

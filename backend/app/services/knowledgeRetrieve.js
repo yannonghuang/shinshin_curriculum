@@ -78,7 +78,9 @@ const searchKnowledgeBaseToolDef = {
   type: "function",
   function: {
     name: "search_knowledge_base",
-    description: "在共享学习材料库（乡土课程相关的知识卡片与已上传材料内容）中检索与某个问题或主题相关的参考资料。",
+    description:
+      "在共享学习材料库（乡土课程相关的知识卡片与已上传材料内容）中检索与某个问题或主题相关的参考资料。" +
+      "如果当前讨论的课程设计有具体主题、年级或学校/地区信息，建议将其关键词纳入检索词中，以便优先找到与该主题或地区最相关的资料。",
     parameters: {
       type: "object",
       properties: {
