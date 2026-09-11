@@ -899,11 +899,36 @@ const PlanDetail = (props) => {
     );
   const executionNotEmpty = executionFormData.some((r) => hasAnySectionContent(executionTemplateSchema, r));
 
+  // AI已点评/专家已点评 are derived from plan.Reviews (already fetched with this
+  // plan, see plan.controller.js#findOne), not separate stored flags -- "has
+  // this plan received at least one review of that reviewerType". "专家"
+  // means reviewerType==='expert' specifically, not 'admin' (see
+  // review.model.js's own comment on why those stay distinct).
+  const planReviews = plan.Reviews || [];
+  const expertReviews = planReviews.filter((r) => r.reviewerType === "expert");
+  const reviewFlags = {
+    aiReviewed: planReviews.some((r) => r.reviewerType === "ai"),
+    expertReviewed: expertReviews.length > 0,
+    expertReviewerNames: [...new Set(expertReviews.map((r) => (r.Reviewer ? r.Reviewer.chineseName || r.Reviewer.username : "专家")))],
+  };
+
   const renderContent = () => {
     if (selected.type === "plan" && selected.key === "basic") {
       return (
         <div className="pl-card">
           <h6>基本信息</h6>
+          <div className="mb-3">
+            <span className={`pl-plan-card-status status-${plan.status || "draft"}`}>
+              {(PLAN_STATUSES.find((s) => s.value === plan.status) || PLAN_STATUSES[0]).label}
+            </span>
+            {reviewFlags.aiReviewed && <span className="pl-tag-ai ml-2">AI已点评</span>}
+            {reviewFlags.expertReviewed && <span className="pl-tag-expert ml-2">专家已点评</span>}
+            {reviewFlags.expertReviewed && (
+              <span className="text-muted ml-2" style={{ fontSize: "12px" }}>
+                （{reviewFlags.expertReviewerNames.join("、")}）
+              </span>
+            )}
+          </div>
           <form onSubmit={saveMeta}>
             <div className="form-group">
               <label>标题</label>

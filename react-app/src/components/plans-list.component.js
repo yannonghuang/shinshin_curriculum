@@ -52,6 +52,11 @@ const PlansList = (props) => {
   }, []);
   const [searchGrade, setSearchGrade] = useState("");
   const [searchYear, setSearchYear] = useState("");
+  // Reported up from plans-hierarchy.component.js's own review-status
+  // filter toggles (only meaningful on the admin's plain "全部乡土课程" view --
+  // see showHierarchyCount below) so the count can sit next to this page's
+  // own title instead of living inside the filter bar.
+  const [hierarchyFilteredCount, setHierarchyFilteredCount] = useState(null);
 
   // Only teachers author a new plan -- managers/experts manage existing
   // cases (suspend/delete/promote/review) but don't create their own, matching
@@ -264,6 +269,12 @@ const PlansList = (props) => {
     ? "待点评案例"
     : "全部乡土课程";
 
+  // Only the admin's plain 全部乡土课程 view offers the review-status filter
+  // toggles (see plans-hierarchy.component.js's own identical
+  // showReviewFilters condition) -- the expert's fixed 待点评 queue and the
+  // public 优秀案例 gallery never report a count up, so this stays null there.
+  const showHierarchyCount = isManagerOrExpertView && !statusFilter && !excellentOnly && hierarchyFilteredCount !== null;
+
   return (
     <div className={`container ${stylishPublic ? "pl-page" : ""}`}>
       {stylishPublic ? (
@@ -284,11 +295,16 @@ const PlansList = (props) => {
               isManagerOrExpertView skips entirely (see retrieveAll) -- the
               hierarchy view's own tree conveys scale instead. */}
           {!isManagerOrExpertView && `（总数：${totalItems}）`}
+          {showHierarchyCount && <span className="pl-filter-bar-count ml-2">共 {hierarchyFilteredCount} 项</span>}
         </h4>
       )}
 
       {isManagerOrExpertView ? (
-        <PlansHierarchy statusFilter={statusFilter} excellentOnly={excellentOnly} />
+        <PlansHierarchy
+          statusFilter={statusFilter}
+          excellentOnly={excellentOnly}
+          onFilteredCountChange={setHierarchyFilteredCount}
+        />
       ) : (
         <>
       {/* A teacher's own plans list is small by nature -- search/filter/pagination
