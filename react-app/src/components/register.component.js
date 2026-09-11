@@ -10,7 +10,7 @@ import emailjs, { init } from "emailjs-com";
 
 import AuthService from "../services/auth.service";
 import emailjsConfig from "../config/emailjs.config";
-import { SCHOOLS } from "../constants/school-options";
+import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
 
 const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, address: s.address }));
@@ -284,6 +284,7 @@ export default class Register extends Component {
                   onChange={this.onChangeSchool}
                   placeholder="搜索并选择学校..."
                   formatOptionLabel={formatSchoolOptionLabel}
+                  filterOption={schoolFilterOption}
                 />
               </div>
 

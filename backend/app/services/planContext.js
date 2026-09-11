@@ -77,6 +77,11 @@ const buildBasicInfoLines = (plan) => {
   if (plan.studentCount) lines.push(`学生人数：${plan.studentCount}`);
   if (plan.instructorName) lines.push(`执教人：${plan.instructorName}`);
   if (plan.plannedLessonCount) lines.push(`预计课时：${plan.plannedLessonCount}`);
+  // Locality anchor for the AI agent's theme/locality-first framing (see
+  // review.controller.js's AI_REVIEW_SYSTEM_PROMPT and chat.controller.js's
+  // COPILOT_SYSTEM_PROMPT) -- only present when the caller loaded `plan`
+  // with the Teacher->School include (createAiReview, getPlanDetails below).
+  if (plan.Teacher?.School?.address) lines.push(`学校/地区：${plan.Teacher.School.address}`);
   return lines;
 };
 
@@ -222,6 +227,7 @@ async function getPlanDetails({ planId }) {
     include: [
       { model: db.templateVersion, as: "PlanTemplateVersion" },
       { model: db.templateVersion, as: "ExecutionTemplateVersion" },
+      { model: db.user, as: "Teacher", include: [{ model: db.school, as: "School" }] },
     ],
   });
   if (!plan) return { error: "未找到该课程设计。" };

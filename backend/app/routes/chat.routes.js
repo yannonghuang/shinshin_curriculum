@@ -24,4 +24,11 @@ module.exports = function (app) {
   app.get("/api/chat/conversations/:id", [authJwt.verifyToken], chat.getConversationById);
   app.post("/api/chat/conversations/:id/messages", [authJwt.verifyToken], chat.sendMessageToConversation);
   app.delete("/api/chat/conversations/:id", [authJwt.verifyToken], chat.deleteConversation);
+
+  // Admin-only: draft a shared-knowledge-base card from one of the admin's
+  // own conversations (see chat.controller.js#shareDraft) -- the actual save
+  // into knowledge_skills still goes through the existing
+  // PUT /api/material-topics/:id/skill (material-topic.routes.js), this only
+  // produces the draft for the admin to review/edit first.
+  app.post("/api/chat/conversations/:id/share-draft", [authJwt.verifyToken, authJwt.isAdmin], chat.shareDraft);
 };
