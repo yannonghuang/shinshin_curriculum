@@ -64,15 +64,83 @@ const SEGMENT_SPACING = { after: 200 };
 // bold and non-bold labels -- confirmed on the 2026 template) is passed
 // explicitly instead, so generation reproduces the template's own choice
 // rather than inventing one.
+// A value's own embedded "\n"s (e.g. a numbered list typed into a textarea,
+// one item per line -- see 教学活动流程) render as literal whitespace if put
+// straight into one TextRun's `text`, not as visible line breaks -- Word
+// paragraphs don't interpret "\n" in run text at all, unlike a plain-text
+// viewer. A first attempt used TextRun's `break` (a real <w:br/> within one
+// paragraph) instead, but that's visibly wrong under the real templates'
+// own Normal style, which is full-justified (w:jc="both"): justify's
+// "don't stretch the last line" exception applies to a paragraph's true
+// final line only, not to each line a manual break forces -- every other
+// line (including an item's own natural word-wrap, not just the explicit
+// break points) renders letter-spread edge-to-edge. Real separate
+// paragraphs sidestep this entirely (each one *is* its own last line), so
+// `p` returns an array of them -- like `multiline` already does -- with
+// SEGMENT_SPACING only on the last (see callers, which spread this into
+// their own children array).
+
+// A field value's own "1. xxx" / "2. xxx" ... list collides visually with
+// two other arabic-numeral schemes already in play in the same document:
+// the field's own label, when the source template numbers its labels as
+// literal text (e.g. "5.教学活动流程" -- see templateParser.js), and Word's
+// own auto-numbered heading outline (Heading1/Heading2 both carry a real
+// w:numPr/numId in the template's styles.xml). Detected as 2+ lines whose
+// leading "N." marker increments 1, 2, 3... in the order they appear (so a
+// line that merely starts with an unrelated digit, e.g. "10分钟...", can't
+// false-trigger off a single match) -- when found, every matched marker is
+// swapped for a Chinese-ordinal one ("一、二、三...", the same
+// LESSON_ORDINALS map 课时 markers use) so the user's own list reads as
+// clearly distinct from either surrounding scheme. Lines outside the
+// detected sequence (blank lines, non-list prose) are left untouched.
+const ARABIC_ITEM_MARKER = /^(\d+)[.．、]\s*/;
+const renumberCollidingList = (lines) => {
+  const matchedNumbers = lines.map((line) => {
+    const m = line.match(ARABIC_ITEM_MARKER);
+    return m ? Number(m[1]) : null;
+  });
+  const found = matchedNumbers.filter((n) => n !== null);
+  const isSequentialList = found.length >= 2 && found.every((n, i) => n === i + 1);
+  if (!isSequentialList) return lines;
+
+  let seq = 0;
+  return lines.map((line, i) => {
+    if (matchedNumbers[i] === null) return line;
+    seq += 1;
+    return line.replace(ARABIC_ITEM_MARKER, `${lessonOrdinal(seq)}、`);
+  });
+};
+
 const p = (label, value, bold = true) => {
   const cleanLabel = label ? String(label).replace(/[:：]\s*$/, "") : label;
-  return new Paragraph({
-    spacing: SEGMENT_SPACING,
-    children: [
-      new TextRun({ text: cleanLabel ? `${cleanLabel}：` : "", bold: !!cleanLabel && bold }),
-      new TextRun({ text: value != null && value !== "" ? String(value) : "（未填写）" }),
-    ],
+  const labelText = cleanLabel ? `${cleanLabel}：` : "";
+  const str = value != null && value !== "" ? String(value) : "（未填写）";
+  const lines = renumberCollidingList(str.split("\n"));
+
+  if (lines.length === 1) {
+    return [
+      new Paragraph({
+        spacing: SEGMENT_SPACING,
+        children: [
+          new TextRun({ text: labelText, bold: !!cleanLabel && bold }),
+          new TextRun({ text: lines[0] }),
+        ],
+      }),
+    ];
+  }
+
+  // Multi-line: the label gets its own paragraph (no spacing of its own --
+  // it introduces the lines right below, not a separate segment on its
+  // own), then every line, including the first, is its own paragraph; only
+  // the last carries SEGMENT_SPACING.
+  const paragraphs = [];
+  if (labelText) {
+    paragraphs.push(new Paragraph({ children: [new TextRun({ text: labelText, bold })] }));
+  }
+  lines.forEach((line, i) => {
+    paragraphs.push(new Paragraph({ text: line, spacing: i === lines.length - 1 ? SEGMENT_SPACING : undefined }));
   });
+  return paragraphs;
 };
 
 const plain = (text) =>
@@ -119,7 +187,7 @@ const buildFieldChildren = (fields, values) => {
       if (field.group) children.push(h2(field.group));
       lastGroup = field.group;
     }
-    children.push(p(field.label, values[field.key], field.bold === undefined ? true : field.bold));
+    children.push(...p(field.label, values[field.key], field.bold === undefined ? true : field.bold));
   });
   return children;
 };
@@ -221,7 +289,7 @@ async function generateDoc({ docTitle, meta, schema, answers, trailingChildren, 
   // block to introduce, rather than leaving the meta rows floating under no
   // heading at all like before.
   if (meta && meta.length > 0) children.push(h1("基本信息"));
-  (meta || []).forEach(([label, value, bold]) => children.push(p(label, value, bold === undefined ? true : bold)));
+  (meta || []).forEach(([label, value, bold]) => children.push(...p(label, value, bold === undefined ? true : bold)));
   children.push(...buildSchemaChildren(schema, answers));
   if (trailingChildren) children.push(...trailingChildren);
 
@@ -301,7 +369,7 @@ const buildLessonDesignTrailingChildren = (plan) => {
         // no heading style on "第一课时：" (confirmed: no w:pStyle, just a bold
         // run), matching every other field label's shape (see p()) rather
         // than inventing a heading level that isn't in the source.
-        children.push(p(`第${lessonOrdinal(i)}课时`, lesson.title));
+        children.push(...p(`第${lessonOrdinal(i)}课时`, lesson.title));
         children.push(...multiline(lesson.content));
       }
     }
