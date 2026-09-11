@@ -68,6 +68,15 @@ const resolveNumberingXml = (version) => {
   return templateParser.extractNumberingXml(version.sourceFilePath);
 };
 
+// See resolveStylesXml above and dynamicDocGenerator.js#generateDoc's
+// `themeXml` -- a modern template's heading fonts/colors are usually
+// theme-relative references, not literal values, so styles.xml alone isn't
+// enough for Word to render them as the original template did.
+const resolveThemeXml = (version) => {
+  if (!version || !version.sourceFilePath || !fs.existsSync(version.sourceFilePath)) return null;
+  return templateParser.extractThemeXml(version.sourceFilePath);
+};
+
 // The real template can leave a meta label un-bold (confirmed: the 2026
 // template's own "课程名称：" isn't bold, while its schema fields elsewhere
 // are inconsistently bold/not) -- resolved per label from templateParser.js's
@@ -724,6 +733,7 @@ exports.renderDoc = async (req, res) => {
       docTitle: "乡土课程设计方案",
       meta: [
         ["课程名称", plan.title, metaBold(plan.PlanTemplateVersion, "课程名称")],
+        ["乡土主题", plan.theme, metaBold(plan.PlanTemplateVersion, "乡土主题")],
         ["任教年级", plan.grade, metaBold(plan.PlanTemplateVersion, "任教年级")],
         ["学生人数", plan.studentCount, metaBold(plan.PlanTemplateVersion, "学生人数")],
         ["执教人", plan.instructorName, metaBold(plan.PlanTemplateVersion, "执教人")],
@@ -734,6 +744,7 @@ exports.renderDoc = async (req, res) => {
       trailingChildren,
       stylesXml: resolveStylesXml(plan.PlanTemplateVersion),
       numberingXml: resolveNumberingXml(plan.PlanTemplateVersion),
+      themeXml: resolveThemeXml(plan.PlanTemplateVersion),
     });
     const fileName = `${plan.title || "乡土课程设计方案"}.docx`;
 
@@ -785,6 +796,7 @@ exports.renderExecutionDoc = async (req, res) => {
       answers: record,
       stylesXml: resolveStylesXml(plan.ExecutionTemplateVersion),
       numberingXml: resolveNumberingXml(plan.ExecutionTemplateVersion),
+      themeXml: resolveThemeXml(plan.ExecutionTemplateVersion),
     });
     const fileName = `${plan.title || "乡土课程设计方案"}-课时${lessonIndex}-实施记录.docx`;
 
