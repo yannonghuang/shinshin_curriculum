@@ -172,18 +172,57 @@ const buildSchemaChildren = (schema, answers) => {
 // numbering of its own, and the real numbering.xml's numIds already agree
 // with the real styles.xml's <w:numPr> references (both come from the same
 // source file). No-op when the template has none (or wasn't uploaded).
-async function generateDoc({ docTitle, meta, schema, answers, trailingChildren, stylesXml, numberingXml }) {
+// themeXml: the source template's own word/theme/theme1.xml (see
+// templateParser.js#extractThemeXml) -- a modern Word/WPS template's
+// styles.xml typically points at *theme-relative* fonts/colors
+// (w:asciiTheme="majorHAnsi", w:themeColor="accent1", ...) rather than
+// literal values, so externalStyles alone isn't enough once a style
+// references the theme. Unlike numbering.xml, docx never emits a theme part
+// at all by default (confirmed: no file, no [Content_Types].xml entry, no
+// relationship) -- so this splices in not just the file but also the
+// Content-Types Override and the document.xml.rels Relationship that
+// declare it, both otherwise missing. No-op when the template has none (or
+// wasn't uploaded).
+async function generateDoc({ docTitle, meta, schema, answers, trailingChildren, stylesXml, numberingXml, themeXml }) {
   const children = [title(docTitle)];
+  // "基本信息" itself carries no field of its own (its fields are the dedicated
+  // Plan columns passed in as `meta`, not part of `schema` -- see
+  // plan.controller.js's metaBold comment) so templateParser.js drops the
+  // heading along with them; reproduced here as a plain Heading1 (matching
+  // the real 2026 template's own pStyle for it) whenever there's a meta
+  // block to introduce, rather than leaving the meta rows floating under no
+  // heading at all like before.
+  if (meta && meta.length > 0) children.push(h1("基本信息"));
   (meta || []).forEach(([label, value, bold]) => children.push(p(label, value, bold === undefined ? true : bold)));
   children.push(...buildSchemaChildren(schema, answers));
   if (trailingChildren) children.push(...trailingChildren);
 
   const doc = new Document(stylesXml ? { externalStyles: stylesXml, sections: [{ children }] } : { sections: [{ children }] });
   const buffer = await Packer.toBuffer(doc);
-  if (!numberingXml) return buffer;
+  if (!numberingXml && !themeXml) return buffer;
 
   const zip = await JSZip.loadAsync(buffer);
-  zip.file("word/numbering.xml", numberingXml);
+  if (numberingXml) zip.file("word/numbering.xml", numberingXml);
+
+  if (themeXml) {
+    zip.file("word/theme/theme1.xml", themeXml);
+
+    const contentTypesPath = "[Content_Types].xml";
+    const contentTypes = await zip.file(contentTypesPath).async("string");
+    const themeOverride =
+      '<Override ContentType="application/vnd.openxmlformats-officedocument.theme+xml" PartName="/word/theme/theme1.xml"/>';
+    zip.file(contentTypesPath, contentTypes.replace("</Types>", `${themeOverride}</Types>`));
+
+    const relsPath = "word/_rels/document.xml.rels";
+    const rels = await zip.file(relsPath).async("string");
+    // A fixed, arbitrary relationship id -- valid per the OPC spec (ids only
+    // need to be unique, not sequential) and safe here since docx only ever
+    // emits rId1-rId5 for styles/numbering/footnotes/settings/comments.
+    const themeRelationship =
+      '<Relationship Id="rIdThemeAppended" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>';
+    zip.file(relsPath, rels.replace("</Relationships>", `${themeRelationship}</Relationships>`));
+  }
+
   return zip.generateAsync({ type: "nodebuffer" });
 }
 

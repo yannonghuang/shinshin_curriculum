@@ -72,6 +72,21 @@ const readNumberingXml = (filePath) => {
   }
 };
 
+// A modern Word/WPS template's styles.xml resolves its heading fonts/colors
+// through theme references (w:asciiTheme="majorHAnsi", w:themeColor="accent1",
+// etc.) rather than literal values -- word/theme/theme1.xml is what those
+// resolve against. Same non-throwing contract as readStylesXml/readNumberingXml.
+// See dynamicDocGenerator.js#generateDoc's `themeXml`.
+const readThemeXml = (filePath) => {
+  try {
+    return childProcess
+      .execFileSync("unzip", ["-p", filePath, "word/theme/theme1.xml"], { stdio: ["ignore", "pipe", "ignore"] })
+      .toString("utf8");
+  } catch (e) {
+    return null;
+  }
+};
+
 // Runs inside one <w:r>...</w:r> XML chunk: joined <w:t> text + whether its
 // <w:rPr> marks it bold. A label can be split across adjacent runs by
 // Word's own revision tracking even with no visible formatting difference
@@ -510,5 +525,6 @@ const parseTemplateDocx = (filePath) => {
 // See dynamicDocGenerator.js#generateDoc's `stylesXml` option.
 const extractStylesXml = (filePath) => readStylesXml(filePath);
 const extractNumberingXml = (filePath) => readNumberingXml(filePath);
+const extractThemeXml = (filePath) => readThemeXml(filePath);
 
-module.exports = { parseTemplateDocx, extractStylesXml, extractNumberingXml };
+module.exports = { parseTemplateDocx, extractStylesXml, extractNumberingXml, extractThemeXml };

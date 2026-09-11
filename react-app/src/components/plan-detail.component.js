@@ -103,10 +103,17 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
               <textarea
                 className="form-control"
                 rows="2"
-                value={(values && values[field.key]) || ""}
+                // field.hint only fills in while the field is genuinely
+                // untouched (null/undefined) -- an explicit "" (the teacher
+                // deliberately cleared it) stays blank rather than snapping
+                // back. Rendered as real textarea content, not a `placeholder`
+                // (which is native "vanishes on the first keystroke" browser
+                // behavior) -- typing now edits within/around the hint text
+                // instead of erasing it, and that first onChange carries it
+                // forward into real saved state.
+                value={values && values[field.key] != null ? values[field.key] : field.hint || ""}
                 disabled={!canEdit}
                 onChange={(e) => onFieldChange(field.key, e.target.value)}
-                placeholder={field.hint || undefined}
               />
             </div>
           </React.Fragment>
