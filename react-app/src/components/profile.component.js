@@ -1,10 +1,21 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Select from "react-select";
 import AuthService from "../services/auth.service";
-import { SCHOOLS } from "../constants/school-options";
+import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
 
-const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name }));
+const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, address: s.address }));
+
+// Shows each school's address as a muted second line under its name, so a
+// teacher picking from 392 similarly-named schools (many share a
+// county/town name) has enough to tell same-named schools apart -- same as
+// register.component.js/admin-users-list.component.js's own copy of this.
+const formatSchoolOptionLabel = (option) => (
+  <div>
+    <div>{option.label}</div>
+    {option.address && <div style={{ fontSize: "0.85em", color: "#6c757d" }}>{option.address}</div>}
+  </div>
+);
 
 const emptyForm = {
   username: "",
@@ -165,7 +176,14 @@ const Profile = () => {
                 <label>
                   所在学校<span className="required">*</span>
                 </label>
-                <Select options={schoolOptions} value={school} onChange={setSchool} placeholder="搜索并选择学校..." />
+                <Select
+                  options={schoolOptions}
+                  value={school}
+                  onChange={setSchool}
+                  placeholder="搜索并选择学校..."
+                  formatOptionLabel={formatSchoolOptionLabel}
+                  filterOption={schoolFilterOption}
+                />
               </div>
             )}
 

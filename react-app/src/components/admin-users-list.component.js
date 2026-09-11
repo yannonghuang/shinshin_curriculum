@@ -3,7 +3,7 @@ import Pagination from "@material-ui/lab/Pagination";
 import Select from "react-select";
 import AdminUserDataService from "../services/admin-user.service";
 import AuthService from "../services/auth.service";
-import { SCHOOLS } from "../constants/school-options";
+import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
 
 const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员", super: "超级管理员" };
@@ -450,6 +450,7 @@ const AdminUsersList = () => {
                     onChange={(option) => setForm((prev) => ({ ...prev, school: option }))}
                     placeholder="搜索并选择学校..."
                     formatOptionLabel={formatSchoolOptionLabel}
+                    filterOption={schoolFilterOption}
                   />
                 </div>
               )}
