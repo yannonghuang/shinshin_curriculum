@@ -465,6 +465,71 @@
   padding: 6px;
 }
 
+/* Wraps a topic's own toggle button (or its inline rename input) plus the
+   admin-only rename/delete icons -- the icons stay in the DOM (not
+   conditionally rendered on hover) so they're keyboard/touch reachable, but
+   are only visually revealed on row hover/focus, matching how a desktop
+   file explorer surfaces per-row actions without permanently crowding the
+   tree. */
+.pl-explorer-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pl-explorer-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pl-explorer-rename-form {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+}
+
+.pl-explorer-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.pl-explorer-row:hover .pl-explorer-row-actions,
+.pl-explorer-row-actions:focus-within {
+  opacity: 1;
+}
+
+.pl-explorer-row-action {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--pl-muted);
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.pl-explorer-row-action:hover {
+  background: var(--pl-accent-soft);
+  color: var(--pl-text);
+}
+
+/* Rename/delete both round-trip a full topics reload (retrieveTopics()),
+   noticeably slower than a typical click -- shown regardless of hover
+   (unlike .pl-explorer-row-actions above, which only reveals on hover)
+   since the row's own action icons are gone while this is up. */
+.pl-explorer-row-actions-busy {
+  opacity: 1;
+}
+
+.pl-explorer-row-spinner {
+  color: var(--pl-accent);
+  margin-left: 6px;
+}
+
 .pl-explorer-children-nested {
   padding-left: 14px;
 }
