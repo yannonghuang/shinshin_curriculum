@@ -455,9 +455,24 @@ const getPagingData = (data, page, limit) => {
   return { totalItems, rows, totalPages, currentPage };
 };
 
+// sortBy=name orders by chineseName (the visible "姓名" column); sortBy=school
+// orders by the joined School's name (not the raw numeric code, which
+// wouldn't group same-named schools or read as alphabetical to an admin).
+// Anything else (including unset) keeps the original newest-first order.
+// MySQL sorts NULLs first in ASC / last in DESC, which is an acceptable
+// default here (no explicit NULLS LAST handling) since admin/expert rows
+// have no chineseName-is-always-set guarantee and non-teacher rows have no
+// school at all.
+const buildUsersOrder = (sortBy, sortOrder) => {
+  const direction = sortOrder === "desc" ? "DESC" : "ASC";
+  if (sortBy === "name") return [["chineseName", direction]];
+  if (sortBy === "school") return [[{ model: db.school, as: "School" }, "name", direction]];
+  return [["id", "DESC"]];
+};
+
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, role, suspended } = req.query;
+    const { page, size, keyword, role, suspended, schoolCode, sortBy, sortOrder } = req.query;
     const { limit, offset } = getPagination(page, size);
 
     const condition = {
@@ -472,6 +487,7 @@ exports.findAll = async (req, res) => {
             }
           : null,
         suspended !== undefined ? { suspended: suspended === "true" || suspended === "1" } : null,
+        schoolCode !== undefined && schoolCode !== "" ? { schoolCode: Number(schoolCode) } : null,
       ],
     };
 
@@ -502,7 +518,7 @@ exports.findAll = async (req, res) => {
       ],
       limit,
       offset,
-      order: [["id", "DESC"]],
+      order: buildUsersOrder(sortBy, sortOrder),
     });
 
     // schoolName is no longer a real column (dropped in
