@@ -3,7 +3,7 @@ import Pagination from "@material-ui/lab/Pagination";
 import Select from "react-select";
 import AdminUserDataService from "../services/admin-user.service";
 import AuthService from "../services/auth.service";
-import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
+import { SCHOOLS, findSchoolByCode, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
 
 const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员", super: "超级管理员" };
@@ -47,6 +47,15 @@ const AdminUsersList = () => {
   const [keyword, setKeyword] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [suspendedFilter, setSuspendedFilter] = useState("");
+  const [schoolFilter, setSchoolFilter] = useState(null);
+  // Code of the school currently shown in the detail popup, or null when
+  // closed -- a popup rather than navigating away (see the 学校编号 cell
+  // below) so opening it never loses the list's current page/filters/sort.
+  const [schoolDetailCode, setSchoolDetailCode] = useState(null);
+  // sortBy: "" (default, newest-first) | "name" | "school"; only one column
+  // sorts at a time, matching a typical clickable-column-header table.
+  const [sortBy, setSortBy] = useState("");
+  const [sortOrder, setSortOrder] = useState("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [totalPages, setTotalPages] = useState(0);
@@ -64,6 +73,9 @@ const AdminUsersList = () => {
         keyword: keyword || undefined,
         role: roleFilter || undefined,
         suspended: suspendedFilter || undefined,
+        schoolCode: schoolFilter ? schoolFilter.value : undefined,
+        sortBy: sortBy || undefined,
+        sortOrder: sortBy ? sortOrder : undefined,
       });
       setUsers(resp.data.rows || []);
       setTotalPages(resp.data.totalPages || 0);
@@ -72,7 +84,19 @@ const AdminUsersList = () => {
       console.log(e);
       setMessage("加载用户列表失败。");
     }
-  }, [page, pageSize, keyword, roleFilter, suspendedFilter]);
+  }, [page, pageSize, keyword, roleFilter, suspendedFilter, schoolFilter, sortBy, sortOrder]);
+
+  // Clicking a sortable column header: same column toggles asc/desc, a
+  // different column starts fresh at asc. Also resets to page 1, since
+  // re-sorting while deep in a later page would otherwise show a
+  // disorienting, likely out-of-range page of the newly-ordered results.
+  const onSortClick = (key) => {
+    setSortOrder(sortBy === key && sortOrder === "asc" ? "desc" : "asc");
+    setSortBy(key);
+    setPage(1);
+  };
+
+  const sortIndicator = (key) => (sortBy === key ? (sortOrder === "asc" ? " ▲" : " ▼") : "");
 
   useEffect(() => {
     retrieveAll();
@@ -213,6 +237,8 @@ const AdminUsersList = () => {
     );
   }
 
+  const schoolDetail = schoolDetailCode != null ? findSchoolByCode(schoolDetailCode) : null;
+
   return (
     <div className="container">
       <h4>用户管理（总数：{totalItems}）</h4>
@@ -253,6 +279,22 @@ const AdminUsersList = () => {
             </button>
           </div>
         </div>
+        <div className="form-row">
+          <div className="form-group col-md-4">
+            <Select
+              options={schoolOptions}
+              value={schoolFilter}
+              onChange={(option) => {
+                setSchoolFilter(option);
+                setPage(1);
+              }}
+              placeholder="按学校筛选（可按编号/名称/地址搜索）..."
+              formatOptionLabel={formatSchoolOptionLabel}
+              filterOption={schoolFilterOption}
+              isClearable
+            />
+          </div>
+        </div>
       </div>
 
       <div className="mb-3">
@@ -267,9 +309,14 @@ const AdminUsersList = () => {
         <thead>
           <tr>
             <th>用户名</th>
-            <th>姓名</th>
+            <th role="button" onClick={() => onSortClick("name")}>
+              姓名{sortIndicator("name")}
+            </th>
             <th>邮箱</th>
             <th>角色</th>
+            <th role="button" onClick={() => onSortClick("school")}>
+              学校编号{sortIndicator("school")}
+            </th>
             <th>邮箱已验证</th>
             <th>状态</th>
             <th>注册时间</th>
@@ -290,6 +337,15 @@ const AdminUsersList = () => {
                       {ROLE_LABELS[r.name] || r.name}
                     </span>
                   ))}
+                </td>
+                <td>
+                  {item.schoolCode != null ? (
+                    <button className="btn btn-link p-0" type="button" onClick={() => setSchoolDetailCode(item.schoolCode)}>
+                      {item.schoolCode}
+                    </button>
+                  ) : (
+                    "-"
+                  )}
                 </td>
                 <td>{item.emailVerified ? "是" : "否"}</td>
                 <td>
@@ -324,7 +380,7 @@ const AdminUsersList = () => {
           })}
           {users.length === 0 && (
             <tr>
-              <td colSpan="8">暂无数据</td>
+              <td colSpan="9">暂无数据</td>
             </tr>
           )}
         </tbody>
@@ -354,6 +410,45 @@ const AdminUsersList = () => {
         boundaryCount={1}
         onChange={(event, value) => setPage(value)}
       />
+
+      {schoolDetailCode != null && (
+        <div className="pl-drawer-layer">
+          <button
+            className="pl-drawer-mask"
+            type="button"
+            onClick={() => setSchoolDetailCode(null)}
+            aria-label="close school detail"
+          />
+          <div className="pl-drawer-panel" style={{ width: "min(420px, 95vw)" }}>
+            <div className="pl-drawer-head">
+              <h5 className="mb-0">学校信息</h5>
+              <button className="btn btn-link p-0" type="button" onClick={() => setSchoolDetailCode(null)}>
+                关闭
+              </button>
+            </div>
+            {schoolDetail ? (
+              <table className="table table-sm table-bordered">
+                <tbody>
+                  <tr>
+                    <th style={{ width: 100 }}>学校编号</th>
+                    <td>{schoolDetail.code}</td>
+                  </tr>
+                  <tr>
+                    <th>学校名称</th>
+                    <td>{schoolDetail.name}</td>
+                  </tr>
+                  <tr>
+                    <th>地址</th>
+                    <td>{schoolDetail.address || "-"}</td>
+                  </tr>
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-muted">未找到编号为 {schoolDetailCode} 的学校。</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {isEditorOpen && (
         <div className="pl-drawer-layer">
