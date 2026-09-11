@@ -52,7 +52,10 @@ exports.signup = async (req, res) => {
       chineseName: req.body.chineseName,
       phone: req.body.phone,
       schoolCode: req.body.schoolCode || null,
-      emailVerified: false,
+      // Self-signup no longer requires clicking an emailed verification link
+      // -- accounts are usable immediately (see exports.signin below, which
+      // no longer gates on this flag either).
+      emailVerified: true,
     });
 
     if (req.body.roles) {
@@ -126,17 +129,6 @@ exports.signin = (req, res) => {
         });
       }
 
-      if (!user.emailVerified) {
-        return res.status(401).send({
-          notEmailVerified: true,
-          accessToken: null,
-          username: user.username,
-          chineseName: user.chineseName,
-          email: user.email,
-          message: "email not verified!!!",
-        });
-      }
-
       var token = jwt.sign({ id: user.id }, config.secret, {
         expiresIn: config.validity, // 86400 24 hours
       });
@@ -197,8 +189,10 @@ exports.signout = (req, res) => {
     });
 };
 
-// Dual-purpose: sets a new password via an emailed reset link, and also
-// marks the email verified (mirrors shinshin's auth.controller.js exactly).
+// Sets a new password for the account whose email matches req.body.email --
+// this *is* the identity check for password reset: the caller must supply
+// the email already on file for the account (no separate emailed
+// link/token is involved).
 exports.reset = (req, res) => {
   User.findOne({
     where: {
@@ -213,7 +207,6 @@ exports.reset = (req, res) => {
       user
         .update({
           password: bcrypt.hashSync(req.body.password, 8),
-          emailVerified: 1,
         })
         .then((r) => {
           res.status(200).send(user);

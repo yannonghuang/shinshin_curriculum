@@ -6,10 +6,7 @@ import Select from "react-select";
 import { isEmail } from "validator";
 import { Link } from "react-router-dom";
 
-import emailjs, { init } from "emailjs-com";
-
 import AuthService from "../services/auth.service";
-import emailjsConfig from "../config/emailjs.config";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
 
@@ -27,10 +24,6 @@ const formatSchoolOptionLabel = (option) => (
     {option.address && <div style={{ fontSize: "0.85em", color: "#6c757d" }}>{option.address}</div>}
   </div>
 );
-
-const jwt = require("jsonwebtoken");
-
-init(emailjsConfig.userId);
 
 const required = (value) => {
   if (!value) {
@@ -77,10 +70,8 @@ const vpassword = (value) => {
 // (schoolId, title, wechat, contactOnly, ...) are dropped. Self-signup is teacher-only
 // (enforced server-side too, see verifySignUp.checkOnlyTeacherRole) -- 专家/管理员 accounts
 // are created for someone by an existing admin instead -- so there's no role picker here,
-// just a school dropdown (migrated from shinshin's `schools` table). On success this
-// triggers the verification email (same client-signed-JWT + emailjs-com flow as
-// login.component.js) and shows a "请查收邮件完成验证" landing state instead of routing
-// straight to /login.
+// just a school dropdown (migrated from shinshin's `schools` table). Accounts are usable
+// immediately on success -- there is no email-verification step.
 export default class Register extends Component {
   constructor(props) {
     super(props);
@@ -122,37 +113,6 @@ export default class Register extends Component {
     this.setState({ school: option });
   }
 
-  emailVerification() {
-    if (!this.state.email) return;
-
-    const token = jwt.sign({ email: this.state.email }, emailjsConfig.jwtSecret, {
-      expiresIn: 60 * 120, // 2小时
-    });
-
-    const url = window.location.origin;
-    const templateParams = {
-      to: this.state.email,
-      username: (this.state.chineseName ? this.state.chineseName : this.state.username) + "(登录名: " + this.state.username + ")",
-      link: url + "/login?token=" + token,
-      validity: "2小时",
-    };
-
-    emailjs.send(emailjsConfig.serviceId, emailjsConfig.templateIdEmailVerification, templateParams).then(
-      () => {
-        this.setState({
-          message: "成功创建用户账号，验证邮件已发至您的注册邮箱，请查收邮件完成验证。",
-          successful: true,
-        });
-      },
-      (error) => {
-        this.setState({
-          message: "账号已创建，但验证邮件发送失败：" + (error.text || "请稍后重试或联系管理员。"),
-          successful: true,
-        });
-      }
-    );
-  }
-
   handleRegister(e) {
     e.preventDefault();
 
@@ -177,7 +137,10 @@ export default class Register extends Component {
         schoolCode: this.state.school.value,
       }).then(
         () => {
-          this.emailVerification();
+          this.setState({
+            message: "账号创建成功，请登录。",
+            successful: true,
+          });
         },
         (error) => {
           const resMessage =
@@ -195,9 +158,9 @@ export default class Register extends Component {
         {this.state.successful ? (
           <div className="auth-card">
             <div className="auth-badge">
-              <i className="fas fa-envelope-open-text"></i>
+              <i className="fas fa-check-circle"></i>
             </div>
-            <h2 className="auth-title">请查收邮件</h2>
+            <h2 className="auth-title">注册成功</h2>
             <p className="auth-subtitle">{this.state.message}</p>
             <Link to="/login">
               <button className="auth-btn-primary">前往登录</button>

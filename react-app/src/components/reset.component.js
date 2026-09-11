@@ -2,19 +2,27 @@ import React, { Component } from "react";
 import Form from "react-validation/build/form";
 import Input from "react-validation/build/input";
 import CheckButton from "react-validation/build/button";
+import { isEmail } from "validator";
 import { Link } from "react-router-dom";
 
 import AuthService from "../services/auth.service";
-import emailjsConfig from "../config/emailjs.config";
 import "../curriculum.css";
-
-const jwt = require("jsonwebtoken");
 
 const required = (value) => {
   if (!value) {
     return (
       <div className="alert alert-danger" role="alert">
         必须填写!
+      </div>
+    );
+  }
+};
+
+const email = (value) => {
+  if (!isEmail(value)) {
+    return (
+      <div className="alert alert-danger" role="alert">
+        邮件地址不正确
       </div>
     );
   }
@@ -30,42 +38,29 @@ const vpassword = (value) => {
   }
 };
 
-// Migrated directly from shinshin's reset.component.js -- route /reset, reads ?token= from
-// the query string, verifies it client-side to recover the email (same shared-secret caveat
-// as login.component.js's sendEmail), then posts the new password to POST /api/auth/reset.
+// Route /reset: the user re-enters their registered email along with a new password.
+// POST /api/auth/reset (see AuthService.reset) looks the account up by that email and, if
+// found, sets the new password -- that lookup *is* the identity check (the submitted email
+// must match the one already on file for the account). There is no emailed link/token step.
 export default class Reset extends Component {
   constructor(props) {
     super(props);
     this.handleReset = this.handleReset.bind(this);
+    this.onChangeEmail = this.onChangeEmail.bind(this);
     this.onChangePasswordVerified = this.onChangePasswordVerified.bind(this);
     this.onChangePassword = this.onChangePassword.bind(this);
 
     this.state = {
+      email: "",
       passwordVerified: "",
       password: "",
-      email: null,
       loading: false,
       message: "",
     };
   }
 
-  componentDidMount() {
-    const search = this.props.location.search;
-    const token = new URLSearchParams(search).get("token");
-
-    let email = null;
-    jwt.verify(token, emailjsConfig.jwtSecret, (err, decoded) => {
-      if (!err) email = decoded.email;
-    });
-
-    if (!email) {
-      this.setState({
-        message: "密码重置请求失效，请到登录页面重新提供注册邮箱。",
-        email: null,
-      });
-    } else {
-      this.setState({ email });
-    }
+  onChangeEmail(e) {
+    this.setState({ email: e.target.value });
   }
 
   onChangePasswordVerified(e) {
@@ -82,28 +77,33 @@ export default class Reset extends Component {
     this.form.validateAll();
     if (this.checkBtn.context._errors.length > 0) return;
 
-    if (!this.state.email) return;
-
-    if (this.state.passwordVerified === this.state.password) {
-      AuthService.reset(this.state.email, this.state.password)
-        .then((response) => {
-          alert("密码已经成功重置");
-          if (!AuthService.getCurrentUser()) {
-            this.props.history.push("/login?username=" + (response.data ? response.data.username : ""));
-            window.location.reload();
-          } else {
-            this.props.history.goBack();
-          }
-        })
-        .catch((error) => {
-          this.setState({
-            message:
-              (error.response && error.response.data && error.response.data.message) || "密码重置失败，请重试。",
-          });
-        });
-    } else {
+    if (this.state.passwordVerified !== this.state.password) {
       this.setState({ message: "请再次确认密码。" });
+      return;
     }
+
+    this.setState({ loading: true, message: "" });
+
+    AuthService.reset(this.state.email, this.state.password)
+      .then((response) => {
+        alert("密码已经成功重置");
+        if (!AuthService.getCurrentUser()) {
+          this.props.history.push("/login?username=" + (response.data ? response.data.username : ""));
+          window.location.reload();
+        } else {
+          this.props.history.goBack();
+        }
+      })
+      .catch((error) => {
+        const status = error.response && error.response.status;
+        this.setState({
+          loading: false,
+          message:
+            status === 404
+              ? "该邮箱尚未注册，请确认后重试。"
+              : (error.response && error.response.data && error.response.data.message) || "密码重置失败，请重试。",
+        });
+      });
   }
 
   render() {
@@ -113,8 +113,8 @@ export default class Reset extends Component {
           <div className="auth-badge">
             <i className="fas fa-lock"></i>
           </div>
-          <h2 className="auth-title">设置新密码</h2>
-          <p className="auth-subtitle">{this.state.email ? `账号邮箱：${this.state.email}` : "验证您的重置链接"}</p>
+          <h2 className="auth-title">重置密码</h2>
+          <p className="auth-subtitle">请输入您的注册邮箱和新密码</p>
 
           <Form
             onSubmit={this.handleReset}
@@ -122,6 +122,18 @@ export default class Reset extends Component {
               this.form = c;
             }}
           >
+            <div className="form-group">
+              <label htmlFor="email">注册邮箱</label>
+              <Input
+                type="text"
+                className="form-control"
+                name="email"
+                value={this.state.email}
+                onChange={this.onChangeEmail}
+                validations={[required, email]}
+              />
+            </div>
+
             <div className="form-group">
               <label htmlFor="password">新密码</label>
               <Input
@@ -147,7 +159,7 @@ export default class Reset extends Component {
             </div>
 
             <div className="form-group">
-              <button className="auth-btn-primary" disabled={this.state.loading || !this.state.email}>
+              <button className="auth-btn-primary" disabled={this.state.loading}>
                 {this.state.loading && <span className="spinner-border spinner-border-sm mr-2"></span>}
                 <span>提交</span>
               </button>
