@@ -37,6 +37,14 @@ const MaterialsLibrary = () => {
   const [isCreatingTopic, setIsCreatingTopic] = useState(false);
   const [newTopicForm, setNewTopicForm] = useState(EMPTY_TOPIC_FORM);
 
+  const [renamingTopicId, setRenamingTopicId] = useState(null);
+  const [renameTopicValue, setRenameTopicValue] = useState("");
+  // Topic currently mid rename-save or delete -- both round-trip through
+  // retrieveTopics() afterwards (a full topics reload, not just the one
+  // row), which is noticeably slower than a typical click, hence a visible
+  // spinner rather than just disabling the row silently.
+  const [busyTopicId, setBusyTopicId] = useState(null);
+
   const [metaForm, setMetaForm] = useState(null);
   const [metaDirty, setMetaDirty] = useState(false);
   const [isRegeneratingSkill, setIsRegeneratingSkill] = useState(false);
@@ -225,15 +233,51 @@ const MaterialsLibrary = () => {
     }
   };
 
-  const deleteTopic = async () => {
+  // Shared by both the 基本信息 tab's own "删除本主题" button (id implied by
+  // selectedTopic) and the tree row's hover delete icon (id passed
+  // explicitly, since a topic can be deleted from the tree without ever
+  // having been selected/opened).
+  const deleteTopicById = async (topicId) => {
     if (!window.confirm("此操作将永久删除该主题及其所有材料内容和链接，且无法撤销。确定继续吗？")) return;
+    setBusyTopicId(topicId);
     try {
-      await MaterialTopicDataService.delete(selectedTopic.id, true);
-      setSelected({ topicId: null, key: null });
+      await MaterialTopicDataService.delete(topicId, true);
+      if (selected.topicId === topicId) setSelected({ topicId: null, key: null });
       setMessage("主题已删除。");
       await retrieveTopics();
     } catch (err) {
       setMessage(err?.response?.data?.message || "删除失败。");
+    } finally {
+      setBusyTopicId(null);
+    }
+  };
+
+  const startRenameTopic = (topic) => {
+    setRenamingTopicId(topic.id);
+    setRenameTopicValue(topic.theme || "");
+  };
+
+  const cancelRenameTopic = () => {
+    setRenamingTopicId(null);
+    setRenameTopicValue("");
+  };
+
+  const submitRenameTopic = async (topicId) => {
+    if (busyTopicId === topicId) return; // already saving (e.g. Enter's onSubmit then the input's own onBlur)
+    const theme = renameTopicValue.trim();
+    if (!theme) {
+      cancelRenameTopic();
+      return;
+    }
+    setBusyTopicId(topicId);
+    try {
+      await MaterialTopicDataService.update(topicId, { theme });
+      cancelRenameTopic();
+      await retrieveTopics();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "重命名失败。");
+    } finally {
+      setBusyTopicId(null);
     }
   };
 
@@ -413,7 +457,7 @@ const MaterialsLibrary = () => {
                 {isRegeneratingSkill ? "生成中…" : "强制生成知识卡片"}
               </button>
             </div>
-            <button type="button" className="btn btn-outline-danger" onClick={deleteTopic}>
+            <button type="button" className="btn btn-outline-danger" onClick={() => deleteTopicById(selectedTopic.id)}>
               删除本主题
             </button>
           </div>
@@ -749,14 +793,73 @@ const MaterialsLibrary = () => {
                   <div className="pl-explorer-children">
                     {yearTopics.map((topic) => (
                       <div className="pl-explorer-subgroup" key={topic.id}>
-                        <button
-                          type="button"
-                          className="pl-explorer-folder pl-explorer-subfolder"
-                          onClick={() => toggleTopic(topic.id)}
-                        >
-                          <i className={`fas fa-chevron-${expandedTopics[topic.id] ? "down" : "right"} pl-explorer-chevron`}></i>
-                          {topic.theme}
-                        </button>
+                      <div className="pl-explorer-row">
+                        {renamingTopicId === topic.id ? (
+                          <form
+                            className="pl-explorer-rename-form"
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              submitRenameTopic(topic.id);
+                            }}
+                          >
+                            <input
+                              type="text"
+                              className="form-control form-control-sm"
+                              autoFocus
+                              disabled={busyTopicId === topic.id}
+                              value={renameTopicValue}
+                              onChange={(e) => setRenameTopicValue(e.target.value)}
+                              onBlur={() => submitRenameTopic(topic.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Escape") cancelRenameTopic();
+                              }}
+                            />
+                            {busyTopicId === topic.id && (
+                              <span className="spinner-border spinner-border-sm pl-explorer-row-spinner" role="status"></span>
+                            )}
+                          </form>
+                        ) : (
+                          <button
+                            type="button"
+                            className="pl-explorer-folder pl-explorer-subfolder pl-explorer-row-main"
+                            onClick={() => toggleTopic(topic.id)}
+                          >
+                            <i className={`fas fa-chevron-${expandedTopics[topic.id] ? "down" : "right"} pl-explorer-chevron`}></i>
+                            {topic.theme}
+                          </button>
+                        )}
+                        {renamingTopicId !== topic.id && busyTopicId === topic.id && (
+                          <span className="pl-explorer-row-actions pl-explorer-row-actions-busy">
+                            <span className="spinner-border spinner-border-sm pl-explorer-row-spinner" role="status"></span>
+                          </span>
+                        )}
+                        {isAdmin && renamingTopicId !== topic.id && busyTopicId !== topic.id && (
+                          <span className="pl-explorer-row-actions">
+                            <button
+                              type="button"
+                              className="pl-explorer-row-action"
+                              title="重命名"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startRenameTopic(topic);
+                              }}
+                            >
+                              <i className="fas fa-pencil-alt"></i>
+                            </button>
+                            <button
+                              type="button"
+                              className="pl-explorer-row-action"
+                              title="删除"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteTopicById(topic.id);
+                              }}
+                            >
+                              <i className="fas fa-trash-alt"></i>
+                            </button>
+                          </span>
+                        )}
+                      </div>
                         {expandedTopics[topic.id] && (
                           <div className="pl-explorer-children pl-explorer-children-nested">
                             <button

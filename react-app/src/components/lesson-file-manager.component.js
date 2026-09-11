@@ -195,6 +195,10 @@ const LessonFileManager = ({
   const [message, setMessage] = useState("");
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [renamingFolderId, setRenamingFolderId] = useState(null);
+  const [renameFolderName, setRenameFolderName] = useState("");
+  const [isRenamingFolder, setIsRenamingFolder] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveDialogFolderId, setMoveDialogFolderId] = useState(null); // picker's own current folder
   const fileInputRef = useRef(null);
@@ -421,6 +425,34 @@ const LessonFileManager = ({
     }
   };
 
+  const startRenameFolder = (folder) => {
+    if (!folder) return;
+    setRenamingFolderId(folder.id);
+    setRenameFolderName(folder.name);
+  };
+  const cancelRenameFolder = () => {
+    setRenamingFolderId(null);
+    setRenameFolderName("");
+  };
+  const submitRenameFolder = async (folderId) => {
+    if (isRenamingFolder) return; // already saving (Enter's onSubmit, then the input's own onBlur)
+    const name = renameFolderName.trim();
+    if (!name) {
+      cancelRenameFolder();
+      return;
+    }
+    setIsRenamingFolder(true);
+    try {
+      await folderService.update(folderId, { name });
+      cancelRenameFolder();
+      await refreshFolders();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "重命名失败。");
+    } finally {
+      setIsRenamingFolder(false);
+    }
+  };
+
   // Preview opens in a new window/tab rather than inline. Can't just
   // window.open() the download URL directly -- the backend's download route
   // uses Express's res.download(), which sets Content-Disposition: attachment,
@@ -533,6 +565,7 @@ const LessonFileManager = ({
       `此操作将永久删除已选择的 ${selectionCount} 项${selectedFolderIds.size > 0 ? "（含文件夹内的所有内容）" : ""}，且无法撤销。确定继续吗？`
     );
     if (!ok) return;
+    setIsDeleting(true);
     try {
       // Matches the existing one-request-at-a-time delete pattern used
       // elsewhere in this app.
@@ -546,9 +579,11 @@ const LessonFileManager = ({
       }
       setMessage("删除成功。");
       clearSelection();
-      refreshAll();
+      await refreshAll();
     } catch (err) {
       setMessage(err?.response?.data?.message || "删除失败。");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -578,6 +613,7 @@ const LessonFileManager = ({
   };
 
   const onlyOneFileSelected = selectionCount === 1 && selectedArtifactIds.size === 1;
+  const onlyOneFolderSelected = selectionCount === 1 && selectedFolderIds.size === 1;
 
   const renderItemCheckbox = (checked, onChange) => (
     <input type="checkbox" className="pl-fm-checkbox" checked={checked} onChange={onChange} onClick={(e) => e.stopPropagation()} />
@@ -613,24 +649,61 @@ const LessonFileManager = ({
       <i className="fas fa-exclamation-triangle ml-1" style={{ color: "var(--pl-warn)" }} title={EXTRACTION_WARNING_TITLE}></i>
     ) : null;
 
+  // While renamingFolderId === folder.id, the name itself becomes an inline
+  // text input (same shape as isCreatingFolder's "新建文件夹" form) -- Enter/
+  // blur saves, Escape cancels. The row's own onClick (navigate into the
+  // folder) is suppressed for the duration so clicking into the input
+  // doesn't also enter the folder.
+  const renderFolderName = (folder) => {
+    if (renamingFolderId !== folder.id) return folder.name;
+    return (
+      <form
+        className="d-inline-flex align-items-center"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitRenameFolder(folder.id);
+        }}
+      >
+        <input
+          className="form-control form-control-sm d-inline-block"
+          style={{ width: "160px" }}
+          autoFocus
+          disabled={isRenamingFolder}
+          value={renameFolderName}
+          onChange={(e) => setRenameFolderName(e.target.value)}
+          onBlur={() => submitRenameFolder(folder.id)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") cancelRenameFolder();
+          }}
+        />
+        {isRenamingFolder && <span className="spinner-border spinner-border-sm ml-2" role="status"></span>}
+      </form>
+    );
+  };
+
   const renderFolderRow = (folder, isIcon) => {
     const checked = selectedFolderIds.has(folder.id);
+    const isRenamingThis = renamingFolderId === folder.id;
+    const onNameClick = () => {
+      if (!isRenamingThis) enterFolder(folder.id);
+    };
 
     if (isIcon) {
       return (
-        <div key={`folder-${folder.id}`} className={`pl-fm-icon-item ${checked ? "is-selected" : ""}`} onClick={() => enterFolder(folder.id)}>
+        <div key={`folder-${folder.id}`} className={`pl-fm-icon-item ${checked ? "is-selected" : ""}`} onClick={onNameClick}>
           {canDownload && renderItemCheckbox(checked, () => toggleFolderSelection(folder.id))}
           <i className="fas fa-folder pl-fm-icon-glyph pl-fm-folder-glyph"></i>
-          <div className="pl-fm-icon-name">{folder.name}</div>
+          <div className="pl-fm-icon-name">{renderFolderName(folder)}</div>
         </div>
       );
     }
     return (
       <tr key={`folder-${folder.id}`} className={checked ? "is-selected" : ""}>
         <td>{canDownload && renderItemCheckbox(checked, () => toggleFolderSelection(folder.id))}</td>
-        <td className="pl-fm-name-cell" onClick={() => enterFolder(folder.id)}>
+        <td className="pl-fm-name-cell" onClick={onNameClick}>
           <i className="fas fa-folder pl-fm-folder-glyph mr-2"></i>
-          {folder.name}
+          {renderFolderName(folder)}
         </td>
         <td>文件夹</td>
         <td>-</td>
@@ -782,13 +855,24 @@ const LessonFileManager = ({
                 下载
               </button>
             )}
+            {canEdit && onlyOneFolderSelected && (
+              <button
+                type="button"
+                className="btn btn-sm btn-link"
+                disabled={renamingFolderId != null}
+                onClick={() => startRenameFolder(childFolders.find((f) => selectedFolderIds.has(f.id)))}
+              >
+                重命名
+              </button>
+            )}
             {canEdit && (
-              <button type="button" className="btn btn-sm btn-link" onClick={openMoveDialog}>
+              <button type="button" className="btn btn-sm btn-link" disabled={isDeleting} onClick={openMoveDialog}>
                 移动到...
               </button>
             )}
             {canEdit && (
-              <button type="button" className="btn btn-sm btn-link text-danger" onClick={deleteSelected}>
+              <button type="button" className="btn btn-sm btn-link text-danger" disabled={isDeleting} onClick={deleteSelected}>
+                {isDeleting && <span className="spinner-border spinner-border-sm mr-1" role="status"></span>}
                 删除
               </button>
             )}

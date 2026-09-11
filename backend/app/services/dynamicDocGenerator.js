@@ -22,13 +22,34 @@ const LESSON_ORDINALS = [
 ];
 const lessonOrdinal = (n) => LESSON_ORDINALS[n - 1] || `${n}`;
 
-const title = (text) => new Paragraph({ text, heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER });
+// Explicit bold + size on the title's own run (rather than relying on
+// whatever a "Title" style resolves to -- the real templates' own
+// styles.xml never define one, see templateParser.js#extractStylesXml, so
+// it would otherwise fall back to whichever app-specific default the
+// viewer happens to have for that style ID, which isn't guaranteed to be
+// bold or even larger than Heading1 e.g. in WPS). 56 half-points = 28pt,
+// comfortably bigger than any real template's Heading1 (14-18pt observed).
+const TITLE_FONT_SIZE = 56;
+const title = (text) =>
+  new Paragraph({
+    heading: HeadingLevel.TITLE,
+    alignment: AlignmentType.CENTER,
+    children: [new TextRun({ text, bold: true, size: TITLE_FONT_SIZE })],
+  });
 const h1 = (text) => new Paragraph({ text, heading: HeadingLevel.HEADING_1 });
 const h2 = (text) => new Paragraph({ text, heading: HeadingLevel.HEADING_2 });
 const h3 = (text) => new Paragraph({ text, heading: HeadingLevel.HEADING_3 });
 const h4 = (text) => new Paragraph({ text, heading: HeadingLevel.HEADING_4 });
 const HEADINGS_BY_DEPTH = [h1, h2, h3, h4];
 const headingAt = (depth) => HEADINGS_BY_DEPTH[Math.min(depth, HEADINGS_BY_DEPTH.length) - 1];
+
+// Gap after each non-heading "logic segment" (one field, one plain line, one
+// 课时 marker) -- a heading's own before/after gap already comes from its
+// style (see e.g. styles.xml's Heading1 w:spacing), but the Normal style
+// every other paragraph falls back to defines none at all in the real
+// templates, so consecutive fields render back-to-back with no visual
+// separation unless set explicitly here. 200 twips = 10pt.
+const SEGMENT_SPACING = { after: 200 };
 
 // Some source templates author their field text with its own trailing colon
 // already in the paragraph (e.g. the 2026 template's "1.认知思维目标：") --
@@ -46,6 +67,7 @@ const headingAt = (depth) => HEADINGS_BY_DEPTH[Math.min(depth, HEADINGS_BY_DEPTH
 const p = (label, value, bold = true) => {
   const cleanLabel = label ? String(label).replace(/[:：]\s*$/, "") : label;
   return new Paragraph({
+    spacing: SEGMENT_SPACING,
     children: [
       new TextRun({ text: cleanLabel ? `${cleanLabel}：` : "", bold: !!cleanLabel && bold }),
       new TextRun({ text: value != null && value !== "" ? String(value) : "（未填写）" }),
@@ -53,22 +75,28 @@ const p = (label, value, bold = true) => {
   });
 };
 
-const plain = (text) => new Paragraph({ text: text != null && text !== "" ? String(text) : "（未填写）" });
+const plain = (text) =>
+  new Paragraph({ text: text != null && text !== "" ? String(text) : "（未填写）", spacing: SEGMENT_SPACING });
 
 // A pure section-label line -- unlike p(), which always follows a label with
 // either a real value or "（未填写）". Used for a schema-driven lesson's own
 // "课时N："/"第N课时：" marker (see buildLessonDesignTrailingChildren), which
 // is a section heading in the source template, not a `label: value` field.
-const labelOnly = (text, bold = true) => new Paragraph({ children: [new TextRun({ text, bold })] });
+const labelOnly = (text, bold = true) =>
+  new Paragraph({ spacing: SEGMENT_SPACING, children: [new TextRun({ text, bold })] });
 
 // A field that can legitimately hold multiple lines (a 课时's own design
 // content) -- unlike `p`/`plain`, which show one "（未填写）" line for
 // anything falsy, this only does that for a genuinely empty field; a
-// filled-in one keeps its line breaks as separate paragraphs.
+// filled-in one keeps its line breaks as separate paragraphs. Only the last
+// line gets SEGMENT_SPACING -- the field's own internal line breaks are one
+// logic segment, not one-per-line, so they stay tight against each other and
+// only the gap after the whole field is added.
 const multiline = (text) => {
   const str = text != null ? String(text) : "";
   if (str.trim() === "") return [plain("")];
-  return str.split("\n").map((line) => new Paragraph({ text: line }));
+  const lines = str.split("\n");
+  return lines.map((line, i) => new Paragraph({ text: line, spacing: i === lines.length - 1 ? SEGMENT_SPACING : undefined }));
 };
 
 const sectionAnswers = (schema, answers, section) => {
