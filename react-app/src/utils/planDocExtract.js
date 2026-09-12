@@ -77,11 +77,39 @@ const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // each of the label's characters absorbs the newline. Returns the matched span
 // (idx + length), not just label.length, since a wrapped/prefixed match is
 // longer than the label itself.
+// A schema field's own `label` (captured verbatim from the uploaded template
+// by templateParser.js) can end in either colon width -- confirmed on a real
+// template mixing "："-ending and ":"-ending labels side by side. The
+// DOWNLOADED document a user re-uploads never preserves that though:
+// dynamicDocGenerator.js#p()/labelOnly() always strips whichever colon the
+// label originally had and re-appends a canonical full-width "："
+// (`cleanLabel`/`labelText`). Matching the label's colon literally here would
+// therefore silently fail for any label whose stored width doesn't match the
+// rendered one -- confirmed real bug: a "探究问题:" (half-width) label's
+// content, plus everything after it up to the next field that DID match,
+// silently got glued onto the previous field's value. Stripping the trailing
+// colon before building the pattern and re-requiring it as "either width"
+// (see colonPart below) keeps this in sync with p()'s own normalization
+// instead of re-deriving a separate assumption about what the rendered label
+// looks like.
 const findLabel = (text, label) => {
-  const pattern = label.split("").map(escapeRegExp).join("\\s*");
-  const m = text.match(new RegExp(`^[\\d.．\\s]{0,6}(${pattern})`, "m"));
+  const hadColon = /[:：]\s*$/.test(label);
+  const core = label.replace(/[:：]\s*$/, "");
+  const pattern = core.split("").map(escapeRegExp).join("\\s*");
+  // The colon, if the label had one, is required (not optional) -- making it
+  // optional caused a real regression: "制作：" (core "制作") started matching
+  // its own group heading "制作与迭代（2-4课时以上）" (also starting with "制作",
+  // but followed by "与", not a colon), which appears earlier in the document,
+  // so the field's true "制作：" line further down was never reached and the
+  // field silently vanished. Requiring *some* colon (either width) after the
+  // core keeps that collision impossible while still fixing the original bug
+  // (a stored label ending in one width matching rendered text using the
+  // other). A label with no colon at all keeps matching exactly as before.
+  const colonPart = hadColon ? "[:：]" : "";
+  const m = text.match(new RegExp(`^[\\d.．\\s]{0,6}(${pattern})${colonPart}`, "m"));
   if (!m) return null;
-  return { idx: m.index + m[0].indexOf(m[1]), length: m[1].length };
+  const labelStart = m.index + m[0].indexOf(m[1]);
+  return { idx: labelStart, length: m.index + m[0].length - labelStart };
 };
 
 // Section/sub-section headings that aren't fields themselves but mark hard
@@ -192,10 +220,25 @@ export const extractSectionsFromText = (text, html, schema) => {
   const sections = (schema && schema.sections) || [];
   const multiSection = sections.length > 1;
   const fieldLabels = [];
+  // A heading-parsed template's own subsection headings (e.g. "探究（1-2课时）")
+  // are real Heading2 paragraphs dynamicDocGenerator.js#buildFieldChildren
+  // renders via `h2(field.group)` right before that group's fields -- derived
+  // here from the same `field.group` the renderer already uses, rather than
+  // hardcoding a separate guess at heading text (see HARD_SECTION_BOUNDARIES,
+  // which only covers a few known-fixed headings): without a boundary for a
+  // group heading, the field immediately before it has no stopping point and
+  // absorbs the heading text (and, until its own next field is found, every
+  // field after it too) into its own value.
+  const groupBoundaries = [];
+  const seenGroups = new Set();
   sections.forEach((section) => {
     (section.fields || []).forEach((field) => {
       const path = multiSection ? `${section.key}.${field.key}` : field.key;
       fieldLabels.push([path, field.label]);
+      if (field.group && !seenGroups.has(field.group)) {
+        seenGroups.add(field.group);
+        groupBoundaries.push(field.group);
+      }
     });
   });
 
@@ -210,7 +253,7 @@ export const extractSectionsFromText = (text, html, schema) => {
       }
     }
   } else {
-    extracted = extractFieldsFromBlock(text, fieldLabels, HARD_SECTION_BOUNDARIES);
+    extracted = extractFieldsFromBlock(text, fieldLabels, [...HARD_SECTION_BOUNDARIES, ...groupBoundaries]);
   }
   return buildAnswersFromExtracted(schema, extracted);
 };
