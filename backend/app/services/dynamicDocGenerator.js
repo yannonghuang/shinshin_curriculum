@@ -27,9 +27,8 @@ const lessonOrdinal = (n) => LESSON_ORDINALS[n - 1] || `${n}`;
 // styles.xml never define one, see templateParser.js#extractStylesXml, so
 // it would otherwise fall back to whichever app-specific default the
 // viewer happens to have for that style ID, which isn't guaranteed to be
-// bold or even larger than Heading1 e.g. in WPS). 56 half-points = 28pt,
-// comfortably bigger than any real template's Heading1 (14-18pt observed).
-const TITLE_FONT_SIZE = 56;
+// bold or even larger than Heading1 e.g. in WPS). 40 half-points = 20pt.
+const TITLE_FONT_SIZE = 40;
 const title = (text) =>
   new Paragraph({
     heading: HeadingLevel.TITLE,
@@ -111,10 +110,15 @@ const renumberCollidingList = (lines) => {
   });
 };
 
-const p = (label, value, bold = true) => {
+const p = (label, value, bold = true, hint) => {
   const cleanLabel = label ? String(label).replace(/[:：]\s*$/, "") : label;
   const labelText = cleanLabel ? `${cleanLabel}：` : "";
-  const str = value != null && value !== "" ? String(value) : "（未填写）";
+  // An untouched field falls back to the template's own hint text (the
+  // "-" lines under this field's label, see templateParser.js's
+  // parseHeadingSections) rendered as normal answer text, rather than the
+  // generic "（未填写）" placeholder -- so a hint the user never overrides
+  // still appears in the downloaded file exactly as authored.
+  const str = value != null && value !== "" ? String(value) : hint || "（未填写）";
   const lines = renumberCollidingList(str.split("\n"));
 
   if (lines.length === 1) {
@@ -150,8 +154,25 @@ const plain = (text) =>
 // either a real value or "（未填写）". Used for a schema-driven lesson's own
 // "课时N："/"第N课时：" marker (see buildLessonDesignTrailingChildren), which
 // is a section heading in the source template, not a `label: value` field.
-const labelOnly = (text, bold = true) =>
-  new Paragraph({ spacing: SEGMENT_SPACING, children: [new TextRun({ text, bold })] });
+// `style` is the marker run's own captured formatting (see templateParser.js
+// #extractRuns/markerStyle) for a non-heading marker -- reproduces the
+// template's real font size/color/italic/underline/font-family instead of
+// normalizing it down to bold-or-not.
+const labelOnly = (text, bold = true, style) =>
+  new Paragraph({
+    spacing: SEGMENT_SPACING,
+    children: [
+      new TextRun({
+        text,
+        bold,
+        size: style && style.size ? style.size : undefined,
+        color: style && style.color ? style.color : undefined,
+        italics: style && style.italic ? true : undefined,
+        underline: style && style.underline ? {} : undefined,
+        font: style && style.font ? style.font : undefined,
+      }),
+    ],
+  });
 
 // A field that can legitimately hold multiple lines (a 课时's own design
 // content) -- unlike `p`/`plain`, which show one "（未填写）" line for
@@ -187,7 +208,7 @@ const buildFieldChildren = (fields, values) => {
       if (field.group) children.push(h2(field.group));
       lastGroup = field.group;
     }
-    children.push(...p(field.label, values[field.key], field.bold === undefined ? true : field.bold));
+    children.push(...p(field.label, values[field.key], field.bold === undefined ? true : field.bold, field.hint));
   });
   return children;
 };
@@ -359,7 +380,9 @@ const buildLessonDesignTrailingChildren = (plan) => {
         // extractLessonSchema) -- applied once per lesson index, the same
         // "one schema, many instances" convention 实施记录 already uses.
         const label = renderMarkerLabel(lessonSchema.marker, i);
-        children.push(lessonSchema.markerIsHeading ? h2(label) : labelOnly(label, lessonSchema.markerBold));
+        children.push(
+          lessonSchema.markerIsHeading ? h2(label) : labelOnly(label, lessonSchema.markerBold, lessonSchema.markerStyle)
+        );
         children.push(...buildFieldChildren(lessonSchema.fields, lesson));
         lessonSchema.subsections.forEach((sub) => children.push(...renderSectionTree(sub, 3, lesson)));
       } else {
