@@ -1,6 +1,11 @@
 const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const util = require("util");
+const multer = require("multer");
 const dynamicDocGenerator = require("../services/dynamicDocGenerator");
 const templateParser = require("../services/templateParser");
+const planDocExtract = require("../services/planDocExtract");
 const { diffPlanFormDataSegments, diffExecutionFormDataSegments } = require("../services/segmentVersion");
 const db = require("../models");
 const Plan = db.plan;
@@ -15,6 +20,20 @@ const GRADE_OPTIONS = db.GRADE_OPTIONS;
 const PLAN_SEASONS = db.PLAN_SEASONS;
 const PLAN_MODES = ["upload", "online"];
 const PLAN_STATUSES = ["draft", "submitted", "reviewed"];
+
+// Ephemeral disk storage for a re-uploaded design/execution doc -- unlike
+// template.controller.js's uploads (which persist sourceFilePath long-term,
+// one row per template version), this file is read once by
+// planDocExtract.js#extractFromFile and deleted immediately after (see
+// uploadDesignDoc/uploadExecutionDoc's `finally`), so it lives in a fresh
+// mkdtemp'd OS temp dir per request rather than backend/upload/ -- same
+// os.tmpdir()/mkdtempSync pattern artifact.controller.js already uses for
+// its own short-lived zip-building temp dirs.
+const planDocUploadStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, fs.mkdtempSync(path.join(os.tmpdir(), "plan-doc-upload-"))),
+  filename: (req, file, cb) => cb(null, "upload.docx"),
+});
+const uploadPlanDocSingle = util.promisify(multer({ storage: planDocUploadStorage }).single("file"));
 
 const getPagination = (page, size) => {
   const limit = size ? +size : 30;
@@ -837,5 +856,129 @@ exports.renderExecutionDoc = async (req, res) => {
     return res.status(500).send({
       message: err.message || `生成乡土课程设计 id=${req.params.id} 第 ${req.params.lessonIndex} 课时的实施文件时发生错误。`,
     });
+  }
+};
+
+// POST /api/plans/:id/design-doc -- multipart "file", the upload
+// counterpart to renderDoc's GET (download). Runs the same extraction
+// planDocExtract.js#extractFromFile used to do client-side in the browser
+// (mammoth + this plan's own pinned PlanTemplateVersion schema) against the
+// uploaded file, then forwards the resulting fields straight into the SAME
+// exports.update this app's regular PUT already goes through by mutating
+// req.body and calling it directly -- ownership/suspended checks, theme/
+// grade validation, the update transaction, and segment-version diffing all
+// come from there, unchanged, rather than a second copy of any of it.
+exports.uploadDesignDoc = async (req, res) => {
+  let tempDir = null;
+  try {
+    await uploadPlanDocSingle(req, res);
+    if (!req.file) {
+      return res.status(422).send({ message: "请选择要上传的 .docx 文件。" });
+    }
+    tempDir = path.dirname(req.file.path);
+
+    const plan = await Plan.findByPk(req.params.id, {
+      include: [{ model: TemplateVersion, as: "PlanTemplateVersion" }],
+    });
+    if (!plan) {
+      return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
+    }
+    const schema = plan.PlanTemplateVersion ? plan.PlanTemplateVersion.schemaJson : { sections: [] };
+
+    const { sectionAnswers, lessons, planFields, hasContent } = await planDocExtract.extractFromFile(req.file.path, schema);
+    if (!hasContent && lessons.length === 0) {
+      return res
+        .status(422)
+        .send({ message: "未能从文件中识别到有效内容，请确认文件是按课程设计方案模版填写的 .docx。" });
+    }
+
+    // 乡土主题 validated against the currently-ACTIVE plan_design template's
+    // own themeOptions -- same source exports.getOptions (and, before this
+    // moved server-side, the frontend's own PlanDataService.getOptions()
+    // call before validating) already uses, not this plan's own possibly-
+    // older pinned version, matching existing behavior exactly.
+    let matchedTheme = null;
+    if (planFields.theme) {
+      let themeOptions = PLAN_THEMES;
+      const activeVersion = await TemplateVersion.findOne({ where: { templateKey: "plan_design", isActive: true } });
+      if (activeVersion && Array.isArray(activeVersion.schemaJson.themeOptions) && activeVersion.schemaJson.themeOptions.length > 0) {
+        themeOptions = activeVersion.schemaJson.themeOptions;
+      }
+      matchedTheme = themeOptions.find((t) => t.trim() === planFields.theme.trim()) || null;
+    }
+
+    req.body = {
+      planFormData: { ...sectionAnswers, lessons },
+      ...(planFields.title ? { title: planFields.title } : {}),
+      ...(planFields.grade ? { grade: planFields.grade } : {}),
+      ...(planFields.studentCount ? { studentCount: Number(planFields.studentCount) } : {}),
+      ...(planFields.instructorName ? { instructorName: planFields.instructorName } : {}),
+      ...(matchedTheme ? { theme: matchedTheme } : {}),
+      ...(lessons.length > 0
+        ? { plannedLessonCount: lessons.length }
+        : planFields.plannedLessonCount
+        ? { plannedLessonCount: Number(planFields.plannedLessonCount) }
+        : {}),
+    };
+    return exports.update(req, res);
+  } catch (err) {
+    return res.status(500).send({
+      message: err.message || `上传乡土课程设计 id=${req.params.id} 的课程设计文件时发生错误。`,
+    });
+  } finally {
+    if (tempDir) fs.rm(tempDir, { recursive: true, force: true }, () => {});
+  }
+};
+
+// Same shape as uploadDesignDoc above, but for one 课时's 实施记录 -- the
+// upload counterpart to renderExecutionDoc's GET. `existing` is read fresh
+// from the plan's own current executionFormData column within this same
+// request (rather than a client-supplied in-memory array, which is what the
+// browser version had to do instead, reading from a live component prop
+// specifically to avoid clobbering another lesson's unsaved edits sitting
+// only in memory) -- server-side this is simply the authoritative value,
+// no staleness risk to work around.
+exports.uploadExecutionDoc = async (req, res) => {
+  let tempDir = null;
+  try {
+    await uploadPlanDocSingle(req, res);
+    if (!req.file) {
+      return res.status(422).send({ message: "请选择要上传的 .docx 文件。" });
+    }
+    tempDir = path.dirname(req.file.path);
+
+    const lessonIndex = Number(req.params.lessonIndex);
+    if (!Number.isInteger(lessonIndex) || lessonIndex <= 0) {
+      return res.status(422).send({ message: "课时序号无效。" });
+    }
+
+    const plan = await Plan.findByPk(req.params.id, {
+      include: [{ model: TemplateVersion, as: "ExecutionTemplateVersion" }],
+    });
+    if (!plan) {
+      return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
+    }
+    const schema = plan.ExecutionTemplateVersion ? plan.ExecutionTemplateVersion.schemaJson : { sections: [] };
+
+    const { sectionAnswers, hasContent } = await planDocExtract.extractFromFile(req.file.path, schema);
+    if (!hasContent) {
+      return res
+        .status(422)
+        .send({ message: "未能从文件中识别到有效内容，请确认文件是按课时实施记录模板填写的 .docx。" });
+    }
+
+    const existing = Array.isArray(plan.executionFormData) ? plan.executionFormData : [];
+    const newExecutionFormData = existing.some((r) => Number(r.index) === lessonIndex)
+      ? existing.map((r) => (Number(r.index) === lessonIndex ? { ...sectionAnswers, index: lessonIndex } : r))
+      : [...existing, { ...sectionAnswers, index: lessonIndex }];
+
+    req.body = { executionFormData: newExecutionFormData };
+    return exports.update(req, res);
+  } catch (err) {
+    return res.status(500).send({
+      message: err.message || `上传乡土课程设计 id=${req.params.id} 第 ${req.params.lessonIndex} 课时的实施文件时发生错误。`,
+    });
+  } finally {
+    if (tempDir) fs.rm(tempDir, { recursive: true, force: true }, () => {});
   }
 };

@@ -51,9 +51,10 @@ export const ARTIFACT_CATEGORIES = [...ARTIFACT_CATEGORIES_PLAN_LEVEL, ...ARTIFA
 // ("第一课时：" followed by a blank line, no further sub-labels), so this is the
 // whole per-lesson shape: an optional inline title right after the "第N课时："
 // heading (e.g. "第1课时：入项激趣——认识一种...的米饼") plus the freeform body
-// beneath it. Shared between plan-detail.component.js (a 课时 N pane's lesson-design
-// form) and plans-list.component.js (extractLessonsFromText's best-effort
-// extraction from an uploaded .docx) -- see also dynamicDocGenerator.js, which
-// renders plan.planFormData.lessons (an array of these, keyed by `index`) back
-// into "第二部分：分课时设计" when generating a plan's 课程设计文件.
+// beneath it. Used by plan-detail.component.js (a 课时 N pane's lesson-design
+// form) -- see also backend/app/services/planDocExtract.js#extractLessonsFromText
+// (an uploaded .docx's best-effort extraction into this same shape) and
+// dynamicDocGenerator.js, which renders plan.planFormData.lessons (an array
+// of these, keyed by `index`) back into "第二部分：分课时设计" when generating
+// a plan's 课程设计文件.
 export const EMPTY_LESSON = { title: "", content: "" };
