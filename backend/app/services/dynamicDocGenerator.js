@@ -50,11 +50,16 @@ const headingAt = (depth) => HEADINGS_BY_DEPTH[Math.min(depth, HEADINGS_BY_DEPTH
 // separation unless set explicitly here. 200 twips = 10pt.
 const SEGMENT_SPACING = { after: 200 };
 
-// Some source templates author their field text with its own trailing colon
-// already in the paragraph (e.g. the 2026 template's "1.认知思维目标：") --
-// stripped here before appending "：" so those don't end up "：：". A no-op
-// for every existing template's labels (none end in a colon), so this
-// changes nothing about current output.
+// Every field label's own trailing colon is stripped here and replaced with
+// a canonical full-width "：", so a label whose source paragraph already had
+// one (e.g. the 2026 template's "1.认知思维目标：") doesn't end up "：：". Since
+// templateParser.js#normalizeLabel already canonicalizes a label's trailing
+// colon (to this same full-width form) at parse time, this is now a no-op
+// for the common case -- kept anyway as the actual rendering guarantee (a
+// hand-authored seed schema, e.g. schema.sql's, never goes through
+// templateParser.js at all, and an old cached schemaJson row parsed before
+// normalizeLabel existed may still carry a mixed-width colon) rather than
+// relying solely on upstream data being clean.
 // `bold` defaults to true -- the original blanket behavior, kept for every
 // caller that doesn't pass a field-level bold signal (meta rows, and any
 // legacy schema whose fields never captured one -- see templateParser.js's

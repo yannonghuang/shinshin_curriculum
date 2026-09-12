@@ -144,6 +144,25 @@ const isLabelCandidate = (text) => {
   return trimmed.length >= 1 && trimmed.length <= MAX_LABEL_CHARS;
 };
 
+// Canonicalizes a label's own trailing colon to a single width (full-width
+// "：") right where it's captured from the template's raw paragraph/run
+// text -- the one place both downstream consumers' otherwise-independent
+// colon assumptions actually need to agree. dynamicDocGenerator.js#p()/
+// labelOnly() already re-derive a canonical full-width colon when RENDERING
+// a label (regardless of what's stored), but nothing previously normalized
+// the label as EXTRACTION-time schema data itself, and a real template's
+// labels aren't consistent about it (confirmed: "探究问题:" (half-width) sat
+// right next to "探究方法:" and "讨论须知清单：" (full-width) in the same
+// template) -- so a stored label could disagree with the always-canonical
+// rendered text, and react-app/src/utils/planDocExtract.js#findLabel (which
+// matches a re-uploaded, re-rendered document against the stored label) had
+// no way to know that. Normalizing here means the schema itself -- already
+// the one piece of data both the renderer and the extractor read -- is the
+// single source of truth for colon width, instead of each side re-deriving
+// or tolerating its own guess. A label with no colon at all (e.g. a heading
+// used as a field, see demoteEmptyHeadings) is left untouched, not given one.
+const normalizeLabel = (text) => text.replace(/[:：]\s*$/, "：");
+
 // Table-shaped template (the plan design template's real shape): every
 // field label observed is a bold run inside a table cell -- walk each row,
 // merge adjacent same-bold runs, and every merged bold run of reasonable
@@ -158,7 +177,7 @@ const parseTableFields = (xml) => {
   while ((m = rowRe.exec(xml))) {
     const runs = mergeAdjacentRuns(extractRuns(m[1]));
     for (const r of runs) {
-      if (r.bold && isLabelCandidate(r.text)) labels.push(r.text.trim());
+      if (r.bold && isLabelCandidate(r.text)) labels.push(normalizeLabel(r.text.trim()));
     }
   }
   return labels;
@@ -183,7 +202,7 @@ const parseFlatFields = (xml) => {
       seenFirstNonEmpty = true; // template title -- skip
       continue;
     }
-    if (isLabelCandidate(text)) labels.push(text);
+    if (isLabelCandidate(text)) labels.push(normalizeLabel(text));
   }
   return labels;
 };
@@ -357,7 +376,7 @@ const parseHeadingSections = (xml, headingLevelMap) => {
 
     if (level) {
       while (stack.length > 1 && stack[stack.length - 1].level >= level) stack.pop();
-      const node = { label: text, level, fields: [], subsections: [] };
+      const node = { label: normalizeLabel(text), level, fields: [], subsections: [] };
       stack[stack.length - 1].subsections.push(node);
       stack.push(node);
       continue;
@@ -398,7 +417,7 @@ const parseHeadingSections = (xml, headingLevelMap) => {
       // style, not this.
       const firstRun = runs[0];
       stack[stack.length - 1].fields.push({
-        label: text,
+        label: normalizeLabel(text),
         bold: runs.some((r) => r.bold),
         runStyle: firstRun
           ? { size: firstRun.size, color: firstRun.color, italic: firstRun.italic, underline: firstRun.underline, font: firstRun.font }
