@@ -93,6 +93,12 @@ const readThemeXml = (filePath) => {
 // (confirmed on the real 课时实施记录模板.docx -- "观察和反思" arrives as two
 // separate runs) -- mergeAdjacentRuns below re-joins those before anything
 // else looks at run text, so that artifact never leaks into the result.
+// size/color/italic/underline/font: only read on demand (see `runStyle`
+// below, captured per-field in parseHeadingSections) for reproducing a
+// non-heading anchor run's own look (e.g. a plain-paragraph "课时1" marker,
+// see extractLessonSchema's markerStyle) -- a heading-styled marker instead
+// gets its formatting from the real heading style via externalStyles, so
+// this is never needed there.
 const extractRuns = (chunk) => {
   const runRe = /<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g;
   const runs = [];
@@ -102,7 +108,20 @@ const extractRuns = (chunk) => {
     const text = [...runXml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((t) => t[1]).join("");
     if (!text) continue;
     const bold = /<w:b\s*\/>|<w:b\s+[^>]*\/>/.test(runXml);
-    runs.push({ text, bold });
+    const italic = /<w:i\s*\/>|<w:i\s+[^>]*\/>/.test(runXml);
+    const underline = /<w:u\s+[^>]*w:val="(?!none)[^"]*"[^>]*\/>/.test(runXml);
+    const sizeMatch = runXml.match(/<w:sz\s+w:val="(\d+)"/);
+    const size = sizeMatch ? Number(sizeMatch[1]) : null;
+    const colorMatch = runXml.match(/<w:color\s+w:val="([0-9A-Fa-f]{6})"/);
+    const color = colorMatch ? colorMatch[1] : null;
+    const fontsMatch = runXml.match(/<w:rFonts\b([^>]*)\/>/);
+    let font = null;
+    if (fontsMatch) {
+      const eastAsia = fontsMatch[1].match(/w:eastAsia="([^"]+)"/);
+      const ascii = fontsMatch[1].match(/w:ascii="([^"]+)"/);
+      font = (eastAsia && eastAsia[1]) || (ascii && ascii[1]) || null;
+    }
+    runs.push({ text, bold, italic, underline, size, color, font });
   }
   return runs;
 };
@@ -312,6 +331,7 @@ const extractLessonSchema = (node) => {
     marker: splitLessonMarker(node.fields[markerIdx].label),
     markerIsHeading: false,
     markerBold: node.fields[markerIdx].bold,
+    markerStyle: node.fields[markerIdx].runStyle || null,
     fields: slice.map((f, i) => ({ key: `f${i}`, label: f.label, group: null, bold: f.bold, hint: f.hint || null })),
     subsections: [],
   };
@@ -371,7 +391,19 @@ const parseHeadingSections = (xml, headingLevelMap) => {
       // every label should be bold, so generation can reproduce the
       // template's own choice instead of inventing a blanket style (see
       // dynamicDocGenerator.js#p's `bold` parameter).
-      stack[stack.length - 1].fields.push({ label: text, bold: runs.some((r) => r.bold) });
+      // runStyle: the field's first run's own size/color/italic/underline/
+      // font -- only ever consumed for a non-heading 课时-marker field (see
+      // extractLessonSchema's markerStyle); harmless to capture for every
+      // field since regular fields' output styling comes from the Normal
+      // style, not this.
+      const firstRun = runs[0];
+      stack[stack.length - 1].fields.push({
+        label: text,
+        bold: runs.some((r) => r.bold),
+        runStyle: firstRun
+          ? { size: firstRun.size, color: firstRun.color, italic: firstRun.italic, underline: firstRun.underline, font: firstRun.font }
+          : null,
+      });
     }
   }
 
