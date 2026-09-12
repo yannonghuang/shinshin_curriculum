@@ -77,21 +77,22 @@ const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // each of the label's characters absorbs the newline. Returns the matched span
 // (idx + length), not just label.length, since a wrapped/prefixed match is
 // longer than the label itself.
-// A schema field's own `label` (captured verbatim from the uploaded template
-// by templateParser.js) can end in either colon width -- confirmed on a real
-// template mixing "："-ending and ":"-ending labels side by side. The
-// DOWNLOADED document a user re-uploads never preserves that though:
-// dynamicDocGenerator.js#p()/labelOnly() always strips whichever colon the
-// label originally had and re-appends a canonical full-width "："
-// (`cleanLabel`/`labelText`). Matching the label's colon literally here would
-// therefore silently fail for any label whose stored width doesn't match the
-// rendered one -- confirmed real bug: a "探究问题:" (half-width) label's
-// content, plus everything after it up to the next field that DID match,
-// silently got glued onto the previous field's value. Stripping the trailing
-// colon before building the pattern and re-requiring it as "either width"
-// (see colonPart below) keeps this in sync with p()'s own normalization
-// instead of re-deriving a separate assumption about what the rendered label
-// looks like.
+// A schema field's own `label` is now canonicalized to a single colon width
+// (full-width "：") right at parse time -- see backend/app/services/
+// templateParser.js#normalizeLabel, the actual single source of truth both
+// this extractor and dynamicDocGenerator.js#p()/labelOnly() (which
+// independently re-derives the same canonical form when RENDERING a label,
+// regardless of what's stored) now agree with, rather than each re-deriving
+// its own assumption. This still tolerates EITHER width when matching
+// (colonPart below), not just the canonical one, as a defensive fallback --
+// a hand-authored seed schema never goes through templateParser.js at all,
+// and an already-cached schemaJson row parsed before normalizeLabel existed
+// can still carry whatever width its source template happened to use.
+// Confirmed real bug this guards against: a "探究问题:" (half-width) label
+// that disagreed with the always-canonical rendered text meant this couldn't
+// recognize it as a boundary at all, so its content -- and everything up to
+// the next field that DID match -- silently got glued onto the previous
+// field's value.
 const findLabel = (text, label) => {
   const hadColon = /[:：]\s*$/.test(label);
   const core = label.replace(/[:：]\s*$/, "");
