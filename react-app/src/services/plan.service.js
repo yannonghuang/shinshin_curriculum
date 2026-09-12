@@ -62,6 +62,22 @@ class PlanDataService {
       responseType: "arraybuffer",
     });
   }
+
+  // Upload counterparts of the two above -- the file's extraction now runs
+  // entirely server-side (backend/app/services/planDocExtract.js), so this
+  // just ships the raw bytes and gets back the updated plan (same shape #get
+  // returns) with planFormData/basic-info already applied.
+  uploadDesignDoc(id, file) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return http.post(`/plans/${id}/design-doc`, formData, { headers: authHeader() });
+  }
+
+  uploadExecutionDoc(id, lessonIndex, file) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return http.post(`/plans/${id}/lessons/${lessonIndex}/execution-doc`, formData, { headers: authHeader() });
+  }
 }
 
 export default new PlanDataService();

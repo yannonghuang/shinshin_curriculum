@@ -35,4 +35,15 @@ module.exports = function (app) {
   // Same on-the-fly, nothing-persisted shape as design-doc above, but for
   // one 课时's 实施记录 -- backs the 课程实施文件 panel's 下载/预览 commands.
   app.get("/api/plans/:id/lessons/:lessonIndex/execution-doc", [authJwt.attachUserIfPresent], plans.renderExecutionDoc);
+
+  // Upload counterparts of the two GET routes above (multipart "file") --
+  // same path, POST instead of GET, same auth gate as PUT /api/plans/:id
+  // (ownership enforced inside the handler, which forwards into #update).
+  // Backs the 课程设计文件/课程实施文件 panels' own 上传 commands.
+  app.post("/api/plans/:id/design-doc", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.uploadDesignDoc);
+  app.post(
+    "/api/plans/:id/lessons/:lessonIndex/execution-doc",
+    [authJwt.verifyToken, authJwt.isTeacherOrAdmin],
+    plans.uploadExecutionDoc
+  );
 };

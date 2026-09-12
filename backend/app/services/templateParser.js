@@ -578,4 +578,9 @@ const extractStylesXml = (filePath) => readStylesXml(filePath);
 const extractNumberingXml = (filePath) => readNumberingXml(filePath);
 const extractThemeXml = (filePath) => readThemeXml(filePath);
 
-module.exports = { parseTemplateDocx, extractStylesXml, extractNumberingXml, extractThemeXml };
+// readDocumentXml/extractRuns are also exported for planDocExtract.js's
+// own raw-XML table-row walker (see that file's tableRowTexts) -- both
+// sides now live in the same backend package, so reusing the exact same
+// "read word/document.xml via unzip" + "read a <w:p> chunk's runs" logic
+// there is a plain require() away instead of a second copy.
+module.exports = { parseTemplateDocx, extractStylesXml, extractNumberingXml, extractThemeXml, readDocumentXml, extractRuns };
