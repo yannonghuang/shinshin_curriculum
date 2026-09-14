@@ -2,3 +2,4 @@
 .DS_Store
 .claude/
 scripts/deploy-aliyun.env
+scripts/deploy-aliyun-*.env
