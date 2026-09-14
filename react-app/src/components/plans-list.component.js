@@ -62,31 +62,25 @@ const PlansList = (props) => {
   // cases (suspend/delete/promote/review) but don't create their own, matching
   // plan.routes.js's isTeacher-only gate on POST /api/plans.
   const canCreate = !excellentOnly && AuthService.isTeacher();
-  // A teacher never has a legitimate reason to browse "all plans" -- the
-  // backend only ever shows them their own plans plus 优秀案例 (see
-  // plan.controller.js#findAll's visibility rule), so treat any /plans visit
-  // as "mine" for a teacher regardless of the mine= query param, not just the
-  // ?mine=true landing link. Otherwise a teacher who reaches bare /plans
-  // (e.g. by editing the URL) sees their own just-created ordinary plan
-  // vanish, since it isn't excellent and isn't "mine" without this. Excluded
-  // when excellentOnly (the public gallery) or statusFilter (an expert's
-  // 待点评 queue) is in play -- neither of those is about plan ownership.
-  // A manager is only ever interested in all plans, so there's no "只看我的"
-  // toggle to offer them either (removed; previously shown to admin only).
-  const effectiveMineOnly = mineOnly || (!excellentOnly && !statusFilter && AuthService.isTeacher());
+  // Only the explicit ?mine=true landing link puts a teacher into "my
+  // plans" mode now -- bare /plans instead lands a teacher on the same
+  // 全部乡土课程 hierarchy view admin/expert get (see isManagerOrExpertView
+  // below and plan.controller.js#findAll's requesterIsTeacher, which grants
+  // teachers the same cross-school visibility as an expert). A manager is
+  // only ever interested in all plans, so there's no "只看我的" toggle to
+  // offer them either (removed; previously shown to admin only).
+  const effectiveMineOnly = mineOnly;
 
-  // Manager's bare /plans, expert's /plans?status=submitted, and the public
-  // 优秀案例 gallery (excellentOnly) all land here, and all three get the
-  // year-学期 -> teacher explorer (plans-hierarchy.component.js) instead of
-  // this component's own flat search/paginate/grid -- one view for every
-  // audience on the gallery (admin, expert, teacher, or a logged-out
-  // visitor), not just staff. Only a teacher's own list (effectiveMineOnly)
-  // is unaffected, since that's a small, non-hierarchical set by nature.
-  // TODO: the flat view's search/filter (title keyword, year/grade/theme)
-  // has no equivalent here yet -- the tree has no search of its own, so a
-  // gallery visitor can currently only browse by year-学期/teacher, not
-  // search across all excellent cases. Planned as a future addition.
-  const isManagerOrExpertView = excellentOnly || ((AuthService.isAdmin() || AuthService.isExpert()) && !effectiveMineOnly);
+  // Manager/expert/teacher's bare /plans, expert's /plans?status=submitted,
+  // and the public 优秀案例 gallery (excellentOnly) all land here, and all
+  // of them get the year-学期 -> school -> teacher explorer
+  // (plans-hierarchy.component.js) instead of this component's own flat
+  // search/paginate/grid -- one view for every audience on the gallery
+  // (admin, expert, teacher, or a logged-out visitor), not just staff. Only
+  // a teacher's own list (effectiveMineOnly, via ?mine=true) is unaffected,
+  // since that's a small, non-hierarchical set by nature.
+  const isManagerOrExpertView =
+    excellentOnly || ((AuthService.isAdmin() || AuthService.isExpert() || AuthService.isTeacher()) && !effectiveMineOnly);
   // stylishPublic (green pl-hero header, KPI cards, search/filter bar,
   // pagination) is the flat view's own chrome -- never shown alongside the
   // hierarchy view above, which has its own plain heading and conveys scale

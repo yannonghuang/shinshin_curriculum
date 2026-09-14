@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
+import { PLAN_THEMES } from "../constants/plan-options";
 import "../curriculum.css";
 
 // Manager/expert plan browser: a 3-level 年份-学期 -> 学校 -> 教师 navigation
@@ -80,16 +81,42 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
 
-  // The three review-status toggles only make sense on the admin's plain
+  // The review-status toggles only make sense on the admin's plain
   // "全部乡土课程" view (bare /plans, no fixed statusFilter and not the
   // excellent-case gallery) -- matches exactly the condition
   // plans-list.component.js's own `heading` uses to decide that's what this
   // is. The expert's ?status=submitted queue and the public gallery keep
   // browsing their own fixed set with no filter bar.
   const showReviewFilters = !statusFilter && !excellentOnly;
+  // "已提交" is admin-only: plan.controller.js#findAll's restrictToSubmitted
+  // already excludes drafts server-side for expert/teacher, so the toggle
+  // would be redundant (always-on and un-toggleable-off) for them -- only
+  // admin, who still sees drafts, has a real "all statuses vs submitted
+  // only" choice to make here.
+  const showSubmittedToggle = showReviewFilters && AuthService.isAdmin();
   const [filterSubmitted, setFilterSubmitted] = useState(false);
   const [filterAiReviewed, setFilterAiReviewed] = useState(false);
   const [filterExpertReviewed, setFilterExpertReviewed] = useState(false);
+  // Teacher-name/school-name (partial match) and theme (exact match)
+  // filters, applied client-side alongside the review-status toggles above --
+  // consistent with this component's existing "fetch everything once, filter
+  // client-side" design (see PAGE_SIZE), and simpler than adding new
+  // server-side query params for a page that already has the full plan list
+  // (with Teacher/School already eager-loaded) in hand.
+  const [filterTeacherName, setFilterTeacherName] = useState("");
+  const [filterSchoolName, setFilterSchoolName] = useState("");
+  const [filterTheme, setFilterTheme] = useState("");
+  // 乡土主题 dropdown options -- see plans-list.component.js's identical
+  // themeOptions state for why (the active plan_design template's own
+  // "附件"-derived list, falling back to the static PLAN_THEMES).
+  const [themeOptions, setThemeOptions] = useState(PLAN_THEMES);
+  useEffect(() => {
+    PlanDataService.getOptions()
+      .then((resp) => {
+        if (Array.isArray(resp.data && resp.data.themes) && resp.data.themes.length > 0) setThemeOptions(resp.data.themes);
+      })
+      .catch(() => {});
+  }, []);
   // Keyed by `${groupKey}|${schoolKey}` -- a school can appear under
   // multiple year/season groups, so its expand state must be scoped per
   // group, not global.
@@ -123,13 +150,32 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   // every other multi-filter bar in this app.
   const filteredPlans = useMemo(() => {
     if (!showReviewFilters) return plans;
-    return plans.filter(
-      (p) =>
+    const teacherNameQuery = filterTeacherName.trim().toLowerCase();
+    const schoolNameQuery = filterSchoolName.trim().toLowerCase();
+    return plans.filter((p) => {
+      const teacherName = ((p.Teacher && (p.Teacher.chineseName || p.Teacher.username)) || "").toLowerCase();
+      // Unassigned-school plans match UNASSIGNED_SCHOOL_NAME (see
+      // buildHierarchy above), so searching e.g. "未分配" finds them too.
+      const schoolName = ((p.Teacher && p.Teacher.School && p.Teacher.School.name) || UNASSIGNED_SCHOOL_NAME).toLowerCase();
+      return (
         (!filterSubmitted || p.status === "submitted") &&
         (!filterAiReviewed || p.aiReviewed) &&
-        (!filterExpertReviewed || p.expertReviewed)
-    );
-  }, [plans, showReviewFilters, filterSubmitted, filterAiReviewed, filterExpertReviewed]);
+        (!filterExpertReviewed || p.expertReviewed) &&
+        (!teacherNameQuery || teacherName.includes(teacherNameQuery)) &&
+        (!schoolNameQuery || schoolName.includes(schoolNameQuery)) &&
+        (!filterTheme || p.theme === filterTheme)
+      );
+    });
+  }, [
+    plans,
+    showReviewFilters,
+    filterSubmitted,
+    filterAiReviewed,
+    filterExpertReviewed,
+    filterTeacherName,
+    filterSchoolName,
+    filterTheme,
+  ]);
 
   const groups = useMemo(() => buildHierarchy(filteredPlans), [filteredPlans]);
 
@@ -244,14 +290,51 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   return (
     <>
       {showReviewFilters && (
+        <div className="mb-3">
+          <div className="form-row">
+            <div className="form-group col-md-4">
+              <label>教师姓名筛选</label>
+              <input
+                className="form-control"
+                placeholder="按教师姓名搜索"
+                value={filterTeacherName}
+                onChange={(e) => setFilterTeacherName(e.target.value)}
+              />
+            </div>
+            <div className="form-group col-md-4">
+              <label>学校名称筛选</label>
+              <input
+                className="form-control"
+                placeholder="按学校名称搜索"
+                value={filterSchoolName}
+                onChange={(e) => setFilterSchoolName(e.target.value)}
+              />
+            </div>
+            <div className="form-group col-md-4">
+              <label>主题筛选</label>
+              <select className="form-control" value={filterTheme} onChange={(e) => setFilterTheme(e.target.value)}>
+                <option value="">全部主题</option>
+                {themeOptions.map((theme) => (
+                  <option key={theme} value={theme}>
+                    {theme}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+      {showReviewFilters && (
         <div className="pl-filter-bar mb-3">
-          <button
-            type="button"
-            className={`pl-filter-toggle ${filterSubmitted ? "is-active" : ""}`}
-            onClick={() => setFilterSubmitted((prev) => !prev)}
-          >
-            已提交
-          </button>
+          {showSubmittedToggle && (
+            <button
+              type="button"
+              className={`pl-filter-toggle ${filterSubmitted ? "is-active" : ""}`}
+              onClick={() => setFilterSubmitted((prev) => !prev)}
+            >
+              已提交
+            </button>
+          )}
           <button
             type="button"
             className={`pl-filter-toggle pl-filter-toggle-ai ${filterAiReviewed ? "is-active" : ""}`}
