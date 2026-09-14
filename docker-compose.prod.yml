@@ -119,8 +119,16 @@ services:
     build:
       context: ./react-app
       dockerfile: Dockerfile
+    # Defaults to the existing behavior (host 80 -> container 80, reachable
+    # directly from the internet) -- unchanged for anyone not doing anything
+    # in §7 below. Once a host-level nginx+Certbot (or an SLB) is fronting
+    # this VM for HTTPS, that host nginx needs ports 80/443 for itself, so
+    # this container's own binding moves off the public interface entirely,
+    # e.g. FRONTEND_PORT_BINDING=127.0.0.1:8082:80 in deploy-aliyun.env --
+    # reachable only from the host nginx proxying to it, not from outside
+    # the VM directly. See ALIYUN_DEPLOY.md §7.
     ports: !override
-      - "80:80"
+      - "${FRONTEND_PORT_BINDING:-80:80}"
     volumes: !override []   # static build is baked into the image; nothing to mount
     depends_on:
       - backend

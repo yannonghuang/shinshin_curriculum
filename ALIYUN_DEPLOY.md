@@ -203,17 +203,35 @@ Since the script builds from whatever's currently checked out locally
 require a clean working tree or a prior push, but you'll want one for the
 image tag (the commit SHA) to mean anything later.
 
-## 7. HTTPS (not automated by this script)
+## 7. HTTPS
 
 The stack as deployed serves plain HTTP on port 80. For production HTTPS,
 put one of these in front of the `frontend` container rather than modifying
 `nginx.conf` inside the app image:
-- Easiest: point a domain at the ECS IP and run Certbot (`certbot --nginx`)
-  against a *separate*, host-level nginx reverse-proxying to `localhost:80`,
-  or
+- Easiest, and the one `scripts/setup-https.sh` automates: point a domain at
+  the ECS IP and run Certbot (`certbot --nginx`) against a *separate*,
+  host-level nginx reverse-proxying to `localhost:<FRONTEND_LOCAL_PORT>`, or
 - Use an Alibaba Cloud SLB (负载均衡) in front of the ECS instance with a
   managed certificate (免费证书 in 数字证书管理服务/SSL证书), terminating
-  TLS at the SLB and forwarding plain HTTP to the VM.
+  TLS at the SLB and forwarding plain HTTP to the VM (`frontend`'s port
+  mapping stays untouched in this case — the SLB, not the VM, owns 443).
+
+For the first option, once DNS for your domain resolves to the ECS IP and
+its security group allows inbound 80 and 443, SSH into the VM and run:
+```bash
+sudo DOMAIN=your.subdomain.example.org CERTBOT_EMAIL=you@example.org \
+  bash scripts/setup-https.sh
+```
+This installs nginx + Certbot, points `docker-compose.prod.yml`'s frontend
+container at `127.0.0.1:<FRONTEND_LOCAL_PORT>` instead of the public
+interface (via `FRONTEND_PORT_BINDING` in the VM's own `.env` — see that
+variable's comment in `docker-compose.prod.yml`), redeploys it, writes a
+host nginx site proxying to it, and obtains + installs the Let's Encrypt
+cert. Idempotent — safe to re-run, including for a second domain (each run
+only touches nginx's site file for its own `DOMAIN`). The script itself
+(`scripts/setup-https.sh`) documents its env vars and defaults; DNS must
+already resolve before running it, since Certbot's validation needs the
+domain live.
 
 ## 8. Rollback
 

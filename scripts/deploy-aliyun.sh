@@ -11,13 +11,20 @@
 # Usage:
 #   scripts/deploy-aliyun.sh              # tag = current commit's short SHA
 #   scripts/deploy-aliyun.sh v1.2.0        # explicit tag, e.g. for a release
+#
+# Deploying to a second target (e.g. a temporary non-mainland ECS instance
+# while ICP备案 for the usual one is pending -- see ALIYUN_DEPLOY.md §7):
+# keep a second env file (e.g. scripts/deploy-aliyun-hk.env, gitignored same
+# as the default) with that instance's own ECS_HOST/ACR_NAMESPACE/etc., and
+# point at it explicitly instead of editing the default file back and forth:
+#   DEPLOY_ENV_FILE=scripts/deploy-aliyun-hk.env scripts/deploy-aliyun.sh
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-ENV_FILE="scripts/deploy-aliyun.env"
+ENV_FILE="${DEPLOY_ENV_FILE:-scripts/deploy-aliyun.env}"
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
