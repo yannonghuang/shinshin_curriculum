@@ -103,7 +103,7 @@ class App extends Component {
                     </Link>
                   </li>
                 )}
-                {AuthService.isAdmin() && (
+                {(AuthService.isAdmin() || AuthService.isTeacher()) && (
                   <li className="nav-item">
                     <Link to="/plans" className="nav-link">
                       全部乡土课程

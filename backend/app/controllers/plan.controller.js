@@ -127,6 +127,29 @@ const isExpertRequester = async (userId, t) => {
   return roles.some((r) => r.name === "expert");
 };
 
+const isTeacherRequester = async (userId, t) => {
+  const user = await User.findByPk(userId, { transaction: t });
+  if (!user) return false;
+  const roles = await user.getRoles({ transaction: t });
+  return roles.some((r) => r.name === "teacher");
+};
+
+// Shared by findOne/renderDoc/renderExecutionDoc -- the single-plan
+// equivalent of findAll's restrictToExcellent/restrictToSubmitted, so a
+// direct link to a plan a caller couldn't see in the list can't be used to
+// route around that same restriction. Caller already handles the
+// isExcellentCase case before reaching this (that's public to everyone
+// regardless of status, matching the list). Owner and admin always pass;
+// expert/teacher pass only once the plan is no longer a draft -- a
+// still-in-progress draft is the owner's alone to show.
+const canViewNonExcellentPlan = async (plan, userId) => {
+  if (userId && plan.teacherId === userId) return true;
+  if (!userId) return false;
+  const [admin, expert, teacher] = await Promise.all([isAdminRequester(userId), isExpertRequester(userId), isTeacherRequester(userId)]);
+  if (admin) return true;
+  return (expert || teacher) && plan.status !== "draft";
+};
+
 // 乡土主题 options come from the active plan_design template's own "附件"
 // section when it has one (see templateParser.js#extractThemeOptionsFromFields)
 // -- e.g. a template can define its own theme list without a code change --
@@ -291,15 +314,32 @@ exports.findAll = async (req, res) => {
     // teacher via ?mine=true (read-only there -- see update's suspended check).
     const requesterIsAdmin = req.userId ? await isAdminRequester(req.userId) : false;
     const requesterIsExpert = req.userId ? await isExpertRequester(req.userId) : false;
+    // A teacher gets the same cross-school visibility as an expert (browsing
+    // 全部乡土课程, not just their own) -- see plans-list.component.js's
+    // isManagerOrExpertView, which now treats teacher/expert/admin alike for
+    // this same reason. hideSuspended below is unaffected: a teacher still
+    // shouldn't see another teacher's suspended plan, same as an expert.
+    const requesterIsTeacher = req.userId ? await isTeacherRequester(req.userId) : false;
     const hideSuspended = !requesterIsAdmin && !viewingMine;
 
     // Only 优秀案例 (excellent-case) plans are ever visible outside their own
-    // owner -- a plan isn't promoted to public just by existing. Admin/expert
-    // get full visibility (management/review need it); ?mine=true is the
-    // owner viewing their own, excellent or not. This applies regardless of
-    // any other filter (keyword/teacherId/etc.) so a non-owner teacher can't
-    // route around it by, say, querying a specific teacherId directly.
-    const restrictToExcellent = !viewingMine && !requesterIsAdmin && !requesterIsExpert;
+    // owner -- a plan isn't promoted to public just by existing. Admin/expert/
+    // teacher get full visibility (management/review/peer-browsing all need
+    // it); ?mine=true is the owner viewing their own, excellent or not. This
+    // applies regardless of any other filter (keyword/teacherId/etc.) so a
+    // non-owner teacher can't route around it by, say, querying a specific
+    // teacherId directly -- it's the role check above that grants the wider
+    // access, not the filter shape.
+    const restrictToExcellent = !viewingMine && !requesterIsAdmin && !requesterIsExpert && !requesterIsTeacher;
+
+    // Draft plans are still a work in progress -- only the owner (?mine=true)
+    // or admin should ever browse one outside excellent-case promotion.
+    // Expert/teacher's cross-school browsing (restrictToExcellent above) is
+    // restricted to non-draft (submitted or reviewed) plans only, enforced
+    // regardless of the `status` query param so a request for status=draft
+    // can't route around it -- same "role check grants access, not the
+    // filter shape" reasoning as restrictToExcellent.
+    const restrictToSubmitted = !viewingMine && !requesterIsAdmin && (requesterIsExpert || requesterIsTeacher);
 
     const condition = {
       [Op.and]: [
@@ -317,7 +357,7 @@ exports.findAll = async (req, res) => {
         parsedYear ? { year: { [Op.eq]: parsedYear } } : null,
         season ? { season: { [Op.eq]: `${season}` } } : null,
         effectiveTeacherId ? { teacherId: { [Op.eq]: `${effectiveTeacherId}` } } : null,
-        status ? { status: { [Op.eq]: `${status}` } } : null,
+        restrictToSubmitted ? { status: { [Op.ne]: "draft" } } : status ? { status: { [Op.eq]: `${status}` } } : null,
         restrictToExcellent
           ? { isExcellentCase: true }
           : isExcellentCase !== undefined
@@ -441,13 +481,8 @@ exports.findOne = async (req, res) => {
     // existing. Requires authJwt.attachUserIfPresent on the route so
     // req.userId is resolved for a logged-in caller while still allowing an
     // anonymous request through (the public gallery has no login).
-    if (!data.isExcellentCase) {
-      const isOwner = !!(req.userId && data.teacherId === req.userId);
-      const requesterIsAdmin = req.userId ? await isAdminRequester(req.userId) : false;
-      const requesterIsExpert = req.userId ? await isExpertRequester(req.userId) : false;
-      if (!isOwner && !requesterIsAdmin && !requesterIsExpert) {
-        return res.status(403).send({ message: "无权查看该乡土课程设计。" });
-      }
+    if (!data.isExcellentCase && !(await canViewNonExcellentPlan(data, req.userId))) {
+      return res.status(403).send({ message: "无权查看该乡土课程设计。" });
     }
 
     return res.send(data);
@@ -758,15 +793,10 @@ exports.renderDoc = async (req, res) => {
     }
 
     // Same visibility rule as findOne -- rendering the doc is a read action
-    // available to whoever can already view the plan (owner/admin/expert, or
-    // anyone for a public 优秀案例), not owner-only.
-    if (!plan.isExcellentCase) {
-      const isOwner = !!(req.userId && plan.teacherId === req.userId);
-      const requesterIsAdmin = req.userId ? await isAdminRequester(req.userId) : false;
-      const requesterIsExpert = req.userId ? await isExpertRequester(req.userId) : false;
-      if (!isOwner && !requesterIsAdmin && !requesterIsExpert) {
-        return res.status(403).send({ message: "无权查看该乡土课程设计。" });
-      }
+    // available to whoever can already view the plan (owner/admin/expert/
+    // teacher, or anyone for a public 优秀案例), not owner-only.
+    if (!plan.isExcellentCase && !(await canViewNonExcellentPlan(plan, req.userId))) {
+      return res.status(403).send({ message: "无权查看该乡土课程设计。" });
     }
 
     // "第二部分：分课时设计" is freeform per-课时 title+content (see
@@ -826,13 +856,8 @@ exports.renderExecutionDoc = async (req, res) => {
     }
 
     // Same visibility rule as renderDoc/findOne.
-    if (!plan.isExcellentCase) {
-      const isOwner = !!(req.userId && plan.teacherId === req.userId);
-      const requesterIsAdmin = req.userId ? await isAdminRequester(req.userId) : false;
-      const requesterIsExpert = req.userId ? await isExpertRequester(req.userId) : false;
-      if (!isOwner && !requesterIsAdmin && !requesterIsExpert) {
-        return res.status(403).send({ message: "无权查看该乡土课程设计。" });
-      }
+    if (!plan.isExcellentCase && !(await canViewNonExcellentPlan(plan, req.userId))) {
+      return res.status(403).send({ message: "无权查看该乡土课程设计。" });
     }
 
     const records = Array.isArray(plan.executionFormData) ? plan.executionFormData : [];
