@@ -131,7 +131,7 @@ class App extends Component {
                 </li>
                 <li className="nav-item">
                   <Link to="/gallery" className="nav-link">
-                    优秀案例库
+                    课程案例库
                   </Link>
                 </li>
               </ul>

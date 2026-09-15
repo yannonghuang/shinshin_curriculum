@@ -376,14 +376,6 @@
   border-color: #ccebdd;
 }
 
-/* Now shown next to plans-list.component.js's own page title (h4), not
-   inside the filter bar itself -- see plans-hierarchy.component.js's
-   onFilteredCountChange. */
-.pl-filter-bar-count {
-  color: var(--pl-text);
-  font-size: 14px;
-  font-weight: 600;
-}
 
 /* plan-detail.component.js's file-explorer layout: a collapsible/hide-able left
    nav tree (.pl-explorer-nav, entirely removed from the DOM when hidden -- see

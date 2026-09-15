@@ -17,7 +17,7 @@ const currentUserId = () => {
 // Migrated from shinshin's cases-list.component.js: functional component, server-side
 // pagination via @material-ui/lab Pagination, card-grid layout, slide-in drawer
 // create/edit form, and the `stylishPublic` unauthenticated-view styling (here also
-// forced on for the public "优秀案例库" gallery via props.excellentOnly).
+// forced on for the public "课程案例库" gallery via props.excellentOnly).
 //
 // One component/route serves every /plans context (a teacher's own plans, an admin's
 // full list, an expert's 待点评 queue, the public gallery) rather than separate pages --
@@ -256,7 +256,7 @@ const PlansList = (props) => {
   };
 
   const heading = excellentOnly
-    ? "优秀案例库"
+    ? "课程案例库"
     : effectiveMineOnly
     ? "我的乡土课程"
     : statusFilter === "submitted"
@@ -289,7 +289,7 @@ const PlansList = (props) => {
               isManagerOrExpertView skips entirely (see retrieveAll) -- the
               hierarchy view's own tree conveys scale instead. */}
           {!isManagerOrExpertView && `（总数：${totalItems}）`}
-          {showHierarchyCount && <span className="pl-filter-bar-count ml-2">共 {hierarchyFilteredCount} 项</span>}
+          {showHierarchyCount && `（总数：${hierarchyFilteredCount}）`}
         </h4>
       )}
 
