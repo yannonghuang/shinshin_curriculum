@@ -17,7 +17,7 @@ const Home = () => {
       <div className="pl-hero">
         <h4 className="pl-title">乡土智课系统</h4>
         <p className="pl-subtitle">
-          教师撰写、实施并分享乡土课程；专家与AI智能体协同点评；管理员维护学习资源库与优秀案例库。
+          教师撰写、实施并分享乡土课程；专家与AI智能体协同点评；管理员维护学习资源库与课程案例库。
         </p>
       </div>
 
@@ -67,7 +67,7 @@ const Home = () => {
         </div>
         <div className="col-md-4">
           <div className="pl-card">
-            <h6>优秀案例库</h6>
+            <h6>课程案例库</h6>
             <p className="text-muted">无需登录即可浏览的优秀乡土课程案例展示墙。</p>
             <Link className="btn btn-outline-primary btn-sm" to="/gallery">
               查看优秀案例
