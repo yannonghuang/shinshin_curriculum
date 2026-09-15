@@ -4,7 +4,11 @@ const express = require("express");
 const cors = require("cors");
 const app = express();
 
-app.use(cors());
+// exposedHeaders: without this, a browser's JS can't read a custom response
+// header cross-origin even though the response itself carries it -- needed
+// so the frontend can pick up the renewed token authJwt.js#verifyToken
+// reissues on every authenticated request (see its own comment).
+app.use(cors({ exposedHeaders: ["x-access-token"] }));
 
 // parse requests of content-type - application/json
 app.use(express.json({ limit: "25mb" }));

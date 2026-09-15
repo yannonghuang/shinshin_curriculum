@@ -39,6 +39,23 @@ module.exports = (sequelize, Sequelize) => {
       lastLogin: {
         type: Sequelize.DATE,
       },
+      // Accumulated seconds across every session -- see
+      // 20260915000000-user-session-tracking.js and authJwt.js#verifyToken /
+      // auth.controller.js's signin/signout for how this and lastActivityAt
+      // are maintained.
+      totalLoginTime: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      // Internal bookkeeping (not directly shown in the UI): last time this
+      // user's JWT was renewed by the sliding-inactivity-expiry mechanism.
+      // Lets a session that ended via inactivity timeout (no explicit
+      // sign-out) still get its elapsed time credited to totalLoginTime,
+      // reconciled at the user's next signin/signout.
+      lastActivityAt: {
+        type: Sequelize.DATE,
+      },
       // Admin user-management: a suspended account can't sign in but isn't
       // deleted. See auth.controller.js's suspend/unsuspend + signin check.
       suspended: {

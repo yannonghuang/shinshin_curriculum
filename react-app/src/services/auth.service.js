@@ -1,5 +1,13 @@
 import axios from "axios";
 import authHeader from "./auth-header";
+import attachTokenRenewalInterceptor from "./token-renewal-interceptor";
+
+// This file is the only one that imports the raw axios singleton directly
+// (every other service goes through http-common.js's own instance, which
+// attaches this same interceptor itself) -- registering it here, once at
+// module load, covers every other file's `import axios from "axios"` too,
+// since they all share that one singleton.
+attachTokenRenewalInterceptor(axios);
 
 const API_URL = "/api/auth/";
 

@@ -9,5 +9,11 @@ if (!process.env.JWT_SECRET) {
 
 module.exports = {
   secret: process.env.JWT_SECRET || "dev-insecure-secret-change-me",
-  validity: Number(process.env.JWT_VALIDITY || 86400), // seconds, 24h default
+  // A token's own `exp` is this many seconds past whenever it was last
+  // (re)issued -- but authJwt.js#verifyToken reissues a fresh token on every
+  // authenticated request, so in practice this is a *sliding* inactivity
+  // window, not a fixed session length: staying active keeps renewing it,
+  // and it only actually expires after this many seconds with no request at
+  // all. 900s = 15 minutes of inactivity.
+  validity: Number(process.env.JWT_VALIDITY || 900),
 };
