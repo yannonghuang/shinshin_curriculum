@@ -130,13 +130,22 @@ exports.signin = (req, res) => {
       }
 
       var token = jwt.sign({ id: user.id }, config.secret, {
-        expiresIn: config.validity, // 86400 24 hours
+        expiresIn: config.validity, // sliding inactivity window -- see auth.config.js
       });
 
       const lastLastLogin = user.lastLogin;
-      user.update({
-        lastLogin: db.sequelize.literal("CURRENT_TIMESTAMP"),
-      });
+      const signinUpdates = { lastLogin: db.sequelize.literal("CURRENT_TIMESTAMP") };
+      // Reconciles a *previous* session that ended via inactivity timeout
+      // rather than an explicit sign-out -- signout() below always advances
+      // lastLogin past whatever lastActivityAt it leaves behind, so this
+      // only ever fires for the inactivity-timeout case (lastActivityAt from
+      // authJwt.js's renewals still sitting after the old lastLogin).
+      if (user.lastActivityAt && lastLastLogin && user.lastActivityAt > lastLastLogin) {
+        const elapsedSeconds = Math.max(0, Math.round((user.lastActivityAt.getTime() - lastLastLogin.getTime()) / 1000));
+        signinUpdates.totalLoginTime = user.totalLoginTime + elapsedSeconds;
+        signinUpdates.lastActivityAt = null;
+      }
+      user.update(signinUpdates);
 
       var authorities = [];
       user.getRoles().then((roles) => {
@@ -179,9 +188,18 @@ exports.signout = (req, res) => {
         console.log("logout: " + req.body.username);
         return res.status(404).send({ message: "User Not found." });
       }
-      user.update({
-        lastLogin: db.sequelize.literal("CURRENT_TIMESTAMP"),
-      });
+      // Credits this session's elapsed time (since it started at
+      // user.lastLogin) to totalLoginTime -- the precise, no-reconciliation-
+      // needed case, since the user is explicitly ending the session right
+      // now (contrast signin's reconciliation of a session that ended by
+      // inactivity timeout instead). lastActivityAt is cleared so signin
+      // doesn't also try to reconcile this same, already-credited session.
+      const signoutUpdates = { lastLogin: db.sequelize.literal("CURRENT_TIMESTAMP"), lastActivityAt: null };
+      if (user.lastLogin) {
+        const elapsedSeconds = Math.max(0, Math.round((Date.now() - user.lastLogin.getTime()) / 1000));
+        signoutUpdates.totalLoginTime = user.totalLoginTime + elapsedSeconds;
+      }
+      user.update(signoutUpdates);
       res.send({ message: "Signed out successfully." });
     })
     .catch((err) => {
@@ -451,15 +469,18 @@ const getPagingData = (data, page, limit) => {
 // sortBy=name orders by chineseName (the visible "姓名" column); sortBy=school
 // orders by the joined School's name (not the raw numeric code, which
 // wouldn't group same-named schools or read as alphabetical to an admin).
-// Anything else (including unset) keeps the original newest-first order.
-// MySQL sorts NULLs first in ASC / last in DESC, which is an acceptable
-// default here (no explicit NULLS LAST handling) since admin/expert rows
-// have no chineseName-is-always-set guarantee and non-teacher rows have no
-// school at all.
+// sortBy=lastLogin/totalLoginTime order by those columns directly. Anything
+// else (including unset) keeps the original newest-first order. MySQL sorts
+// NULLs first in ASC / last in DESC, which is an acceptable default here (no
+// explicit NULLS LAST handling) since admin/expert rows have no
+// chineseName-is-always-set guarantee, non-teacher rows have no school at
+// all, and a never-logged-in user has no lastLogin.
 const buildUsersOrder = (sortBy, sortOrder) => {
   const direction = sortOrder === "desc" ? "DESC" : "ASC";
   if (sortBy === "name") return [["chineseName", direction]];
   if (sortBy === "school") return [[{ model: db.school, as: "School" }, "name", direction]];
+  if (sortBy === "lastLogin") return [["lastLogin", direction]];
+  if (sortBy === "totalLoginTime") return [["totalLoginTime", direction]];
   return [["id", "DESC"]];
 };
 
@@ -507,6 +528,7 @@ exports.findAll = async (req, res) => {
         "suspended",
         "schoolCode",
         "lastLogin",
+        "totalLoginTime",
         "createdAt",
       ],
       limit,

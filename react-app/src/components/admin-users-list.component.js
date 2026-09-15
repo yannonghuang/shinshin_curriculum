@@ -9,6 +9,18 @@ import "../curriculum.css";
 const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员", super: "超级管理员" };
 const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, address: s.address }));
 
+// totalLoginTime arrives from the backend in accumulated seconds (see
+// auth.controller.js's signin/signout) -- rendered as the largest couple of
+// units that fit, matching how a human would say it ("3小时25分钟", not
+// "12300秒" or a raw decimal-hours number).
+const formatDuration = (totalSeconds) => {
+  if (!totalSeconds) return "0分钟";
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
+  return `${minutes}分钟`;
+};
+
 // Shows each school's address as a muted second line under its name, so an
 // admin/super picking from 392 similarly-named schools (many share a
 // county/town name) has enough to tell same-named schools apart --
@@ -52,8 +64,9 @@ const AdminUsersList = () => {
   // closed -- a popup rather than navigating away (see the 学校编号 cell
   // below) so opening it never loses the list's current page/filters/sort.
   const [schoolDetailCode, setSchoolDetailCode] = useState(null);
-  // sortBy: "" (default, newest-first) | "name" | "school"; only one column
-  // sorts at a time, matching a typical clickable-column-header table.
+  // sortBy: "" (default, newest-first) | "name" | "school" | "lastLogin" |
+  // "totalLoginTime"; only one column sorts at a time, matching a typical
+  // clickable-column-header table.
   const [sortBy, setSortBy] = useState("");
   const [sortOrder, setSortOrder] = useState("asc");
   const [page, setPage] = useState(1);
@@ -320,6 +333,12 @@ const AdminUsersList = () => {
             <th>邮箱已验证</th>
             <th>状态</th>
             <th>注册时间</th>
+            <th role="button" onClick={() => onSortClick("lastLogin")}>
+              上次登录时间{sortIndicator("lastLogin")}
+            </th>
+            <th role="button" onClick={() => onSortClick("totalLoginTime")}>
+              累计登录时长{sortIndicator("totalLoginTime")}
+            </th>
             <th>操作</th>
           </tr>
         </thead>
@@ -353,6 +372,12 @@ const AdminUsersList = () => {
                 </td>
                 <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString("zh-cn") : "-"}</td>
                 <td>
+                  {item.lastLogin
+                    ? new Date(item.lastLogin).toLocaleString("zh-cn", { hour12: false })
+                    : "从未登录"}
+                </td>
+                <td>{formatDuration(item.totalLoginTime)}</td>
+                <td>
                   {isSelf ? (
                     <span className="text-muted">（当前账号）</span>
                   ) : (
@@ -380,7 +405,7 @@ const AdminUsersList = () => {
           })}
           {users.length === 0 && (
             <tr>
-              <td colSpan="9">暂无数据</td>
+              <td colSpan="11">暂无数据</td>
             </tr>
           )}
         </tbody>
