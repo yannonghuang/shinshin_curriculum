@@ -72,7 +72,8 @@ verifyToken = (req, res, next) => {
 // who's asking when a token IS present (e.g. to resolve ?mine=true to the caller's
 // own id server-side, rather than trusting a client-supplied teacherId). Unlike
 // verifyToken, a missing or invalid token is not an error -- req.userId is just left
-// unset and the route decides what that means.
+// unset and the route decides what that means, so the request still succeeds (as an
+// anonymous view) rather than 401ing.
 attachUserIfPresent = (req, res, next) => {
   const token = req.headers["x-access-token"];
   if (!token) return next();
@@ -81,6 +82,16 @@ attachUserIfPresent = (req, res, next) => {
     if (!err) {
       req.userId = decoded.id;
       renewAndTrackActivity(decoded.id, res);
+    } else {
+      // The request itself still succeeds (see above), but the caller's
+      // cached "logged in" session is stale/expired -- unlike verifyToken's
+      // outright 401 (which the frontend's response-error interceptor
+      // already catches, see token-renewal-interceptor.js), a soft-auth
+      // route never fails, so there's no error for that interceptor to see.
+      // This header is the equivalent signal on the success path: read by
+      // that same interceptor to clear the stale session and redirect to
+      // /login, even though this particular request "worked".
+      res.set("x-session-expired", "1");
     }
     next();
   });

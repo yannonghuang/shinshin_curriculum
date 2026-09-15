@@ -7,8 +7,10 @@ const app = express();
 // exposedHeaders: without this, a browser's JS can't read a custom response
 // header cross-origin even though the response itself carries it -- needed
 // so the frontend can pick up the renewed token authJwt.js#verifyToken
-// reissues on every authenticated request (see its own comment).
-app.use(cors({ exposedHeaders: ["x-access-token"] }));
+// reissues on every authenticated request, and the "your session actually
+// expired" signal authJwt.js#attachUserIfPresent sets on an otherwise-
+// successful soft-auth request (see either's own comment).
+app.use(cors({ exposedHeaders: ["x-access-token", "x-session-expired"] }));
 
 // parse requests of content-type - application/json
 app.use(express.json({ limit: "25mb" }));

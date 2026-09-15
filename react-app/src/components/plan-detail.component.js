@@ -657,7 +657,14 @@ const PlanDetail = (props) => {
   // unlike upload/move/delete which stay owner-only via canEditPlan above.
   const canDownloadPlan = canEditPlan || isAdmin;
 
-  const goBack = () => props.history.push("/plans");
+  // Owner returns to their own list ("我的乡土课程") -- previously this was
+  // always a bare push to "/plans", which only happened to land there for a
+  // teacher because bare /plans used to force teachers into mine-only mode
+  // regardless of intent (removed once teachers gained real access to browse
+  // 全部乡土课程 -- see plans-list.component.js's effectiveMineOnly). A
+  // non-owner (admin/expert/teacher browsing someone else's plan, or the
+  // public gallery) still returns to the general list, unchanged.
+  const goBack = () => props.history.push(isOwner ? "/plans?mine=true" : "/plans");
 
   const updateMetaForm = (patch) => {
     setMetaForm((prev) => ({ ...prev, ...patch }));
