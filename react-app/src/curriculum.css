@@ -1219,6 +1219,54 @@
   background: var(--pl-accent-soft);
 }
 
+/* Generic popup, e.g. template-admin.component.js's "相关课程计划" list --
+   same visual language as .pl-fm-modal* above but wider (a plan's title +
+   teacher/year line needs more room than the file-manager's folder names)
+   and under a name that doesn't imply file-manager-only use. */
+.pl-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 26, 20, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+}
+
+.pl-modal {
+  background: var(--pl-panel);
+  border-radius: 12px;
+  padding: 20px;
+  width: 480px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.pl-modal-list {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--pl-line);
+  border-radius: 8px;
+}
+
+.pl-modal-row {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pl-line);
+  color: inherit;
+}
+
+.pl-modal-row:last-child {
+  border-bottom: none;
+}
+
+.pl-modal-row:hover {
+  background: var(--pl-accent-soft);
+  text-decoration: none;
+  color: inherit;
+}
+
 /* Slide-in co-pilot (copilot-panel.component.js) -- a floating toggle button
    plus a fixed-position drawer, same collapse/expand spirit as
    .pl-explorer-nav's own hide-toggle but anchored to the viewport rather

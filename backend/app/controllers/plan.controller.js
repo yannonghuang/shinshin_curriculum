@@ -286,7 +286,7 @@ exports.create = async (req, res) => {
 
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, theme, grade, year, season, teacherId, isExcellentCase, status, mine } = req.query;
+    const { page, size, keyword, theme, grade, year, season, teacherId, isExcellentCase, status, mine, templateVersionId } = req.query;
     const { limit, offset } = getPagination(page, size);
 
     const parsedYear = parseYear(year);
@@ -357,6 +357,18 @@ exports.findAll = async (req, res) => {
         parsedYear ? { year: { [Op.eq]: parsedYear } } : null,
         season ? { season: { [Op.eq]: `${season}` } } : null,
         effectiveTeacherId ? { teacherId: { [Op.eq]: `${effectiveTeacherId}` } } : null,
+        // Backs the 模板管理 page's "相关课程计划" count link -- a plan using
+        // this template version for either its design or execution doc
+        // counts as a dependent (same either/or pair as
+        // template.controller.js#list/#remove).
+        templateVersionId
+          ? {
+              [Op.or]: [
+                { planTemplateVersionId: { [Op.eq]: templateVersionId } },
+                { executionTemplateVersionId: { [Op.eq]: templateVersionId } },
+              ],
+            }
+          : null,
         restrictToSubmitted ? { status: { [Op.ne]: "draft" } } : status ? { status: { [Op.eq]: `${status}` } } : null,
         restrictToExcellent
           ? { isExcellentCase: true }

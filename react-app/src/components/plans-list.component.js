@@ -30,6 +30,12 @@ const PlansList = (props) => {
   const mineOnly = queryParams.get("mine") === "true";
   const statusFilter = queryParams.get("status") || "";
   const excellentOnly = !!props.excellentOnly;
+  // Set only via the 模板管理 page's "相关课程计划" count link
+  // (/plans?templateVersionId=X) -- forces the flat/paginated view (see
+  // isManagerOrExpertView below) instead of the year/school/teacher
+  // hierarchy tree, since a template-filtered list is naturally small and
+  // flat, same reasoning as effectiveMineOnly.
+  const templateVersionIdFilter = queryParams.get("templateVersionId") || "";
 
   const [plans, setPlans] = useState([]);
   const [message, setMessage] = useState("");
@@ -80,7 +86,8 @@ const PlansList = (props) => {
   // a teacher's own list (effectiveMineOnly, via ?mine=true) is unaffected,
   // since that's a small, non-hierarchical set by nature.
   const isManagerOrExpertView =
-    excellentOnly || ((AuthService.isAdmin() || AuthService.isExpert() || AuthService.isTeacher()) && !effectiveMineOnly);
+    !templateVersionIdFilter &&
+    (excellentOnly || ((AuthService.isAdmin() || AuthService.isExpert() || AuthService.isTeacher()) && !effectiveMineOnly));
   // stylishPublic (green pl-hero header, KPI cards, search/filter bar,
   // pagination) is the flat view's own chrome -- never shown alongside the
   // hierarchy view above, which has its own plain heading and conveys scale
@@ -115,6 +122,7 @@ const PlansList = (props) => {
         mine: effectiveMineOnly ? true : undefined,
         status: statusFilter || undefined,
         isExcellentCase: excellentOnly ? true : undefined,
+        templateVersionId: templateVersionIdFilter || undefined,
       });
       setPlans(resp.data.rows || []);
       setTotalPages(resp.data.totalPages || 0);
@@ -123,7 +131,19 @@ const PlansList = (props) => {
       console.log(e);
       setMessage("加载课程设计数据失败。");
     }
-  }, [page, pageSize, keyword, searchYear, searchTheme, searchGrade, effectiveMineOnly, statusFilter, excellentOnly, isManagerOrExpertView]);
+  }, [
+    page,
+    pageSize,
+    keyword,
+    searchYear,
+    searchTheme,
+    searchGrade,
+    effectiveMineOnly,
+    statusFilter,
+    excellentOnly,
+    isManagerOrExpertView,
+    templateVersionIdFilter,
+  ]);
 
   useEffect(() => {
     retrieveAll();
@@ -257,6 +277,8 @@ const PlansList = (props) => {
 
   const heading = excellentOnly
     ? "课程案例库"
+    : templateVersionIdFilter
+    ? "相关课程计划"
     : effectiveMineOnly
     ? "我的乡土课程"
     : statusFilter === "submitted"

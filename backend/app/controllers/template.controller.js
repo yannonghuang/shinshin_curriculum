@@ -103,6 +103,11 @@ exports.upload = async (req, res) => {
 };
 
 // GET /api/admin/templates/:templateKey -- admin-only, version history.
+// Each row also carries dependentPlanCount -- how many Plans (乡土课程设计)
+// are pinned to this version via either planTemplateVersionId or
+// executionTemplateVersionId (same pair #remove already checks to block
+// deletion) -- so the admin UI can show/link to "相关课程计划" without a
+// separate round-trip per row.
 exports.list = async (req, res) => {
   try {
     const versions = await TemplateVersion.findAll({
@@ -110,7 +115,42 @@ exports.list = async (req, res) => {
       include: [{ model: db.user, as: "Uploader", attributes: ["id", "username", "chineseName"] }],
       order: [["version", "DESC"]],
     });
-    return res.send(versions);
+
+    const versionIds = versions.map((v) => v.id);
+    const result = versions.map((v) => v.get({ plain: true }));
+
+    // A plan pinned to the same version for both plan/execution would be
+    // double-counted by two separate COUNT(*) group-bys, so this fetches ids
+    // once and counts distinct plan ids per version instead.
+    if (versionIds.length) {
+      const rows = await Plan.findAll({
+        attributes: ["id", "planTemplateVersionId", "executionTemplateVersionId"],
+        where: {
+          [Op.or]: [
+            { planTemplateVersionId: { [Op.in]: versionIds } },
+            { executionTemplateVersionId: { [Op.in]: versionIds } },
+          ],
+        },
+        raw: true,
+      });
+      const idsByVersion = {};
+      rows.forEach((row) => {
+        [row.planTemplateVersionId, row.executionTemplateVersionId].forEach((vid) => {
+          if (!vid || !versionIds.includes(vid)) return;
+          if (!idsByVersion[vid]) idsByVersion[vid] = new Set();
+          idsByVersion[vid].add(row.id);
+        });
+      });
+      result.forEach((v) => {
+        v.dependentPlanCount = idsByVersion[v.id] ? idsByVersion[v.id].size : 0;
+      });
+    } else {
+      result.forEach((v) => {
+        v.dependentPlanCount = 0;
+      });
+    }
+
+    return res.send(result);
   } catch (err) {
     return res.status(500).send({ message: err.message || "查询模板版本时发生错误。" });
   }

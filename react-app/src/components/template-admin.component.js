@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import mammoth from "mammoth";
+import { Link } from "react-router-dom";
 import TemplateDataService from "../services/template.service";
+import PlanDataService from "../services/plan.service";
 import "../curriculum.css";
 
 const TEMPLATE_KEYS = [
@@ -56,6 +58,44 @@ const TemplateAdmin = () => {
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [busyVersionId, setBusyVersionId] = useState(null);
+  // Sort state for the "相关课程计划" column, shared across both templates'
+  // tables (plan_design / lesson_execution) since only one is ever a
+  // meaningful comparison target at a time. null = default order (by
+  // version, descending, as returned by the API); clicking the header
+  // cycles null -> desc -> asc -> null.
+  const [dependentSortDir, setDependentSortDir] = useState(null);
+  const toggleDependentSort = () =>
+    setDependentSortDir((prev) => (prev === "desc" ? "asc" : prev === "asc" ? null : "desc"));
+
+  const sortByDependentCount = (versions) => {
+    if (!dependentSortDir) return versions;
+    const sorted = [...versions].sort((a, b) => (a.dependentPlanCount || 0) - (b.dependentPlanCount || 0));
+    return dependentSortDir === "asc" ? sorted : sorted.reverse();
+  };
+
+  // Popup for the "相关课程计划" count -- clicking it fetches (rather than
+  // navigating to /plans, which would lose this page's state) the plans
+  // pinned to that one version via plan.controller.js#findAll's
+  // ?templateVersionId filter, same either/or match dependentPlanCount
+  // itself is computed from. { version, plans, loading, message } | null.
+  const [dependentModal, setDependentModal] = useState(null);
+
+  const openDependentModal = async (version) => {
+    setDependentModal({ version, plans: [], loading: true, message: "" });
+    try {
+      const resp = await PlanDataService.getAll({ templateVersionId: version.id, size: 200 });
+      setDependentModal({ version, plans: resp.data.rows || [], loading: false, message: "" });
+    } catch (err) {
+      setDependentModal({
+        version,
+        plans: [],
+        loading: false,
+        message: err?.response?.data?.message || "加载相关课程计划失败。",
+      });
+    }
+  };
+
+  const closeDependentModal = () => setDependentModal(null);
 
   const retrieveAll = useCallback(async () => {
     try {
@@ -209,7 +249,7 @@ const TemplateAdmin = () => {
       {message && <div className="alert alert-info py-2">{message}</div>}
 
       {TEMPLATE_KEYS.map((t) => {
-        const versions = versionsByKey[t.key] || [];
+        const versions = sortByDependentCount(versionsByKey[t.key] || []);
         return (
           <div className="pl-card mb-4" key={t.key}>
             <div className="d-flex justify-content-between align-items-center mb-2">
@@ -242,6 +282,16 @@ const TemplateAdmin = () => {
                     <th>上传人</th>
                     <th>创建时间</th>
                     <th>字段</th>
+                    <th
+                      role="button"
+                      onClick={toggleDependentSort}
+                      style={{ cursor: "pointer", userSelect: "none" }}
+                      title="点击排序"
+                    >
+                      相关课程计划
+                      {dependentSortDir === "desc" && " ▼"}
+                      {dependentSortDir === "asc" && " ▲"}
+                    </th>
                     <th>操作</th>
                   </tr>
                 </thead>
@@ -289,6 +339,15 @@ const TemplateAdmin = () => {
                             {expandedVersionId === v.id ? "收起" : "查看字段"}
                           </button>
                         </td>
+                        <td>
+                          {v.dependentPlanCount > 0 ? (
+                            <button className="btn btn-link p-0" type="button" onClick={() => openDependentModal(v)}>
+                              {v.dependentPlanCount}
+                            </button>
+                          ) : (
+                            v.dependentPlanCount || 0
+                          )}
+                        </td>
                         <td className="text-nowrap">
                           <button
                             className="btn btn-outline-primary btn-sm mr-1"
@@ -328,7 +387,7 @@ const TemplateAdmin = () => {
                       </tr>
                       {expandedVersionId === v.id && (
                         <tr>
-                          <td colSpan={8}>
+                          <td colSpan={9}>
                             {(v.schemaJson?.sections || []).map((section) => (
                               <SchemaOutline key={section.key} section={section} depth={0} />
                             ))}
@@ -362,6 +421,51 @@ const TemplateAdmin = () => {
           </div>
         );
       })}
+
+      {dependentModal && (
+        <div className="pl-modal-backdrop" onClick={closeDependentModal}>
+          <div className="pl-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <h6 className="mb-0">相关课程计划 · v{dependentModal.version.version}</h6>
+              <button className="btn btn-link p-0" type="button" onClick={closeDependentModal}>
+                关闭
+              </button>
+            </div>
+            {dependentModal.loading ? (
+              <div className="pl-empty">加载中...</div>
+            ) : dependentModal.message ? (
+              <div className="alert alert-danger py-2">{dependentModal.message}</div>
+            ) : dependentModal.plans.length === 0 ? (
+              <div className="pl-empty">暂无相关课程计划。</div>
+            ) : (
+              <>
+                <div className="pl-modal-list">
+                  {dependentModal.plans.map((p) => (
+                    <Link
+                      key={p.id}
+                      to={`/plans/${p.id}`}
+                      className="pl-modal-row d-block"
+                      onClick={closeDependentModal}
+                    >
+                      <div>{p.title || "未命名课程设计"}</div>
+                      <div className="text-muted small">
+                        {p.Teacher ? p.Teacher.chineseName || p.Teacher.username : "-"}
+                        {p.year ? ` · ${p.year}` : ""}
+                        {p.season ? ` ${p.season}` : ""}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+                <div className="mt-2 text-right">
+                  <Link to={`/plans?templateVersionId=${dependentModal.version.id}`} onClick={closeDependentModal}>
+                    在完整列表中查看 →
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
