@@ -35,8 +35,17 @@ const hasAnySectionContent = (schema, answers) => {
 const mergeFormData = (data, schema) => {
   const sections = (schema && schema.sections) || [];
   const lessons = Array.isArray(data && data.lessons) ? data.lessons : [];
+  // Leftover fields templateMigration.js#migratePlanFormData stashed outside
+  // any schema section -- must be carried through exactly like `lessons`
+  // above (a single-section schema's own `{ ...data, lessons }` spread
+  // already keeps it; the multi-section branch below builds `merged` from
+  // scratch and would otherwise silently drop it on the very next "保存草稿",
+  // since planFormData is always saved wholesale from this state -- see
+  // saveFormData).
+  const manualMigration = Array.isArray(data && data._manualMigration) ? data._manualMigration : undefined;
   if (sections.length > 1) {
     const merged = { lessons };
+    if (manualMigration) merged._manualMigration = manualMigration;
     sections.forEach((s) => {
       merged[s.key] = { ...(data && data[s.key]) };
     });
@@ -767,6 +776,22 @@ const PlanDetail = (props) => {
     }
   };
 
+  // Clears the migration leftovers at formData._manualMigration (see
+  // plan.controller.js#removeManualMigration) once the owner has manually
+  // copied over whatever they still needed -- the nav leaf and its flashing
+  // style disappear immediately afterward since retrievePlan() re-derives
+  // formData from the now-empty server state.
+  const handleRemoveManualMigration = async () => {
+    if (!window.confirm("确定删除手动迁移板块吗？此操作无法撤销。")) return;
+    try {
+      await PlanDataService.removeManualMigration(planId);
+      select("plan", "basic");
+      retrievePlan();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "删除手动迁移板块失败。");
+    }
+  };
+
   // Shared by both doc-upload panels below (DesignDocPanel/
   // LessonExecutionDocPanel), called once their own upload request (which
   // now goes straight to plan.controller.js#uploadDesignDoc/
@@ -1041,6 +1066,34 @@ const PlanDetail = (props) => {
             planContentVersionAt={plan.contentVersionAt}
             segmentVersionAt={plan.segmentVersionAt}
           />
+        </div>
+      );
+    }
+
+    // Leftover content templateMigration.js#migratePlanFormData couldn't
+    // place on the new schema (no matching field by label) -- read-only,
+    // and deliberately whole-block-or-nothing (see handleRemoveManualMigration):
+    // there's no per-entry edit here, only "copy whatever you still need
+    // into the real fields yourself, then remove this block."
+    if (selected.type === "planManualMigration") {
+      const entries = formData._manualMigration || [];
+      return (
+        <div className="pl-card">
+          <h6>手动迁移内容</h6>
+          <p className="text-muted">
+            以下内容来自旧版模板，新版模板中没有对应字段，请手动将需要保留的内容复制到相应板块后删除本板块。本板块不会包含在下载的文档中。
+          </p>
+          {entries.map((entry, idx) => (
+            <div key={idx} className="pl-card mb-2">
+              <div className="font-weight-bold">{entry.group ? `${entry.group} · ${entry.label}` : entry.label}</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{entry.value}</div>
+            </div>
+          ))}
+          {canEditPlan && (
+            <button className="btn btn-outline-danger" type="button" onClick={handleRemoveManualMigration}>
+              删除本板块
+            </button>
+          )}
         </div>
       );
     }
@@ -1386,6 +1439,22 @@ const PlanDetail = (props) => {
                         {s.label}
                       </button>
                     ))}
+                  {/* Only present after a migration (plan.controller.js#
+                      migrateMine) left old-only content behind -- see
+                      templateMigration.js. Flashes (.pl-flash-manual) until
+                      the owner removes it, at which point it disappears
+                      entirely and the plan reads as "normal" again. */}
+                  {formData._manualMigration && formData._manualMigration.length > 0 && (
+                    <button
+                      type="button"
+                      className={`pl-explorer-leaf pl-flash-manual ${
+                        selected.type === "planManualMigration" ? "is-active" : ""
+                      }`}
+                      onClick={() => select("planManualMigration", "manual")}
+                    >
+                      手动迁移内容
+                    </button>
+                  )}
                   {/* 第二部分：分课时设计 -- part of the design document (see the
                       planLesson render branch above), so nested here under 计划
                       rather than a sibling of 实施's own 课时 list. Online-only,

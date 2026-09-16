@@ -30,6 +30,12 @@ const PlansList = (props) => {
   const mineOnly = queryParams.get("mine") === "true";
   const statusFilter = queryParams.get("status") || "";
   const excellentOnly = !!props.excellentOnly;
+  // Set only via the 模板管理 page's "相关课程计划" count link
+  // (/plans?templateVersionId=X) -- forces the flat/paginated view (see
+  // isManagerOrExpertView below) instead of the year/school/teacher
+  // hierarchy tree, since a template-filtered list is naturally small and
+  // flat, same reasoning as effectiveMineOnly.
+  const templateVersionIdFilter = queryParams.get("templateVersionId") || "";
 
   const [plans, setPlans] = useState([]);
   const [message, setMessage] = useState("");
@@ -80,7 +86,8 @@ const PlansList = (props) => {
   // a teacher's own list (effectiveMineOnly, via ?mine=true) is unaffected,
   // since that's a small, non-hierarchical set by nature.
   const isManagerOrExpertView =
-    excellentOnly || ((AuthService.isAdmin() || AuthService.isExpert() || AuthService.isTeacher()) && !effectiveMineOnly);
+    !templateVersionIdFilter &&
+    (excellentOnly || ((AuthService.isAdmin() || AuthService.isExpert() || AuthService.isTeacher()) && !effectiveMineOnly));
   // stylishPublic (green pl-hero header, KPI cards, search/filter bar,
   // pagination) is the flat view's own chrome -- never shown alongside the
   // hierarchy view above, which has its own plain heading and conveys scale
@@ -115,6 +122,7 @@ const PlansList = (props) => {
         mine: effectiveMineOnly ? true : undefined,
         status: statusFilter || undefined,
         isExcellentCase: excellentOnly ? true : undefined,
+        templateVersionId: templateVersionIdFilter || undefined,
       });
       setPlans(resp.data.rows || []);
       setTotalPages(resp.data.totalPages || 0);
@@ -123,7 +131,19 @@ const PlansList = (props) => {
       console.log(e);
       setMessage("加载课程设计数据失败。");
     }
-  }, [page, pageSize, keyword, searchYear, searchTheme, searchGrade, effectiveMineOnly, statusFilter, excellentOnly, isManagerOrExpertView]);
+  }, [
+    page,
+    pageSize,
+    keyword,
+    searchYear,
+    searchTheme,
+    searchGrade,
+    effectiveMineOnly,
+    statusFilter,
+    excellentOnly,
+    isManagerOrExpertView,
+    templateVersionIdFilter,
+  ]);
 
   useEffect(() => {
     retrieveAll();
@@ -212,6 +232,25 @@ const PlansList = (props) => {
     }
   };
 
+  // Plans an admin has started a migration campaign for (see
+  // template-admin.component.js's 发起迁移 button) and this teacher hasn't
+  // migrated yet -- drives the flashing 迁移 button below. `plans` here is
+  // already this teacher's full own list (effectiveMineOnly's retrieveAll
+  // fetches up to 200, unpaginated), so no extra request is needed just to
+  // find out whether any need migrating.
+  const plansNeedingMigration = plans.filter((p) => p.needsMigration);
+
+  const handleMigrate = async () => {
+    setMessage("");
+    try {
+      const resp = await PlanDataService.migrateMine();
+      setMessage(resp.data && resp.data.message ? resp.data.message : "迁移完成。");
+      retrieveAll();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "迁移失败。");
+    }
+  };
+
   const onDelete = async (item) => {
     const ok = window.confirm("此操作将永久删除该课程设计及其所有附件与点评，且无法撤销。确定继续吗？");
     if (!ok) return;
@@ -257,6 +296,8 @@ const PlansList = (props) => {
 
   const heading = excellentOnly
     ? "课程案例库"
+    : templateVersionIdFilter
+    ? "相关课程计划"
     : effectiveMineOnly
     ? "我的乡土课程"
     : statusFilter === "submitted"
@@ -372,6 +413,16 @@ const PlansList = (props) => {
 
       {canCreate && (
         <div className={stylishPublic ? "pl-card" : "mb-3"}>
+          {plansNeedingMigration.length > 0 && (
+            <button
+              className="btn btn-warning mr-3 pl-flash-migrate"
+              type="button"
+              onClick={handleMigrate}
+              title={`有 ${plansNeedingMigration.length} 个乡土课程设计使用旧版模板，点击迁移到最新模板`}
+            >
+              迁移课程计划（{plansNeedingMigration.length}）
+            </button>
+          )}
           <button className="btn btn-primary mr-3" type="button" onClick={createEmptyPlan}>
             新增乡土课程
           </button>

@@ -998,6 +998,74 @@
   border-radius: 999px;
 }
 
+/* Migration attention states -- shared by the 我的乡土课程 top-of-page button,
+   a plan card's own badge, and plan-detail.component.js's 手动迁移 nav leaf.
+   Two intentionally distinct styles/colors (amber = "please migrate this",
+   red = "migrated, but needs your manual review") so the two states never
+   read as the same thing at a glance. Built as a box-shadow pulse (rather
+   than copilot-pulse's opacity pulse just above) so it stays legible on a
+   small badge/button rather than fading the text itself. */
+.pl-flash-migrate,
+.pl-flash-manual {
+  animation-duration: 1.4s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.pl-flash-migrate {
+  animation-name: pl-flash-migrate-pulse;
+}
+
+.pl-flash-manual {
+  animation-name: pl-flash-manual-pulse;
+}
+
+@keyframes pl-flash-migrate-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(224, 165, 39, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(224, 165, 39, 0);
+  }
+}
+
+@keyframes pl-flash-manual-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(220, 53, 69, 0);
+  }
+}
+
+/* Inline pills in the card's own .pl-plan-card-tags row (same shape as
+   .pl-tag), not absolutely-positioned corners like .pl-plan-card-excellent/
+   -suspended above -- those two sit right at the card's bottom edge, where
+   an absolute badge would risk overlapping the footer's 编辑/删除 links. */
+.pl-plan-card-migrate-flag,
+.pl-plan-card-manual-flag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 700;
+}
+
+.pl-plan-card-migrate-flag {
+  background: #fff5e7;
+  color: #7f5d2d;
+  border: 1px solid #e0a527;
+}
+
+.pl-plan-card-manual-flag {
+  background: #fdecea;
+  color: #a02330;
+  border: 1px solid #dc3545;
+}
+
 /* LessonFileManager (lesson-file-manager.component.js) -- a mini cloud file
    system for one 课时's 实施记录 space. The whole panel (toolbar + list/grid,
    not a separate boxed-off zone) is the drop target -- .is-dragover highlights
@@ -1217,6 +1285,54 @@
 
 .pl-fm-modal-row:hover {
   background: var(--pl-accent-soft);
+}
+
+/* Generic popup, e.g. template-admin.component.js's "相关课程计划" list --
+   same visual language as .pl-fm-modal* above but wider (a plan's title +
+   teacher/year line needs more room than the file-manager's folder names)
+   and under a name that doesn't imply file-manager-only use. */
+.pl-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 26, 20, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+}
+
+.pl-modal {
+  background: var(--pl-panel);
+  border-radius: 12px;
+  padding: 20px;
+  width: 480px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.pl-modal-list {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--pl-line);
+  border-radius: 8px;
+}
+
+.pl-modal-row {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pl-line);
+  color: inherit;
+}
+
+.pl-modal-row:last-child {
+  border-bottom: none;
+}
+
+.pl-modal-row:hover {
+  background: var(--pl-accent-soft);
+  text-decoration: none;
+  color: inherit;
 }
 
 /* Slide-in co-pilot (copilot-panel.component.js) -- a floating toggle button

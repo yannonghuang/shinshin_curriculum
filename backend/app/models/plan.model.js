@@ -81,6 +81,28 @@ module.exports = (sequelize, Sequelize) => {
         allowNull: false,
         defaultValue: false,
       },
+      // Set true on every plan pinned to a given plan_design template
+      // version when an admin triggers that version's migration (see
+      // template.controller.js#migrate); cleared once plan.controller.js#
+      // migrateMine actually migrates that plan onto the active version.
+      // "Which old version to migrate from" is just this plan's own
+      // (still-unmigrated) planTemplateVersionId -- no separate campaign
+      // table needed.
+      needsMigration: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
+      // Set true only when migrateMine's field-matching (templateMigration.js)
+      // left old-only content behind in planFormData._manualMigration --
+      // cleared when the owning teacher removes that block (DELETE
+      // /api/plans/:id/manual-migration), which is also what stops the
+      // "flashing manual migration" styling in the UI.
+      needsManualMigrationReview: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       // Bumped explicitly by plan.controller.js#update only when actual case
       // content changes (title/theme/.../planFormData/status) -- deliberately
       // NOT the same as the plain `updated_at` column, which MySQL's ON

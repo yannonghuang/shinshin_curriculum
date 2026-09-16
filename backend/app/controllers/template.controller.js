@@ -103,6 +103,11 @@ exports.upload = async (req, res) => {
 };
 
 // GET /api/admin/templates/:templateKey -- admin-only, version history.
+// Each row also carries dependentPlanCount -- how many Plans (乡土课程设计)
+// are pinned to this version via either planTemplateVersionId or
+// executionTemplateVersionId (same pair #remove already checks to block
+// deletion) -- so the admin UI can show/link to "相关课程计划" without a
+// separate round-trip per row.
 exports.list = async (req, res) => {
   try {
     const versions = await TemplateVersion.findAll({
@@ -110,7 +115,42 @@ exports.list = async (req, res) => {
       include: [{ model: db.user, as: "Uploader", attributes: ["id", "username", "chineseName"] }],
       order: [["version", "DESC"]],
     });
-    return res.send(versions);
+
+    const versionIds = versions.map((v) => v.id);
+    const result = versions.map((v) => v.get({ plain: true }));
+
+    // A plan pinned to the same version for both plan/execution would be
+    // double-counted by two separate COUNT(*) group-bys, so this fetches ids
+    // once and counts distinct plan ids per version instead.
+    if (versionIds.length) {
+      const rows = await Plan.findAll({
+        attributes: ["id", "planTemplateVersionId", "executionTemplateVersionId"],
+        where: {
+          [Op.or]: [
+            { planTemplateVersionId: { [Op.in]: versionIds } },
+            { executionTemplateVersionId: { [Op.in]: versionIds } },
+          ],
+        },
+        raw: true,
+      });
+      const idsByVersion = {};
+      rows.forEach((row) => {
+        [row.planTemplateVersionId, row.executionTemplateVersionId].forEach((vid) => {
+          if (!vid || !versionIds.includes(vid)) return;
+          if (!idsByVersion[vid]) idsByVersion[vid] = new Set();
+          idsByVersion[vid].add(row.id);
+        });
+      });
+      result.forEach((v) => {
+        v.dependentPlanCount = idsByVersion[v.id] ? idsByVersion[v.id].size : 0;
+      });
+    } else {
+      result.forEach((v) => {
+        v.dependentPlanCount = 0;
+      });
+    }
+
+    return res.send(result);
   } catch (err) {
     return res.status(500).send({ message: err.message || "查询模板版本时发生错误。" });
   }
@@ -147,6 +187,32 @@ exports.activate = async (req, res) => {
   } catch (err) {
     await t.rollback();
     return res.status(500).send({ message: err.message || "启用模板版本时发生错误。" });
+  }
+};
+
+// PUT /api/admin/templates/:templateKey/versions/:id/migrate -- admin-only.
+// Starts a migration campaign for one old (non-active) version: flags every
+// Plan still pinned to it (planTemplateVersionId = version.id) with
+// needsMigration -- the owning teacher then performs the actual field
+// remapping themselves via plan.controller.js#migrateMine (see
+// templateMigration.js), one bulk action per teacher. Idempotent (safe to
+// click more than once): the "相关课程计划" count on this row itself drops as
+// plans migrate away, so the admin UI's own Migrate button naturally
+// disappears once it reaches 0, with no separate campaign-state to track.
+exports.migrate = async (req, res) => {
+  try {
+    const version = await TemplateVersion.findByPk(req.params.id);
+    if (!version || version.templateKey !== req.params.templateKey) {
+      return res.status(404).send({ message: `未找到模板版本 id=${req.params.id}。` });
+    }
+    if (version.isActive) {
+      return res.status(400).send({ message: "当前启用的模板版本无需迁移。" });
+    }
+
+    const [affected] = await Plan.update({ needsMigration: true }, { where: { planTemplateVersionId: version.id } });
+    return res.send({ message: `已发起迁移，${affected} 个乡土课程设计将提示相关教师迁移。`, affected });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "发起迁移时发生错误。" });
   }
 };
 

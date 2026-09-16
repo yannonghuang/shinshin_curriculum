@@ -7,6 +7,7 @@ const dynamicDocGenerator = require("../services/dynamicDocGenerator");
 const templateParser = require("../services/templateParser");
 const planDocExtract = require("../services/planDocExtract");
 const { diffPlanFormDataSegments, diffExecutionFormDataSegments } = require("../services/segmentVersion");
+const { migratePlanFormData } = require("../services/templateMigration");
 const db = require("../models");
 const Plan = db.plan;
 const User = db.user;
@@ -286,7 +287,7 @@ exports.create = async (req, res) => {
 
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, theme, grade, year, season, teacherId, isExcellentCase, status, mine } = req.query;
+    const { page, size, keyword, theme, grade, year, season, teacherId, isExcellentCase, status, mine, templateVersionId } = req.query;
     const { limit, offset } = getPagination(page, size);
 
     const parsedYear = parseYear(year);
@@ -357,6 +358,18 @@ exports.findAll = async (req, res) => {
         parsedYear ? { year: { [Op.eq]: parsedYear } } : null,
         season ? { season: { [Op.eq]: `${season}` } } : null,
         effectiveTeacherId ? { teacherId: { [Op.eq]: `${effectiveTeacherId}` } } : null,
+        // Backs the 模板管理 page's "相关课程计划" count link -- a plan using
+        // this template version for either its design or execution doc
+        // counts as a dependent (same either/or pair as
+        // template.controller.js#list/#remove).
+        templateVersionId
+          ? {
+              [Op.or]: [
+                { planTemplateVersionId: { [Op.eq]: templateVersionId } },
+                { executionTemplateVersionId: { [Op.eq]: templateVersionId } },
+              ],
+            }
+          : null,
         restrictToSubmitted ? { status: { [Op.ne]: "draft" } } : status ? { status: { [Op.eq]: `${status}` } } : null,
         restrictToExcellent
           ? { isExcellentCase: true }
@@ -1005,5 +1018,100 @@ exports.uploadExecutionDoc = async (req, res) => {
     });
   } finally {
     if (tempDir) fs.rm(tempDir, { recursive: true, force: true }, () => {});
+  }
+};
+
+// PUT /api/plans/migrate-my-plans -- teacher-only, scoped to req.userId (the
+// "我的乡土课程" flashing 迁移 button's action). Bulk-migrates every one of the
+// caller's own plans flagged needsMigration (set by an admin's
+// template.controller.js#migrate) onto the currently-active plan_design
+// version, via templateMigration.js's label-based field matching. A plan
+// whose matching leaves old-only content behind gets
+// needsManualMigrationReview instead of a clean "done" -- see
+// #removeManualMigration below for how a teacher clears that.
+exports.migrateMine = async (req, res) => {
+  const t = await db.sequelize.transaction();
+  try {
+    const activeVersion = await TemplateVersion.findOne({
+      where: { templateKey: "plan_design", isActive: true },
+      transaction: t,
+    });
+    if (!activeVersion) {
+      await t.rollback();
+      return res.status(409).send({ message: "未找到课程设计方案模板的启用版本，无法迁移。" });
+    }
+
+    const plans = await Plan.findAll({
+      where: { teacherId: req.userId, needsMigration: true },
+      include: [{ model: TemplateVersion, as: "PlanTemplateVersion" }],
+      transaction: t,
+    });
+
+    const now = new Date();
+    let migratedCount = 0;
+    let manualReviewCount = 0;
+
+    for (const plan of plans) {
+      if (plan.planTemplateVersionId === activeVersion.id) {
+        await plan.update({ needsMigration: false }, { transaction: t });
+        continue;
+      }
+      const oldSchema = plan.PlanTemplateVersion ? plan.PlanTemplateVersion.schemaJson : { sections: [] };
+      const { newFormData, manualMigrationEntries } = migratePlanFormData(
+        plan.planFormData,
+        oldSchema,
+        activeVersion.schemaJson
+      );
+      const hasManual = manualMigrationEntries.length > 0;
+      await plan.update(
+        {
+          planFormData: newFormData,
+          planTemplateVersionId: activeVersion.id,
+          needsMigration: false,
+          needsManualMigrationReview: hasManual,
+          contentVersionAt: now,
+        },
+        { transaction: t }
+      );
+      migratedCount += 1;
+      if (hasManual) manualReviewCount += 1;
+    }
+
+    await t.commit();
+    return res.send({
+      message: `已迁移 ${migratedCount} 个乡土课程设计${manualReviewCount ? `，其中 ${manualReviewCount} 个有内容需手动整理` : ""}。`,
+      migratedCount,
+      manualReviewCount,
+    });
+  } catch (err) {
+    await t.rollback();
+    return res.status(500).send({ message: err.message || "迁移乡土课程设计时发生错误。" });
+  }
+};
+
+// DELETE /api/plans/:id/manual-migration -- owner-only (no admin bypass,
+// same content-editing rule as #update), clears the migration leftovers
+// plan.controller.js#migrateMine stashed at planFormData._manualMigration
+// once the teacher has manually copied over whatever they still needed --
+// this is what stops the plan's "flashing manual migration" styling.
+exports.removeManualMigration = async (req, res) => {
+  try {
+    const plan = await Plan.findByPk(req.params.id);
+    if (!plan) {
+      return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
+    }
+    if (plan.teacherId !== req.userId) {
+      return res.status(403).send({ message: "只能修改本人创建的乡土课程设计。" });
+    }
+    const nextFormData = { ...(plan.planFormData || {}) };
+    delete nextFormData._manualMigration;
+    await plan.update({
+      planFormData: nextFormData,
+      needsManualMigrationReview: false,
+      contentVersionAt: new Date(),
+    });
+    return res.send({ message: "已删除手动迁移板块。" });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "删除手动迁移板块时发生错误。" });
   }
 };

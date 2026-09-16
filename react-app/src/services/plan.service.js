@@ -28,6 +28,21 @@ class PlanDataService {
     });
   }
 
+  // Bulk-migrates every one of the caller's own plans flagged needsMigration
+  // onto the currently-active plan_design template version. Backs the
+  // flashing 迁移 button in 我的乡土课程.
+  migrateMine() {
+    return http.put("/plans/migrate-my-plans", {}, { headers: authHeader() });
+  }
+
+  // Clears the manual-migration leftovers migrateMine stashed on a plan
+  // (planFormData._manualMigration) once the teacher has manually copied
+  // over whatever they still needed -- stops its "flashing manual
+  // migration" styling.
+  removeManualMigration(id) {
+    return http.delete(`/plans/${id}/manual-migration`, { headers: authHeader() });
+  }
+
   suspend(id) {
     return http.put(`/plans/${id}/suspend`, {}, { headers: authHeader() });
   }
