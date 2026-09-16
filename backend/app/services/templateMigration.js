@@ -7,16 +7,23 @@
 
 const { normalizeLabel } = require("./templateParser");
 
-// Same recursive descent as segmentVersion.js#collectFieldKeys, but keeping
-// label/group too (not just key) -- every field anywhere under a schema,
-// across every section/subsection, in document order.
+// Every field in a schema, in document order. Deliberately just reads each
+// top-level schema.sections[i].fields directly, WITHOUT also recursing into
+// .subsections -- templateParser.js#parseHeadingSections already overwrites
+// a top-level section's own `fields` with the fully-flattened descendant
+// list (subsections' fields included, `group` set to each field's nearest
+// ancestor heading -- see its own collectFields), precisely for "legacy
+// flat-shape consumers" like this one. Recursing into `subsections` on top
+// of that double-counts every nested field, since `subsections` entries
+// carry that exact same content again under their own (direct-only)
+// `fields` -- that double-counting bug is what caused every HOW field to
+// also land in 手动迁移内容 (each field's second, "already consumed by a
+// matched new field" copy fell through to onlyOld).
 const flattenFields = (schema) => {
   const out = [];
-  const walk = (node) => {
-    (node.fields || []).forEach((f) => out.push({ key: f.key, label: f.label, group: f.group || node.label || null }));
-    (node.subsections || []).forEach(walk);
-  };
-  ((schema && schema.sections) || []).forEach(walk);
+  ((schema && schema.sections) || []).forEach((section) => {
+    (section.fields || []).forEach((f) => out.push({ key: f.key, label: f.label, group: f.group || null }));
+  });
   return out;
 };
 
@@ -62,15 +69,11 @@ const buildFieldMigrationPlan = (oldSchema, newSchema) => {
 // plan-detail.component.js#mergeFormData both already use.
 const isMultiSection = (schema) => ((schema && schema.sections) || []).length > 1;
 
+// Same "read the top-level section's own already-flattened `fields`, don't
+// also recurse into `subsections`" rule as flattenFields above.
 const sectionKeyForField = (schema, fieldKey) => {
   for (const section of (schema && schema.sections) || []) {
-    const keys = [];
-    const walk = (node) => {
-      (node.fields || []).forEach((f) => keys.push(f.key));
-      (node.subsections || []).forEach(walk);
-    };
-    walk(section);
-    if (keys.includes(fieldKey)) return section.key;
+    if ((section.fields || []).some((f) => f.key === fieldKey)) return section.key;
   }
   return null;
 };
