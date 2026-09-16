@@ -583,4 +583,12 @@ const extractThemeXml = (filePath) => readThemeXml(filePath);
 // sides now live in the same backend package, so reusing the exact same
 // "read word/document.xml via unzip" + "read a <w:p> chunk's runs" logic
 // there is a plain require() away instead of a second copy.
-module.exports = { parseTemplateDocx, extractStylesXml, extractNumberingXml, extractThemeXml, readDocumentXml, extractRuns };
+module.exports = {
+  parseTemplateDocx,
+  extractStylesXml,
+  extractNumberingXml,
+  extractThemeXml,
+  readDocumentXml,
+  extractRuns,
+  normalizeLabel,
+};

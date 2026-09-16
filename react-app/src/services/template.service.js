@@ -58,6 +58,13 @@ class TemplateDataService {
     return http.put(`/admin/templates/${templateKey}/versions/${id}/activate`, {}, { headers: authHeader() });
   }
 
+  // Starts a migration campaign for one old (non-active) version -- flags
+  // every plan still pinned to it; the owning teacher then migrates their
+  // own flagged plans via plan.service.js#migrateMine.
+  migrate(templateKey, id) {
+    return http.put(`/admin/templates/${templateKey}/versions/${id}/migrate`, {}, { headers: authHeader() });
+  }
+
   updateNote(templateKey, id, notes) {
     return http.put(`/admin/templates/${templateKey}/versions/${id}/note`, { notes }, { headers: authHeader() });
   }

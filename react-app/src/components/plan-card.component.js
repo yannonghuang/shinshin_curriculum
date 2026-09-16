@@ -32,6 +32,13 @@ const PlanCard = ({ item, canEdit, canDelete, onDelete, onToggleExcellent, onTog
     <div className="pl-plan-card-tags">
       {item.theme && <span className="pl-tag">{item.theme}</span>}
       <span className={`pl-plan-card-status status-${item.status || "draft"}`}>{STATUS_LABELS[item.status] || STATUS_LABELS.draft}</span>
+      {/* Two distinct flashing states, never both at once (migrateMine
+          clears needsMigration on the same write that may set
+          needsManualMigrationReview) -- see curriculum.css's
+          .pl-flash-migrate/-manual and plan.model.js's comments on both
+          flags. */}
+      {item.needsMigration && <span className="pl-plan-card-migrate-flag pl-flash-migrate">待迁移</span>}
+      {item.needsManualMigrationReview && <span className="pl-plan-card-manual-flag pl-flash-manual">待手动整理</span>}
     </div>
 
     <div className="pl-plan-card-meta">

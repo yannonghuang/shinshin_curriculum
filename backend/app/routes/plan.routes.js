@@ -20,7 +20,19 @@ module.exports = function (app) {
   // admin/expert through for a non-excellent plan -- see findOne's visibility
   // check.
   app.get("/api/plans/:id", [authJwt.attachUserIfPresent], plans.findOne);
+  // Scoped to req.userId (the caller's own plans) -- teacher-only, same
+  // gate as POST /api/plans, since "my plans" isn't a concept that applies
+  // to an admin here. Backs the flashing 迁移 button in 我的乡土课程. Must be
+  // registered before PUT /api/plans/:id below -- Express matches routes in
+  // registration order, and :id would otherwise swallow this literal path
+  // (treating "migrate-my-plans" as an id) first.
+  app.put("/api/plans/migrate-my-plans", [authJwt.verifyToken, authJwt.isTeacher], plans.migrateMine);
   app.put("/api/plans/:id", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.update);
+  app.delete(
+    "/api/plans/:id/manual-migration",
+    [authJwt.verifyToken, authJwt.isTeacherOrAdmin],
+    plans.removeManualMigration
+  );
   app.put("/api/plans/:id/suspend", [authJwt.verifyToken, authJwt.isAdmin], plans.suspend);
   app.put("/api/plans/:id/unsuspend", [authJwt.verifyToken, authJwt.isAdmin], plans.unsuspend);
   app.delete("/api/plans/:id", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.delete);

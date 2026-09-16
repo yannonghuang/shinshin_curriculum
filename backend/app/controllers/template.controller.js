@@ -190,6 +190,32 @@ exports.activate = async (req, res) => {
   }
 };
 
+// PUT /api/admin/templates/:templateKey/versions/:id/migrate -- admin-only.
+// Starts a migration campaign for one old (non-active) version: flags every
+// Plan still pinned to it (planTemplateVersionId = version.id) with
+// needsMigration -- the owning teacher then performs the actual field
+// remapping themselves via plan.controller.js#migrateMine (see
+// templateMigration.js), one bulk action per teacher. Idempotent (safe to
+// click more than once): the "相关课程计划" count on this row itself drops as
+// plans migrate away, so the admin UI's own Migrate button naturally
+// disappears once it reaches 0, with no separate campaign-state to track.
+exports.migrate = async (req, res) => {
+  try {
+    const version = await TemplateVersion.findByPk(req.params.id);
+    if (!version || version.templateKey !== req.params.templateKey) {
+      return res.status(404).send({ message: `未找到模板版本 id=${req.params.id}。` });
+    }
+    if (version.isActive) {
+      return res.status(400).send({ message: "当前启用的模板版本无需迁移。" });
+    }
+
+    const [affected] = await Plan.update({ needsMigration: true }, { where: { planTemplateVersionId: version.id } });
+    return res.send({ message: `已发起迁移，${affected} 个乡土课程设计将提示相关教师迁移。`, affected });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "发起迁移时发生错误。" });
+  }
+};
+
 // PUT /api/admin/templates/:templateKey/versions/:id/note -- admin-only,
 // free-text notes, e.g. why a version was published or rolled back to.
 exports.updateNote = async (req, res) => {

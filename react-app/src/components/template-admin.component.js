@@ -147,6 +147,26 @@ const TemplateAdmin = () => {
     }
   };
 
+  const handleMigrate = async (templateKey, version) => {
+    if (
+      !window.confirm(
+        `确定为 v${version.version} 发起迁移吗？使用该版本的 ${version.dependentPlanCount} 个乡土课程设计将提示相关教师迁移到当前启用版本。`
+      )
+    )
+      return;
+    setMessage("");
+    setBusyVersionId(version.id);
+    try {
+      const resp = await TemplateDataService.migrate(templateKey, version.id);
+      setMessage(resp.data && resp.data.message ? resp.data.message : "已发起迁移。");
+      retrieveAll();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "发起迁移失败。");
+    } finally {
+      setBusyVersionId(null);
+    }
+  };
+
   const handleDelete = async (templateKey, version) => {
     if (!window.confirm(`确定永久删除 v${version.version} 吗？此操作无法撤销。`)) return;
     setMessage("");
@@ -363,6 +383,21 @@ const TemplateAdmin = () => {
                           >
                             预览
                           </button>
+                          {/* Migration (plan_design only -- see
+                              templateMigration.js) only makes sense for a
+                              non-active version that still has dependent
+                              plans; it self-hides once they've all migrated
+                              away, since dependentPlanCount then drops to 0. */}
+                          {t.key === "plan_design" && !v.isActive && v.dependentPlanCount > 0 && (
+                            <button
+                              className="btn btn-outline-warning btn-sm mr-1"
+                              type="button"
+                              disabled={busyVersionId === v.id}
+                              onClick={() => handleMigrate(t.key, v)}
+                            >
+                              发起迁移
+                            </button>
+                          )}
                           {!v.isActive && (
                             <button
                               className="btn btn-outline-primary btn-sm mr-1"
