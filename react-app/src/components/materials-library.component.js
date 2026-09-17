@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import CreatableSelect from "react-select/creatable";
 
 import MaterialTopicDataService from "../services/material-topic.service";
 import MaterialLinkDataService from "../services/material-link.service";
@@ -212,6 +213,16 @@ const MaterialsLibrary = () => {
     // free-text label.
     return Array.from(byCategory.entries()).sort((a, b) => String(a[0]).localeCompare(String(b[0]), "zh"));
   }, [topics]);
+
+  // react-select/creatable options for every existing category -- lets an
+  // admin pick one from the dropdown (create-topic form, or moving an
+  // existing topic to a different category in 基本信息) without retyping it
+  // exactly, while CreatableSelect's own "create new" affordance still
+  // takes free text for a category that doesn't exist yet.
+  const categoryOptions = useMemo(
+    () => topicsByCategory.map(([category]) => ({ value: category, label: category })),
+    [topicsByCategory]
+  );
 
   const toggleCategory = (category) => setExpandedCategories((prev) => ({ ...prev, [category]: !prev[category] }));
   const toggleTopic = (topicId) => setExpandedTopics((prev) => ({ ...prev, [topicId]: !prev[topicId] }));
@@ -487,12 +498,14 @@ const MaterialsLibrary = () => {
       <div className="pl-card">
         <div className="form-group">
           <label>分类</label>
-          <input
-            type="text"
-            className="form-control"
-            value={metaForm.category}
-            disabled={!isAdmin}
-            onChange={(e) => updateMetaForm("category", e.target.value)}
+          <CreatableSelect
+            options={categoryOptions}
+            value={metaForm.category ? { value: metaForm.category, label: metaForm.category } : null}
+            isDisabled={!isAdmin}
+            isClearable={false}
+            placeholder="选择或输入新分类..."
+            formatCreateLabel={(input) => `新建分类：${input}`}
+            onChange={(option) => updateMetaForm("category", option ? option.value : "")}
           />
         </div>
         <div className="form-group">
@@ -816,16 +829,16 @@ const MaterialsLibrary = () => {
             )}
             {isAdmin && isCreatingTopic && (
               <form onSubmit={submitCreateTopic} className="pl-fm-new-folder-form mb-2">
-                <input
-                  type="text"
-                  className="form-control form-control-sm mb-1"
-                  placeholder="分类（如：2026 或 示范资料）"
-                  value={newTopicForm.category}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setNewTopicForm((prev) => ({ ...prev, category: value }));
-                  }}
-                />
+                <div className="mb-1">
+                  <CreatableSelect
+                    options={categoryOptions}
+                    value={newTopicForm.category ? { value: newTopicForm.category, label: newTopicForm.category } : null}
+                    isClearable
+                    placeholder="分类（选择已有或输入新的，如：2026 或 示范资料）"
+                    formatCreateLabel={(input) => `新建分类：${input}`}
+                    onChange={(option) => setNewTopicForm((prev) => ({ ...prev, category: option ? option.value : "" }))}
+                  />
+                </div>
                 {/* textarea, not a single-line input -- 主题名称 can run
                     long, and this keeps it fully visible/wrapped within the
                     narrow nav column instead of scrolling off sideways;
