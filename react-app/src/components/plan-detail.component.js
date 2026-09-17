@@ -666,14 +666,34 @@ const PlanDetail = (props) => {
   // unlike upload/move/delete which stay owner-only via canEditPlan above.
   const canDownloadPlan = canEditPlan || isAdmin;
 
-  // Owner returns to their own list ("我的乡土课程") -- previously this was
-  // always a bare push to "/plans", which only happened to land there for a
-  // teacher because bare /plans used to force teachers into mine-only mode
-  // regardless of intent (removed once teachers gained real access to browse
-  // 全部乡土课程 -- see plans-list.component.js's effectiveMineOnly). A
-  // non-owner (admin/expert/teacher browsing someone else's plan, or the
-  // public gallery) still returns to the general list, unchanged.
-  const goBack = () => props.history.push(isOwner ? "/plans?mine=true" : "/plans");
+  // Returns to wherever the user actually came from (browser/react-router
+  // POP), rather than a fixed destination -- every entry point that links
+  // here (plan-card.component.js, used by both plans-list's grid and
+  // plans-hierarchy's tree; template-admin.component.js's/
+  // admin-users-list.component.js's own plan-link popups) already pushed a
+  // fresh history entry on top of whatever page the user was actually on,
+  // so a real goBack() lands back on that page -- 用户管理's 学校信息 panel
+  // for an admin who got here via a school's course list, 模板管理 for one
+  // who got here via a template's dependent-plan list, etc. -- instead of
+  // always the same hardcoded 全部乡土课程/我的乡土课程, which was only ever
+  // a coincidentally-right guess for the one entry point (the plans list)
+  // this button originally had to support.
+  //
+  // window.history.length > 1 is the fallback-safety check: it stays 1 for
+  // a plan opened with no prior in-app (or same-tab) history at all -- a
+  // fresh tab, a pasted/bookmarked URL, or a page refresh's very first
+  // load -- where goBack() would otherwise leave the app entirely (to
+  // about:blank or wherever the tab was before). Switching between this
+  // page's own WHY/WHAT/HOW/课时 tabs is local component state (see
+  // `select` above), not a route push, so it never inflates this count on
+  // its own.
+  const goBack = () => {
+    if (window.history.length > 1) {
+      props.history.goBack();
+      return;
+    }
+    props.history.push(isOwner ? "/plans?mine=true" : "/plans");
+  };
 
   const updateMetaForm = (patch) => {
     setMetaForm((prev) => ({ ...prev, ...patch }));
@@ -1356,8 +1376,9 @@ const PlanDetail = (props) => {
 
   return (
     <div className="container pl-page">
-      {/* Covers 返回 above (a plain history.push) and browser back/forward
-          while still on this route -- actual tab close/refresh is the
+      {/* Covers 返回 above (now itself a goBack()/POP in the common case --
+          see its own comment) and any other browser back/forward while
+          still on this route -- actual tab close/refresh is the
           beforeunload listener set up above instead. */}
       <Prompt when={planDirty || executionDirty || metaDirty} message="有未保存的内容，确定要离开吗？" />
       <div className="pl-hero">

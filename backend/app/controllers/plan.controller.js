@@ -287,7 +287,8 @@ exports.create = async (req, res) => {
 
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, theme, grade, year, season, teacherId, isExcellentCase, status, mine, templateVersionId } = req.query;
+    const { page, size, keyword, theme, grade, year, season, teacherId, isExcellentCase, status, mine, templateVersionId, schoolCode } =
+      req.query;
     const { limit, offset } = getPagination(page, size);
 
     const parsedYear = parseYear(year);
@@ -386,6 +387,13 @@ exports.findAll = async (req, res) => {
           model: User,
           as: "Teacher",
           attributes: ["id", "username", "chineseName"],
+          // Backs 用户管理's 学校信息 panel ("该校课程计划" list) -- narrows to
+          // plans whose *owning teacher* is at this school (Plan itself has
+          // no schoolCode of its own). Sequelize defaults an include to
+          // required:true whenever it carries a `where`, which is exactly
+          // the inner-join semantics wanted here (teacherId is NOT NULL, so
+          // this never silently drops a plan for having no Teacher row).
+          where: schoolCode ? { schoolCode: { [Op.eq]: `${schoolCode}` } } : undefined,
           include: [{ model: db.school, as: "School", attributes: ["code", "name"], required: false }],
         },
       ],
