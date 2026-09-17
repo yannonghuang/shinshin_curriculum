@@ -11,21 +11,23 @@ const Op = db.Sequelize.Op;
 const knowledgeIngest = require("../services/knowledgeIngest");
 const { searchKnowledgeBase } = require("../services/knowledgeRetrieve");
 
-// Knowledge-base chunk text for a topic's own 基本信息 (year/theme/lecturer/
-// comment) -- indexed under sourceType 'material_topic_meta' so a question
-// like "谁讲过伞饭文化" matches even before any file/link is uploaded under
-// the topic.
+// Knowledge-base chunk text for a topic's own 基本信息 (category/theme/
+// lecturer/comment) -- indexed under sourceType 'material_topic_meta' so a
+// question like "谁讲过伞饭文化" matches even before any file/link is
+// uploaded under the topic.
 const topicMetaText = (topic) =>
-  `年份：${topic.year}\n主题：${topic.theme}\n主讲人：${topic.lecturer || ""}\n备注：${topic.comment || ""}`;
+  `分类：${topic.category}\n主题：${topic.theme}\n主讲人：${topic.lecturer || ""}\n备注：${topic.comment || ""}`;
 
 const mustConfirm = (value) => value === true || value === "true" || value === "1";
 
+const normalizeText = (value) => (typeof value === "string" ? value.trim() : "");
+
 // GET /api/material-topics -- one call returns every Theme's 基本信息 so the
-// frontend can build the whole Year -> Theme nav tree client-side (grouped by
-// `year`) without a separate request per year.
+// frontend can build the whole Category -> Theme nav tree client-side
+// (grouped by `category`) without a separate request per category.
 exports.findAll = async (req, res) => {
   try {
-    const data = await MaterialTopic.findAll({ order: [["year", "DESC"], ["id", "ASC"]] });
+    const data = await MaterialTopic.findAll({ order: [["category", "ASC"], ["id", "ASC"]] });
     return res.send(data);
   } catch (err) {
     return res.status(500).send({ message: err.message || "查询共享学习材料库时发生错误。" });
@@ -45,21 +47,23 @@ exports.findOne = async (req, res) => {
 };
 
 // POST /api/material-topics -- admin-only (route-gated), creates a new
-// Theme/主题(Event) directly under its `year` -- year is just a field here,
-// not its own table, matching plans.year.
+// Theme/主题(Event) directly under its `category` -- category is just a
+// free-text field here, not its own table, matching plans.year's own
+// "field, not a table" shape (which this itself was, before being
+// generalized from a year to arbitrary text).
 exports.create = async (req, res) => {
   try {
-    const year = Number(req.body.year);
-    const theme = (req.body.theme || "").trim();
-    if (!Number.isInteger(year) || year <= 0) {
-      return res.status(422).send({ message: "年份无效。" });
+    const category = normalizeText(req.body.category);
+    const theme = normalizeText(req.body.theme);
+    if (!category) {
+      return res.status(422).send({ message: "分类不能为空。" });
     }
     if (!theme) {
       return res.status(422).send({ message: "主题名称不能为空。" });
     }
 
     const data = await MaterialTopic.create({
-      year,
+      category,
       theme,
       lecturer: req.body.lecturer || null,
       comment: req.body.comment || null,
@@ -88,15 +92,15 @@ exports.update = async (req, res) => {
     }
 
     const payload = {};
-    if (req.body.year !== undefined) {
-      const year = Number(req.body.year);
-      if (!Number.isInteger(year) || year <= 0) {
-        return res.status(422).send({ message: "年份无效。" });
+    if (req.body.category !== undefined) {
+      const category = normalizeText(req.body.category);
+      if (!category) {
+        return res.status(422).send({ message: "分类不能为空。" });
       }
-      payload.year = year;
+      payload.category = category;
     }
     if (req.body.theme !== undefined) {
-      const theme = (req.body.theme || "").trim();
+      const theme = normalizeText(req.body.theme);
       if (!theme) {
         return res.status(422).send({ message: "主题名称不能为空。" });
       }
@@ -121,6 +125,37 @@ exports.update = async (req, res) => {
   }
 };
 
+// Shared by #delete (one topic) and #deleteCategory (every topic under one
+// category, for the 学习资源库 tree's first-level folder delete) -- removes
+// every artifact's physical file, then the topic's whole upload directory,
+// then the row itself. link/folder rows cascade via FK ON DELETE CASCADE;
+// so do knowledge_chunks/knowledge_skills (material_topic_id is a real FK
+// on both, unlike their polymorphic source_id) -- neither needs explicit
+// cleanup here.
+const deleteTopicRecord = async (data) => {
+  const artifacts = await MaterialArtifact.findAll({ where: { materialTopicId: data.id } });
+  for (const artifact of artifacts) {
+    if (artifact.attachmentPath && fs.existsSync(artifact.attachmentPath)) {
+      try {
+        fs.unlinkSync(artifact.attachmentPath);
+      } catch (e) {
+        console.error("删除主题附件文件失败:", artifact.attachmentPath, e.message);
+      }
+    }
+  }
+
+  const topicDir = path.join(`${__dirname}/../../upload`, "MaterialTopic", `${data.id}`);
+  if (fs.existsSync(topicDir)) {
+    try {
+      fs.rmSync(topicDir, { recursive: true, force: true });
+    } catch (e) {
+      console.error("删除主题上传目录失败:", topicDir, e.message);
+    }
+  }
+
+  await MaterialTopic.destroy({ where: { id: data.id } });
+};
+
 // DELETE /api/material-topics/:id?confirmDelete=true -- admin-only, cascades
 // (via FK ON DELETE CASCADE) to every link/folder row for this topic; every
 // artifact's physical file is removed here first, same shape as
@@ -138,35 +173,68 @@ exports.delete = async (req, res) => {
       return res.status(404).send({ message: `未找到主题 id=${req.params.id}。` });
     }
 
-    const artifacts = await MaterialArtifact.findAll({ where: { materialTopicId: data.id } });
-    for (const artifact of artifacts) {
-      if (artifact.attachmentPath && fs.existsSync(artifact.attachmentPath)) {
-        try {
-          fs.unlinkSync(artifact.attachmentPath);
-        } catch (e) {
-          console.error("删除主题附件文件失败:", artifact.attachmentPath, e.message);
-        }
-      }
-    }
-
-    const topicDir = path.join(`${__dirname}/../../upload`, "MaterialTopic", `${data.id}`);
-    if (fs.existsSync(topicDir)) {
-      try {
-        fs.rmSync(topicDir, { recursive: true, force: true });
-      } catch (e) {
-        console.error("删除主题上传目录失败:", topicDir, e.message);
-      }
-    }
-
-    // No explicit knowledge_chunks/knowledge_skills cleanup needed here --
-    // unlike source_id (polymorphic, points at whichever table sourceType
-    // names), material_topic_id on both tables is a real FK with ON DELETE
-    // CASCADE (see the migration), so this one delete already removes every
-    // chunk and the skill card for this topic regardless of source_type.
-    await MaterialTopic.destroy({ where: { id: data.id } });
+    await deleteTopicRecord(data);
     return res.send({ message: "主题删除成功。" });
   } catch (err) {
     return res.status(500).send({ message: err.message || `删除主题 id=${req.params.id} 时发生错误。` });
+  }
+};
+
+// PUT /api/material-topics/category -- admin-only. Renames the 学习资源库
+// tree's first-level folder by bulk-updating every topic currently grouped
+// under `from` to `to` -- the grouping is purely "topics sharing the same
+// category text" (see findAll's own comment), so there's no separate
+// folder row of its own to rename. Renaming onto an already-existing `to`
+// value is allowed and simply merges the two groups, same as if every topic
+// had been individually re-categorized to match.
+exports.renameCategory = async (req, res) => {
+  try {
+    const from = normalizeText(req.body.from);
+    const to = normalizeText(req.body.to);
+    if (!from) {
+      return res.status(422).send({ message: "原分类不能为空。" });
+    }
+    if (!to) {
+      return res.status(422).send({ message: "新分类不能为空。" });
+    }
+    if (from === to) {
+      return res.send({ message: "分类名称未变化。", affected: 0 });
+    }
+
+    const [affected] = await MaterialTopic.update({ category: to }, { where: { category: from } });
+    return res.send({ message: `已将 ${affected} 个主题的分类从「${from}」重命名为「${to}」。`, affected });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "重命名分类时发生错误。" });
+  }
+};
+
+// DELETE /api/material-topics/category?category=xxx&confirmDelete=true --
+// admin-only. Deletes the 学习资源库 tree's first-level folder by deleting
+// every topic grouped under it (each through the same #deleteTopicRecord
+// file-cleanup path #delete uses, not a raw bulk SQL delete, since every
+// topic has its own artifact files/upload directory on disk to clean up
+// too). `category` passed as a query param, not a URL path segment, since
+// free-form user text can contain "/" and other characters that don't
+// survive as a path segment unescaped.
+exports.deleteCategory = async (req, res) => {
+  const category = normalizeText(req.query.category);
+  if (!category) {
+    return res.status(422).send({ message: "分类不能为空。" });
+  }
+  if (!mustConfirm(req.query.confirmDelete)) {
+    return res.status(400).send({
+      message: "危险操作：将永久删除该分类下的所有主题及其材料内容和链接。请使用 confirmDelete=true 重新提交。",
+    });
+  }
+
+  try {
+    const topicsInCategory = await MaterialTopic.findAll({ where: { category } });
+    for (const topic of topicsInCategory) {
+      await deleteTopicRecord(topic);
+    }
+    return res.send({ message: `分类「${category}」及其 ${topicsInCategory.length} 个主题已删除。`, deleted: topicsInCategory.length });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "删除分类时发生错误。" });
   }
 };
 
@@ -201,7 +269,7 @@ exports.search = async (req, res) => {
         const hit = bestHitByTopic.get(id);
         return {
           topicId: id,
-          year: topic.year,
+          category: topic.category,
           theme: topic.theme,
           tier: hit.tier,
           snippet: (hit.content || hit.title || "").slice(0, 120),
