@@ -15,6 +15,11 @@ module.exports = function (app) {
   // :id if this came after (it wouldn't crash, just 404 as an invalid id --
   // still wrong, so kept first for clarity as much as correctness).
   app.get("/api/material-topics/search", [authJwt.verifyToken], topics.search);
+  // Also registered before the :id routes below, same reason -- "category"
+  // would otherwise be parsed as an :id. Backs the tree's first-level
+  // folder rename/delete (see materials-library.component.js).
+  app.put("/api/material-topics/category", [authJwt.verifyToken, authJwt.isAdmin], topics.renameCategory);
+  app.delete("/api/material-topics/category", [authJwt.verifyToken, authJwt.isAdmin], topics.deleteCategory);
   app.get("/api/material-topics/:id", [authJwt.verifyToken], topics.findOne);
   app.put("/api/material-topics/:id", [authJwt.verifyToken, authJwt.isAdmin], topics.update);
   app.delete("/api/material-topics/:id", [authJwt.verifyToken, authJwt.isAdmin], topics.delete);

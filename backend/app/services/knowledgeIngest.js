@@ -159,7 +159,7 @@ async function regenerateSkillCardInner(materialTopicId, { force = false } = {})
       '严格以 JSON 格式回复，不要包含其他文字或代码块标记：{"title": "...", "summary": "...", "keyPoints": ["...", "..."], "tags": ["...", "..."]}。' +
       "summary 控制在150字以内，keyPoints 3-5条，tags 3-6个关键词。";
     const userContent =
-      `年份：${topic.year}\n主题：${topic.theme}\n主讲人：${topic.lecturer || "未填写"}\n备注：${topic.comment || "无"}\n\n` +
+      `分类：${topic.category}\n主题：${topic.theme}\n主讲人：${topic.lecturer || "未填写"}\n备注：${topic.comment || "无"}\n\n` +
       (combinedText ? `材料内容摘录：\n${combinedText}` : "（暂无已提取的材料内容）");
 
     const result = await llmClient.llmChat({

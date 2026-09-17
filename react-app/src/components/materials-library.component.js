@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import CreatableSelect from "react-select/creatable";
 
 import MaterialTopicDataService from "../services/material-topic.service";
 import MaterialLinkDataService from "../services/material-link.service";
@@ -8,7 +9,7 @@ import AuthService from "../services/auth.service";
 import LessonFileManager from "./lesson-file-manager.component";
 import "../curriculum.css";
 
-// 学习资源库 -- a Year -> Theme(主题/Event) tree, laid out like
+// 学习资源库 -- a Category -> Theme(主题/Event) tree, laid out like
 // plan-detail.component.js's own explorer (left nav tree, right content
 // pane). Purely admin-curated (unlike Plan's teacher ownership): admins
 // create/edit/delete every Theme and its contents, teachers/experts only
@@ -17,7 +18,16 @@ import "../curriculum.css";
 // file system, scoped by materialTopicId instead of (planId, lessonIndex)
 // via the material-folder.service.js/material-artifact.service.js pair (see
 // that component's folderService/artifactService props).
-const EMPTY_TOPIC_FORM = { year: new Date().getFullYear(), theme: "", lecturer: "", comment: "" };
+//
+// The tree's first-level folder is `category` -- free-form admin text (a
+// year like "2026", a program name, anything), not its own table: it's
+// purely "every topic sharing this same category value groups under one
+// folder" (see topicsByCategory below), same "field, not a table" shape
+// material-topic.controller.js's own comments describe. Renaming/deleting
+// that folder (renameCategory/deleteCategoryByValue below) is therefore a
+// bulk update/delete across every topic currently in that group, not an
+// operation on a folder row of its own.
+const EMPTY_TOPIC_FORM = { category: "", theme: "", lecturer: "", comment: "" };
 const EMPTY_LINK_FORM = { description: "", url: "" };
 
 const MaterialsLibrary = () => {
@@ -30,7 +40,7 @@ const MaterialsLibrary = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
-  const [expandedYears, setExpandedYears] = useState({});
+  const [expandedCategories, setExpandedCategories] = useState({});
   const [expandedTopics, setExpandedTopics] = useState({});
   const [selected, setSelected] = useState({ topicId: null, key: null });
 
@@ -44,6 +54,15 @@ const MaterialsLibrary = () => {
   // row), which is noticeably slower than a typical click, hence a visible
   // spinner rather than just disabling the row silently.
   const [busyTopicId, setBusyTopicId] = useState(null);
+
+  // Same rename/busy pattern as the topic-level state just above, but for
+  // the first-level category folder -- renamingCategory/busyCategory hold
+  // the *original* category value (its identity for the bulk update/delete
+  // call), not an id, since a category is just a shared text field, not a
+  // row of its own.
+  const [renamingCategory, setRenamingCategory] = useState(null);
+  const [renameCategoryValue, setRenameCategoryValue] = useState("");
+  const [busyCategory, setBusyCategory] = useState(null);
 
   const [metaForm, setMetaForm] = useState(null);
   const [metaDirty, setMetaDirty] = useState(false);
@@ -91,7 +110,7 @@ const MaterialsLibrary = () => {
   useEffect(() => {
     if (selected.key === "basic" && selectedTopic) {
       setMetaForm({
-        year: selectedTopic.year,
+        category: selectedTopic.category,
         theme: selectedTopic.theme || "",
         lecturer: selectedTopic.lecturer || "",
         comment: selectedTopic.comment || "",
@@ -182,16 +201,30 @@ const MaterialsLibrary = () => {
     };
   }, [selected.key, selected.topicId, retrieveSkill]);
 
-  const topicsByYear = useMemo(() => {
-    const byYear = new Map();
+  const topicsByCategory = useMemo(() => {
+    const byCategory = new Map();
     for (const t of topics) {
-      if (!byYear.has(t.year)) byYear.set(t.year, []);
-      byYear.get(t.year).push(t);
+      if (!byCategory.has(t.category)) byCategory.set(t.category, []);
+      byCategory.get(t.category).push(t);
     }
-    return Array.from(byYear.entries()).sort((a, b) => b[0] - a[0]);
+    // Ascending, locale-aware -- unlike the old numeric-year sort (newest
+    // first made sense for a year; it doesn't generalize to arbitrary
+    // text), plain A-Z reading order is the least-surprising default for a
+    // free-text label.
+    return Array.from(byCategory.entries()).sort((a, b) => String(a[0]).localeCompare(String(b[0]), "zh"));
   }, [topics]);
 
-  const toggleYear = (year) => setExpandedYears((prev) => ({ ...prev, [year]: !prev[year] }));
+  // react-select/creatable options for every existing category -- lets an
+  // admin pick one from the dropdown (create-topic form, or moving an
+  // existing topic to a different category in 基本信息) without retyping it
+  // exactly, while CreatableSelect's own "create new" affordance still
+  // takes free text for a category that doesn't exist yet.
+  const categoryOptions = useMemo(
+    () => topicsByCategory.map(([category]) => ({ value: category, label: category })),
+    [topicsByCategory]
+  );
+
+  const toggleCategory = (category) => setExpandedCategories((prev) => ({ ...prev, [category]: !prev[category] }));
   const toggleTopic = (topicId) => setExpandedTopics((prev) => ({ ...prev, [topicId]: !prev[topicId] }));
   const select = (topicId, key) => setSelected({ topicId, key });
 
@@ -283,8 +316,8 @@ const MaterialsLibrary = () => {
 
   const submitCreateTopic = async (e) => {
     e.preventDefault();
-    if (!newTopicForm.theme.trim() || !newTopicForm.year) {
-      setMessage("请填写年份和主题名称。");
+    if (!newTopicForm.theme.trim() || !newTopicForm.category.trim()) {
+      setMessage("请填写分类和主题名称。");
       return;
     }
     try {
@@ -292,11 +325,77 @@ const MaterialsLibrary = () => {
       setIsCreatingTopic(false);
       setNewTopicForm(EMPTY_TOPIC_FORM);
       await retrieveTopics();
-      setExpandedYears((prev) => ({ ...prev, [resp.data.year]: true }));
+      setExpandedCategories((prev) => ({ ...prev, [resp.data.category]: true }));
       setExpandedTopics((prev) => ({ ...prev, [resp.data.id]: true }));
       select(resp.data.id, "basic");
     } catch (err) {
       setMessage(err?.response?.data?.message || "创建主题失败。");
+    }
+  };
+
+  // First-level category folder rename -- bulk-updates every topic
+  // currently in `fromCategory` (its identity, since a category is just a
+  // shared text field -- see the component's top comment) to the new text.
+  // Mirrors startRenameTopic/submitRenameTopic's own inline-edit shape.
+  const startRenameCategory = (category) => {
+    setRenamingCategory(category);
+    setRenameCategoryValue(category);
+  };
+
+  const cancelRenameCategory = () => {
+    setRenamingCategory(null);
+    setRenameCategoryValue("");
+  };
+
+  const submitRenameCategory = async (fromCategory) => {
+    if (busyCategory === fromCategory) return;
+    const to = renameCategoryValue.trim();
+    if (!to || to === fromCategory) {
+      cancelRenameCategory();
+      return;
+    }
+    setBusyCategory(fromCategory);
+    try {
+      await MaterialTopicDataService.renameCategory(fromCategory, to);
+      cancelRenameCategory();
+      // Carry the expanded/collapsed state over to the folder's new key so
+      // it doesn't visually collapse just because its identity changed.
+      setExpandedCategories((prev) => {
+        const next = { ...prev };
+        if (fromCategory in next) {
+          next[to] = next[fromCategory];
+          delete next[fromCategory];
+        }
+        return next;
+      });
+      await retrieveTopics();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "重命名分类失败。");
+    } finally {
+      setBusyCategory(null);
+    }
+  };
+
+  // First-level category folder delete -- bulk-deletes every topic in it
+  // (and, transitively, all of their material content/links), same
+  // confirm-then-remove shape as deleteTopicById above.
+  const deleteCategoryByValue = async (category, topicCount) => {
+    if (
+      !window.confirm(
+        `此操作将永久删除分类「${category}」下的全部 ${topicCount} 个主题及其所有材料内容和链接，且无法撤销。确定继续吗？`
+      )
+    )
+      return;
+    setBusyCategory(category);
+    try {
+      await MaterialTopicDataService.deleteCategory(category, true);
+      if (selectedTopic && selectedTopic.category === category) setSelected({ topicId: null, key: null });
+      setMessage("分类已删除。");
+      await retrieveTopics();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "删除分类失败。");
+    } finally {
+      setBusyCategory(null);
     }
   };
 
@@ -386,7 +485,7 @@ const MaterialsLibrary = () => {
   const jumpToSearchResult = (result) => {
     const topic = topics.find((t) => t.id === result.topicId);
     if (!topic) return;
-    setExpandedYears((prev) => ({ ...prev, [topic.year]: true }));
+    setExpandedCategories((prev) => ({ ...prev, [topic.category]: true }));
     setExpandedTopics((prev) => ({ ...prev, [topic.id]: true }));
     select(topic.id, "skill");
     setSearchResults(null);
@@ -398,13 +497,15 @@ const MaterialsLibrary = () => {
     return (
       <div className="pl-card">
         <div className="form-group">
-          <label>年份</label>
-          <input
-            type="number"
-            className="form-control"
-            value={metaForm.year}
-            disabled={!isAdmin}
-            onChange={(e) => updateMetaForm("year", Number(e.target.value))}
+          <label>分类</label>
+          <CreatableSelect
+            options={categoryOptions}
+            value={metaForm.category ? { value: metaForm.category, label: metaForm.category } : null}
+            isDisabled={!isAdmin}
+            isClearable={false}
+            placeholder="选择或输入新分类..."
+            formatCreateLabel={(input) => `新建分类：${input}`}
+            onChange={(option) => updateMetaForm("category", option ? option.value : "")}
           />
         </div>
         <div className="form-group">
@@ -709,7 +810,7 @@ const MaterialsLibrary = () => {
                     {searchResults.map((r) => (
                       <li key={r.topicId}>
                         <button type="button" className="btn btn-sm btn-link p-0" onClick={() => jumpToSearchResult(r)}>
-                          {r.year}年 · {r.theme}
+                          {r.category} · {r.theme}
                         </button>
                         <div className="text-truncate" style={{ maxWidth: "220px" }}>
                           {r.snippet}
@@ -728,16 +829,16 @@ const MaterialsLibrary = () => {
             )}
             {isAdmin && isCreatingTopic && (
               <form onSubmit={submitCreateTopic} className="pl-fm-new-folder-form mb-2">
-                <input
-                  type="number"
-                  className="form-control form-control-sm mb-1"
-                  placeholder="年份"
-                  value={newTopicForm.year}
-                  onChange={(e) => {
-                    const value = Number(e.target.value);
-                    setNewTopicForm((prev) => ({ ...prev, year: value }));
-                  }}
-                />
+                <div className="mb-1">
+                  <CreatableSelect
+                    options={categoryOptions}
+                    value={newTopicForm.category ? { value: newTopicForm.category, label: newTopicForm.category } : null}
+                    isClearable
+                    placeholder="分类（选择已有或输入新的，如：2026 或 示范资料）"
+                    formatCreateLabel={(input) => `新建分类：${input}`}
+                    onChange={(option) => setNewTopicForm((prev) => ({ ...prev, category: option ? option.value : "" }))}
+                  />
+                </div>
                 {/* textarea, not a single-line input -- 主题名称 can run
                     long, and this keeps it fully visible/wrapped within the
                     narrow nav column instead of scrolling off sideways;
@@ -781,17 +882,80 @@ const MaterialsLibrary = () => {
               </form>
             )}
 
-            {topicsByYear.length === 0 && <div className="pl-explorer-empty">暂无材料。</div>}
+            {topicsByCategory.length === 0 && <div className="pl-explorer-empty">暂无材料。</div>}
 
-            {topicsByYear.map(([year, yearTopics]) => (
-              <div className="pl-explorer-group" key={year}>
-                <button type="button" className="pl-explorer-folder" onClick={() => toggleYear(year)}>
-                  <i className={`fas fa-chevron-${expandedYears[year] ? "down" : "right"} pl-explorer-chevron`}></i>
-                  <i className="fas fa-folder-open pl-folder-icon mr-1"></i> {year}
-                </button>
-                {expandedYears[year] && (
+            {topicsByCategory.map(([category, categoryTopics]) => (
+              <div className="pl-explorer-group" key={category}>
+                <div className="pl-explorer-row">
+                  {renamingCategory === category ? (
+                    <form
+                      className="pl-explorer-rename-form"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        submitRenameCategory(category);
+                      }}
+                    >
+                      <input
+                        type="text"
+                        className="form-control form-control-sm"
+                        autoFocus
+                        disabled={busyCategory === category}
+                        value={renameCategoryValue}
+                        onChange={(e) => setRenameCategoryValue(e.target.value)}
+                        onBlur={() => submitRenameCategory(category)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") cancelRenameCategory();
+                        }}
+                      />
+                      {busyCategory === category && (
+                        <span className="spinner-border spinner-border-sm pl-explorer-row-spinner" role="status"></span>
+                      )}
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      className="pl-explorer-folder pl-explorer-row-main"
+                      onClick={() => toggleCategory(category)}
+                    >
+                      <i className={`fas fa-chevron-${expandedCategories[category] ? "down" : "right"} pl-explorer-chevron`}></i>
+                      <i className="fas fa-folder-open pl-folder-icon mr-1"></i> {category}
+                    </button>
+                  )}
+                  {renamingCategory !== category && busyCategory === category && (
+                    <span className="pl-explorer-row-actions pl-explorer-row-actions-busy">
+                      <span className="spinner-border spinner-border-sm pl-explorer-row-spinner" role="status"></span>
+                    </span>
+                  )}
+                  {isAdmin && renamingCategory !== category && busyCategory !== category && (
+                    <span className="pl-explorer-row-actions">
+                      <button
+                        type="button"
+                        className="pl-explorer-row-action"
+                        title="重命名"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startRenameCategory(category);
+                        }}
+                      >
+                        <i className="fas fa-pencil-alt"></i>
+                      </button>
+                      <button
+                        type="button"
+                        className="pl-explorer-row-action"
+                        title="删除"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteCategoryByValue(category, categoryTopics.length);
+                        }}
+                      >
+                        <i className="fas fa-trash-alt"></i>
+                      </button>
+                    </span>
+                  )}
+                </div>
+                {expandedCategories[category] && (
                   <div className="pl-explorer-children">
-                    {yearTopics.map((topic) => (
+                    {categoryTopics.map((topic) => (
                       <div className="pl-explorer-subgroup" key={topic.id}>
                       <div className="pl-explorer-row">
                         {renamingTopicId === topic.id ? (

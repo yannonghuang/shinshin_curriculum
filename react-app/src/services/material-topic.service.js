@@ -28,6 +28,20 @@ class MaterialTopicDataService {
     return http.get("/material-topics/search", { params: { q }, headers: authHeader() });
   }
 
+  // Bulk rename/delete the tree's first-level folder (every topic sharing
+  // one `category` value) -- see material-topic.controller.js#renameCategory/
+  // #deleteCategory.
+  renameCategory(from, to) {
+    return http.put("/material-topics/category", { from, to }, { headers: authHeader() });
+  }
+
+  deleteCategory(category, confirmDelete = false) {
+    return http.delete("/material-topics/category", {
+      params: { category, confirmDelete: confirmDelete ? "true" : "false" },
+      headers: authHeader(),
+    });
+  }
+
   getSkill(topicId) {
     return http.get(`/material-topics/${topicId}/skill`, { headers: authHeader() });
   }
