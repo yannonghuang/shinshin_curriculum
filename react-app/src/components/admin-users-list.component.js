@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import Pagination from "@material-ui/lab/Pagination";
 import Select from "react-select";
 import AdminUserDataService from "../services/admin-user.service";
+import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import { SCHOOLS, findSchoolByCode, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
@@ -64,6 +66,13 @@ const AdminUsersList = () => {
   // closed -- a popup rather than navigating away (see the 学校编号 cell
   // below) so opening it never loses the list's current page/filters/sort.
   const [schoolDetailCode, setSchoolDetailCode] = useState(null);
+  // That school's own 乡土课程设计 list, shown under its info in the same
+  // popup -- fetched fresh each time schoolDetailCode changes (see the
+  // effect below), not derived from `users` (a school can have plans from
+  // teachers not on this page's current filtered/paginated slice).
+  const [schoolPlans, setSchoolPlans] = useState([]);
+  const [schoolPlansLoading, setSchoolPlansLoading] = useState(false);
+  const [schoolPlansMessage, setSchoolPlansMessage] = useState("");
   // sortBy: "" (default, newest-first) | "name" | "school" | "lastLogin" |
   // "totalLoginTime"; only one column sorts at a time, matching a typical
   // clickable-column-header table.
@@ -114,6 +123,20 @@ const AdminUsersList = () => {
   useEffect(() => {
     retrieveAll();
   }, [retrieveAll]);
+
+  useEffect(() => {
+    if (schoolDetailCode == null) {
+      setSchoolPlans([]);
+      setSchoolPlansMessage("");
+      return;
+    }
+    setSchoolPlansLoading(true);
+    setSchoolPlansMessage("");
+    PlanDataService.getAll({ schoolCode: schoolDetailCode, size: 200 })
+      .then((resp) => setSchoolPlans((resp.data && resp.data.rows) || []))
+      .catch(() => setSchoolPlansMessage("加载该校课程计划失败。"))
+      .finally(() => setSchoolPlansLoading(false));
+  }, [schoolDetailCode]);
 
   const onSearch = () => {
     setPage(1);
@@ -452,22 +475,46 @@ const AdminUsersList = () => {
               </button>
             </div>
             {schoolDetail ? (
-              <table className="table table-sm table-bordered">
-                <tbody>
-                  <tr>
-                    <th style={{ width: 100 }}>学校编号</th>
-                    <td>{schoolDetail.code}</td>
-                  </tr>
-                  <tr>
-                    <th>学校名称</th>
-                    <td>{schoolDetail.name}</td>
-                  </tr>
-                  <tr>
-                    <th>地址</th>
-                    <td>{schoolDetail.address || "-"}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <>
+                <table className="table table-sm table-bordered">
+                  <tbody>
+                    <tr>
+                      <th style={{ width: 100 }}>学校编号</th>
+                      <td>{schoolDetail.code}</td>
+                    </tr>
+                    <tr>
+                      <th>学校名称</th>
+                      <td>{schoolDetail.name}</td>
+                    </tr>
+                    <tr>
+                      <th>地址</th>
+                      <td>{schoolDetail.address || "-"}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <h6 className="mt-3 mb-2">该校课程计划（{schoolPlans.length}）</h6>
+                {schoolPlansLoading ? (
+                  <div className="pl-empty">加载中...</div>
+                ) : schoolPlansMessage ? (
+                  <div className="alert alert-danger py-2">{schoolPlansMessage}</div>
+                ) : schoolPlans.length === 0 ? (
+                  <div className="pl-empty">暂无课程计划。</div>
+                ) : (
+                  <div className="pl-modal-list">
+                    {schoolPlans.map((p) => (
+                      <Link key={p.id} to={`/plans/${p.id}`} className="pl-modal-row d-block">
+                        <div>{p.title || "未命名课程设计"}</div>
+                        <div className="text-muted small">
+                          {p.Teacher ? p.Teacher.chineseName || p.Teacher.username : "-"}
+                          {p.year ? ` · ${p.year}` : ""}
+                          {p.season ? ` ${p.season}` : ""}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </>
             ) : (
               <p className="text-muted">未找到编号为 {schoolDetailCode} 的学校。</p>
             )}
