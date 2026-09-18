@@ -285,6 +285,22 @@ const ReviewList = (props) => {
     const key = segmentKeyForReview(review);
     return key ? isSegmentStale(review) : !isCurrentVersion(review);
   };
+  // Groups reviews for the "only the latest carries the badge" rule below:
+  // same reviewer type (AI/专家/管理员) writing about the same scope
+  // (sectionKey+lessonIndex, i.e. the same thing segmentKeyForReview/moduleCell
+  // already treat as "one spot"). Once a newer review exists for that exact
+  // (type, scope) pair, an older one showing 内容已更新 too is redundant noise
+  // -- the newer row already speaks for "this has changed since we last
+  // weighed in here", the reader doesn't need every prior row to repeat it.
+  const reviewGroupKey = (review) => `${review.reviewerType}|${review.sectionKey || ""}|${review.lessonIndex ?? ""}`;
+  // reviews is already sorted newest-first (see retrieveReviews), so the
+  // first row encountered per group here is that group's latest.
+  const latestIdByGroup = new Map();
+  for (const r of reviews) {
+    const key = reviewGroupKey(r);
+    if (!latestIdByGroup.has(key)) latestIdByGroup.set(key, r.id);
+  }
+  const showUpdatedBadge = (review) => isContentUpdated(review) && latestIdByGroup.get(reviewGroupKey(review)) === review.id;
   // A review is "this aggregate's own" iff it's tagged with this aggregate's
   // writeSectionKey and has no lessonIndex -- everything else shown in an
   // aggregate (a segment review, or, in 实施's aggregate, 设计's own AI
@@ -407,7 +423,7 @@ const ReviewList = (props) => {
             {reviews.map((review) => {
               const isLong = review.content && review.content.length > CONTENT_PREVIEW_LENGTH;
               const isExpanded = expandedIds.has(review.id);
-              const updatedBadge = isContentUpdated(review) && (
+              const updatedBadge = showUpdatedBadge(review) && (
                 <span className="pl-tag pl-tag-warn ml-1" title="课程内容已在此点评后被修改">
                   内容已更新
                 </span>
