@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useHistory, useLocation } from "react-router-dom";
 import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
@@ -76,6 +77,19 @@ const buildHierarchy = (plans) => {
 };
 
 const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) => {
+  const history = useHistory();
+  const location = useLocation();
+  // Read once, at mount, into the various useState initializers below --
+  // never re-parsed afterward (a plain top-level `new URLSearchParams
+  // (location.search)` would re-run on every render, including the ones
+  // this very state triggers via the sync effect further down). This is
+  // what makes 返回/browser-back actually restore this page's filters and
+  // tree selection, not just its URL: plan-detail.component.js's 返回
+  // button does a real history.goBack() (see its own comment), which pops
+  // back to this exact query string -- but only if something here reads it
+  // back out on remount, since before this all of the state below was
+  // plain component state that reset to its defaults on every fresh mount.
+  const initialParams = useMemo(() => new URLSearchParams(location.search || ""), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [plans, setPlans] = useState([]);
   const [message, setMessage] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
@@ -94,18 +108,18 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   // admin, who still sees drafts, has a real "all statuses vs submitted
   // only" choice to make here.
   const showSubmittedToggle = showReviewFilters && AuthService.isAdmin();
-  const [filterSubmitted, setFilterSubmitted] = useState(false);
-  const [filterAiReviewed, setFilterAiReviewed] = useState(false);
-  const [filterExpertReviewed, setFilterExpertReviewed] = useState(false);
+  const [filterSubmitted, setFilterSubmitted] = useState(() => initialParams.get("submitted") === "1");
+  const [filterAiReviewed, setFilterAiReviewed] = useState(() => initialParams.get("aiReviewed") === "1");
+  const [filterExpertReviewed, setFilterExpertReviewed] = useState(() => initialParams.get("expertReviewed") === "1");
   // Teacher-name/school-name (partial match) and theme (exact match)
   // filters, applied client-side alongside the review-status toggles above --
   // consistent with this component's existing "fetch everything once, filter
   // client-side" design (see PAGE_SIZE), and simpler than adding new
   // server-side query params for a page that already has the full plan list
   // (with Teacher/School already eager-loaded) in hand.
-  const [filterTeacherName, setFilterTeacherName] = useState("");
-  const [filterSchoolName, setFilterSchoolName] = useState("");
-  const [filterTheme, setFilterTheme] = useState("");
+  const [filterTeacherName, setFilterTeacherName] = useState(() => initialParams.get("teacherName") || "");
+  const [filterSchoolName, setFilterSchoolName] = useState(() => initialParams.get("schoolName") || "");
+  const [filterTheme, setFilterTheme] = useState(() => initialParams.get("theme") || "");
   // 乡土主题 dropdown options -- see plans-list.component.js's identical
   // themeOptions state for why (the active plan_design template's own
   // "附件"-derived list, falling back to the static PLAN_THEMES).
@@ -121,7 +135,18 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   // multiple year/season groups, so its expand state must be scoped per
   // group, not global.
   const [expandedSchools, setExpandedSchools] = useState({});
-  const [selected, setSelected] = useState(null); // { groupKey, schoolKey, teacherId }
+  // teacherId is always kept as a string (both here and in selectTeacher
+  // below) so a value round-tripped through the URL query string compares
+  // equal to one read straight off a freshly-fetched plan -- plan.teacherId
+  // itself may be a JS number or a string depending on how the BIGINT
+  // column comes back through the driver, and a raw `===` would silently
+  // never match once one side has been through String(...) turned into text.
+  const [selected, setSelected] = useState(() => {
+    const groupKey = initialParams.get("selGroup");
+    const schoolKey = initialParams.get("selSchool");
+    const teacherId = initialParams.get("selTeacher");
+    return groupKey && schoolKey && teacherId ? { groupKey, schoolKey, teacherId } : null;
+  }); // { groupKey, schoolKey, teacherId }
 
   const retrieveAll = useCallback(async () => {
     try {
@@ -203,7 +228,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
       groups.some((g) => {
         if (g.key !== selected.groupKey) return false;
         const s = g.schoolList.find((s) => s.schoolKey === selected.schoolKey);
-        return s && s.teacherList.some((t) => t.teacherId === selected.teacherId);
+        return s && s.teacherList.some((t) => String(t.teacherId) === selected.teacherId);
       });
     if (stillValid) return;
 
@@ -214,7 +239,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
       setExpandedSchools((prev) => ({ ...prev, [`${firstGroup.key}|${firstSchool.schoolKey}`]: true }));
     }
     if (firstSchool && firstSchool.teacherList.length > 0) {
-      setSelected({ groupKey: firstGroup.key, schoolKey: firstSchool.schoolKey, teacherId: firstSchool.teacherList[0].teacherId });
+      setSelected({ groupKey: firstGroup.key, schoolKey: firstSchool.schoolKey, teacherId: String(firstSchool.teacherList[0].teacherId) });
     } else {
       setSelected(null);
     }
@@ -223,6 +248,21 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     // update, which this effect itself causes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups]);
+
+  // A `selected` restored straight from the URL (see initialParams above)
+  // arrives with no matching expandedGroups/expandedSchools entry -- without
+  // this, the right panel would correctly show the restored teacher's plans
+  // while the tree itself sat fully collapsed around it, hiding the very row
+  // that's supposedly selected. The stillValid branch above already expands
+  // its own first-group/first-school explicitly; this covers every other
+  // path that can set `selected` (this one included, harmlessly redundant
+  // there) with a single rule instead of repeating it at each call site.
+  useEffect(() => {
+    if (!selected) return;
+    setExpandedGroups((prev) => (prev[selected.groupKey] ? prev : { ...prev, [selected.groupKey]: true }));
+    const schoolExpandKey = `${selected.groupKey}|${selected.schoolKey}`;
+    setExpandedSchools((prev) => (prev[schoolExpandKey] ? prev : { ...prev, [schoolExpandKey]: true }));
+  }, [selected]);
 
   const toggleGroup = (key) => {
     setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -240,7 +280,54 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
       prev && prev.groupKey === groupKey && prev.schoolKey === schoolKey && expandedSchools[expandKey] ? null : prev
     );
   };
-  const selectTeacher = (groupKey, schoolKey, teacherId) => setSelected({ groupKey, schoolKey, teacherId });
+  const selectTeacher = (groupKey, schoolKey, teacherId) => setSelected({ groupKey, schoolKey, teacherId: String(teacherId) });
+
+  // Keeps this page's own URL in sync with its filter/selection state (via
+  // history.replace -- a silent swap of the current entry, not a new one, so
+  // typing in a filter box doesn't pile up history entries) -- the other
+  // half of what makes 返回 restore this state: plan-detail.component.js's
+  // goBack() only has something to land back on if the entry it pops to
+  // actually carries these params, which requires them to already be part of
+  // the URL *before* the user ever clicked into a plan. Preserves whatever
+  // params this route already had for other reasons (mine/status/
+  // templateVersionId -- see plans-list.component.js) by starting from the
+  // current search string rather than building a fresh one.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || "");
+    const setOrDelete = (key, value) => {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    };
+    setOrDelete("submitted", filterSubmitted ? "1" : "");
+    setOrDelete("aiReviewed", filterAiReviewed ? "1" : "");
+    setOrDelete("expertReviewed", filterExpertReviewed ? "1" : "");
+    setOrDelete("teacherName", filterTeacherName);
+    setOrDelete("schoolName", filterSchoolName);
+    setOrDelete("theme", filterTheme);
+    setOrDelete("selGroup", selected ? selected.groupKey : "");
+    setOrDelete("selSchool", selected ? selected.schoolKey : "");
+    setOrDelete("selTeacher", selected ? selected.teacherId : "");
+
+    const nextSearch = params.toString();
+    if (nextSearch !== (location.search || "").replace(/^\?/, "")) {
+      history.replace({ pathname: location.pathname, search: nextSearch });
+    }
+    // Deliberately excludes `history`/`location` -- both are stable-enough
+    // router objects that including them risks re-firing this effect off of
+    // history.replace's own resulting location change (the nextSearch guard
+    // above already prevents a real loop, but there's no reason to depend on
+    // that guard when the actual state that should trigger a re-sync is
+    // fully listed below).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    filterSubmitted,
+    filterAiReviewed,
+    filterExpertReviewed,
+    filterTeacherName,
+    filterSchoolName,
+    filterTheme,
+    selected,
+  ]);
 
   const currentUserId = () => {
     const user = AuthService.getCurrentUser();
@@ -285,7 +372,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
 
   const selectedGroup = selected ? groups.find((g) => g.key === selected.groupKey) : null;
   const selectedSchool = selectedGroup ? selectedGroup.schoolList.find((s) => s.schoolKey === selected.schoolKey) : null;
-  const selectedTeacher = selectedSchool ? selectedSchool.teacherList.find((t) => t.teacherId === selected.teacherId) : null;
+  const selectedTeacher = selectedSchool ? selectedSchool.teacherList.find((t) => String(t.teacherId) === selected.teacherId) : null;
 
   return (
     <>
@@ -394,7 +481,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
                                   selected &&
                                   selected.groupKey === g.key &&
                                   selected.schoolKey === s.schoolKey &&
-                                  selected.teacherId === t.teacherId
+                                  selected.teacherId === String(t.teacherId)
                                     ? "is-active"
                                     : ""
                                 }`}
