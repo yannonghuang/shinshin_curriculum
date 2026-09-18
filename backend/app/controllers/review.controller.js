@@ -148,6 +148,12 @@ exports.createAiReview = async (req, res) => {
       ({ userContent } = await buildAiReviewPrompt(plan, lessonIndex, artifacts));
     }
 
+    // "Entire current state" also means the plan's full review history, not
+    // just its content -- otherwise every AI-review request writes as if
+    // from a blank slate, unaware of what a human expert (or the AI's own
+    // prior run) already said. See planContext.js#buildReviewHistoryText.
+    userContent += await planContext.buildReviewHistoryText(planId);
+
     // Routed through the agent loop rather than a plain llmChat call so the
     // model can decide for itself whether this plan/lesson's content
     // warrants pulling in reference material from 共享学习材料库, instead of

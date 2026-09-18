@@ -387,16 +387,31 @@ const TemplateAdmin = () => {
                               templateMigration.js) only makes sense for a
                               non-active version that still has dependent
                               plans; it self-hides once they've all migrated
-                              away, since dependentPlanCount then drops to 0. */}
+                              away, since dependentPlanCount then drops to 0.
+                              The button stays clickable even after the first
+                              click (idempotent, see handleMigrate's confirm
+                              text), so its own presence never tells you
+                              whether it's been triggered before -- the
+                              migrationInitiatedAt badge does. */}
                           {t.key === "plan_design" && !v.isActive && v.dependentPlanCount > 0 && (
-                            <button
-                              className="btn btn-outline-warning btn-sm mr-1"
-                              type="button"
-                              disabled={busyVersionId === v.id}
-                              onClick={() => handleMigrate(t.key, v)}
-                            >
-                              发起迁移
-                            </button>
+                            <>
+                              <button
+                                className="btn btn-outline-warning btn-sm mr-1"
+                                type="button"
+                                disabled={busyVersionId === v.id}
+                                onClick={() => handleMigrate(t.key, v)}
+                              >
+                                {v.migrationInitiatedAt ? "重新发起迁移" : "发起迁移"}
+                              </button>
+                              {v.migrationInitiatedAt && (
+                                <span
+                                  className="pl-tag mr-1"
+                                  title={`首次发起于 ${new Date(v.migrationInitiatedAt).toLocaleString()}`}
+                                >
+                                  已发起迁移
+                                </span>
+                              )}
+                            </>
                           )}
                           {!v.isActive && (
                             <button

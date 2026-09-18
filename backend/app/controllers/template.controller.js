@@ -198,7 +198,10 @@ exports.activate = async (req, res) => {
 // templateMigration.js), one bulk action per teacher. Idempotent (safe to
 // click more than once): the "相关课程计划" count on this row itself drops as
 // plans migrate away, so the admin UI's own Migrate button naturally
-// disappears once it reaches 0, with no separate campaign-state to track.
+// disappears once it reaches 0, with no separate campaign-state to track --
+// migrationInitiatedAt (set once, below) is what lets the admin UI show
+// whether this button has ever actually been clicked, since the button's
+// own presence/absence can't answer that.
 exports.migrate = async (req, res) => {
   try {
     const version = await TemplateVersion.findByPk(req.params.id);
@@ -210,6 +213,9 @@ exports.migrate = async (req, res) => {
     }
 
     const [affected] = await Plan.update({ needsMigration: true }, { where: { planTemplateVersionId: version.id } });
+    if (!version.migrationInitiatedAt) {
+      await version.update({ migrationInitiatedAt: new Date() });
+    }
     return res.send({ message: `已发起迁移，${affected} 个乡土课程设计将提示相关教师迁移。`, affected });
   } catch (err) {
     return res.status(500).send({ message: err.message || "发起迁移时发生错误。" });

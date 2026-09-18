@@ -9,15 +9,15 @@ import AuthService from "../services/auth.service";
 //    passed down from plan-detail.component.js's canEditPlan) that calls the AI-review endpoint
 //    -- matches review.controller.js#createAiReview's owner-only check, no admin bypass,
 //  - AI-authored rows visually tagged distinctly (.pl-tag-ai) from expert rows (.pl-tag-expert).
-//  - threading: reviews are grouped by the exact plan.contentVersionAt snapshot they were
-//    created against (review.planVersionAt, set server-side -- see review.controller.js and
-//    plan.model.js's contentVersionAt comment). Two reviews land in the same group iff no
-//    content edit happened between them, i.e. they're both replies "on the same spot". Only
-//    the newest group (matching the plan's current planContentVersionAt prop) is "current";
-//    older groups are read-only history once the plan moves on -- matches
-//    review.controller.js#delete's server-side lock on superseded reviews.
+//  - staleness, not threading: every review is shown newest-first in one flat table (no more
+//    grouping/splitting by the plan.contentVersionAt snapshot each was created against) -- a row
+//    instead carries its own "内容已更新" badge (isContentUpdated below) whenever the content it
+//    was written against has since changed, exactly the same way for an AI row as for an expert
+//    row. isCurrentVersion (review.planVersionAt === the plan's current contentVersionAt) still
+//    gates deletion -- matches review.controller.js#delete's server-side lock on reviews for a
+//    superseded version -- it just no longer drives a separate visual grouping.
 // Review lists are scoped to a single plan (and, per-lesson, to a single lessonIndex), so
-// unlike comments-list.component.js this renders plain client-sorted/grouped tables instead of
+// unlike comments-list.component.js this renders a plain client-sorted table instead of
 // a server-paginated react-table -- the plan's REST contract does not paginate this endpoint.
 //
 // Two distinct usages, driven by the sectionKey prop (lessonIndex further
@@ -44,22 +44,6 @@ import AuthService from "../services/auth.service";
 //    author -- it's edited/deleted at its origin (the segment's own mini-widget), never from the
 //    aggregate, so nothing you see on a section's own tab can vanish out from under it via an
 //    edit made somewhere else.
-const groupByVersion = (sortedReviews) => {
-  const groups = [];
-  const byKey = new Map();
-  for (const review of sortedReviews) {
-    const key = review.planVersionAt || "unknown";
-    let group = byKey.get(key);
-    if (!group) {
-      group = { key, items: [] };
-      byKey.set(key, group);
-      groups.push(group);
-    }
-    group.items.push(review);
-  }
-  return groups;
-};
-
 // Content beyond this length starts collapsed (a truncated preview + a
 // 展开/收起 toggle) -- an AI review in particular can run to several
 // paragraphs, which used to blow up every row's height in a list that's
@@ -287,6 +271,20 @@ const ReviewList = (props) => {
     if (!review.segmentVersionAt) return true;
     return new Date(current).getTime() !== new Date(review.segmentVersionAt).getTime();
   };
+  // The one "内容已更新" signal shown per row, regardless of reviewer type:
+  // a review with a real single segment (WHY/WHAT/HOW/a lesson's design or
+  // execution record) uses isSegmentStale so unrelated edits elsewhere don't
+  // flag it; a review with no single segment -- a plain 整体/
+  // IMPLEMENTATION_OVERALL comment, or an AI review generated over the whole
+  // scope -- falls back to the plan-wide version check instead, since there's
+  // no narrower "its own part" to compare against. Applies equally to
+  // AI/expert/admin rows -- previously only segment-tagged rows got this
+  // per-row badge; a plan-wide-scoped row (most AI reviews) relied solely on
+  // the now-removed per-version table grouping to convey the same thing.
+  const isContentUpdated = (review) => {
+    const key = segmentKeyForReview(review);
+    return key ? isSegmentStale(review) : !isCurrentVersion(review);
+  };
   // A review is "this aggregate's own" iff it's tagged with this aggregate's
   // writeSectionKey and has no lessonIndex -- everything else shown in an
   // aggregate (a segment review, or, in 实施's aggregate, 设计's own AI
@@ -392,106 +390,101 @@ const ReviewList = (props) => {
 
       {reviews.length === 0 && <div className="pl-empty">暂无点评</div>}
 
-      {groupByVersion(reviews).map((group, idx) => {
-        const isCurrent = group.key === planContentVersionAt;
-        return (
-          <div key={group.key} className={idx > 0 ? "mt-3" : ""}>
-            <div className="d-flex align-items-center mb-1">
-              {isCurrent ? (
-                <span className="pl-tag mr-2">当前版本</span>
-              ) : (
-                <span className="pl-tag pl-tag-warn mr-2">历史版本（课程内容已被后续修改）</span>
-              )}
-            </div>
-            <table className="table table-sm table-bordered mb-0">
-              <thead>
-                <tr>
-                  <th>类型</th>
-                  {isAggregateView && <th>模块</th>}
-                  <th>评分</th>
-                  <th>内容</th>
-                  <th>点评人</th>
-                  <th>时间</th>
-                  <th>操作</th>
+      {reviews.length > 0 && (
+        <table className="table table-sm table-bordered mb-0">
+          <thead>
+            <tr>
+              <th>类型</th>
+              {isAggregateView && <th>模块</th>}
+              <th>评分</th>
+              <th>内容</th>
+              <th>点评人</th>
+              <th>时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reviews.map((review) => {
+              const isLong = review.content && review.content.length > CONTENT_PREVIEW_LENGTH;
+              const isExpanded = expandedIds.has(review.id);
+              const updatedBadge = isContentUpdated(review) && (
+                <span className="pl-tag pl-tag-warn ml-1" title="课程内容已在此点评后被修改">
+                  内容已更新
+                </span>
+              );
+              return (
+                <tr key={review.id}>
+                  <td>
+                    {review.reviewerType === "ai" ? (
+                      <span className="pl-tag-ai" title={review.aiModel ? `模型：${review.aiModel}` : undefined}>
+                        AI点评
+                      </span>
+                    ) : review.reviewerType === "admin" ? (
+                      <span className="pl-tag-admin">管理员点评</span>
+                    ) : (
+                      <span className="pl-tag-expert">专家点评</span>
+                    )}
+                    {!isAggregateView && updatedBadge}
+                  </td>
+                  {isAggregateView &&
+                    (() => {
+                      const { label, navKey, clickable } = moduleCell(review);
+                      return (
+                        <td>
+                          {clickable && onSelectSection ? (
+                            <button type="button" className="btn btn-link p-0" onClick={() => onSelectSection(navKey, review.lessonIndex)}>
+                              {label}
+                            </button>
+                          ) : (
+                            label
+                          )}
+                          {updatedBadge}
+                        </td>
+                      );
+                    })()}
+                  <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>
+                  <td style={{ whiteSpace: "pre-wrap" }}>
+                    {isLong && !isExpanded ? `${review.content.slice(0, CONTENT_PREVIEW_LENGTH)}...` : review.content}
+                    {isLong && (
+                      <button type="button" className="btn btn-link btn-sm p-0 ml-1" onClick={() => toggleExpanded(review.id)}>
+                        {isExpanded ? "收起" : "展开"}
+                      </button>
+                    )}
+                  </td>
+                  <td>{review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-"}</td>
+                  <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
+                  <td>
+                    {/* Continuing an AI review's discussion with 欣欣助手 is
+                        reserved to the plan's owning teacher (canTriggerAi
+                        mirrors canEditPlan, see the file header comment) --
+                        not shown to an expert/admin/other-teacher viewer
+                        reading the same review, matching chat.controller.js's
+                        own ownership check on the review-scoped conversation
+                        this button opens. */}
+                    {review.reviewerType === "ai" && canTriggerAi && (
+                      <button
+                        type="button"
+                        className="btn btn-link p-0 mr-2"
+                        title="打开欣欣助手，就这条点评继续提问"
+                        onClick={() =>
+                          window.dispatchEvent(new CustomEvent("copilot:open", { detail: { reviewId: review.id } }))
+                        }
+                      >
+                        讨论
+                      </button>
+                    )}
+                    {canDelete(review) ? (
+                      <button className="btn btn-link p-0 text-danger" onClick={() => deleteReview(review)}>
+                        删除
+                      </button>
+                    ) : null}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {group.items.map((review) => {
-                  const isLong = review.content && review.content.length > CONTENT_PREVIEW_LENGTH;
-                  const isExpanded = expandedIds.has(review.id);
-                  const staleBadge = isSegmentStale(review) && (
-                    <span className="pl-tag pl-tag-warn ml-1" title="该模块内容已在此点评后被修改">
-                      内容已更新
-                    </span>
-                  );
-                  return (
-                  <tr key={review.id}>
-                    <td>
-                      {review.reviewerType === "ai" ? (
-                        <span className="pl-tag-ai" title={review.aiModel ? `模型：${review.aiModel}` : undefined}>
-                          AI点评
-                        </span>
-                      ) : review.reviewerType === "admin" ? (
-                        <span className="pl-tag-admin">管理员点评</span>
-                      ) : (
-                        <span className="pl-tag-expert">专家点评</span>
-                      )}
-                      {!isAggregateView && staleBadge}
-                    </td>
-                    {isAggregateView &&
-                      (() => {
-                        const { label, navKey, clickable } = moduleCell(review);
-                        return (
-                          <td>
-                            {clickable && onSelectSection ? (
-                              <button type="button" className="btn btn-link p-0" onClick={() => onSelectSection(navKey, review.lessonIndex)}>
-                                {label}
-                              </button>
-                            ) : (
-                              label
-                            )}
-                            {staleBadge}
-                          </td>
-                        );
-                      })()}
-                    <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>
-                    <td style={{ whiteSpace: "pre-wrap" }}>
-                      {isLong && !isExpanded ? `${review.content.slice(0, CONTENT_PREVIEW_LENGTH)}...` : review.content}
-                      {isLong && (
-                        <button type="button" className="btn btn-link btn-sm p-0 ml-1" onClick={() => toggleExpanded(review.id)}>
-                          {isExpanded ? "收起" : "展开"}
-                        </button>
-                      )}
-                    </td>
-                    <td>{review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-"}</td>
-                    <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
-                    <td>
-                      {review.reviewerType === "ai" && (
-                        <button
-                          type="button"
-                          className="btn btn-link p-0 mr-2"
-                          title="打开欣欣助手，就这条点评继续提问"
-                          onClick={() =>
-                            window.dispatchEvent(new CustomEvent("copilot:open", { detail: { reviewId: review.id } }))
-                          }
-                        >
-                          讨论
-                        </button>
-                      )}
-                      {canDelete(review) ? (
-                        <button className="btn btn-link p-0 text-danger" onClick={() => deleteReview(review)}>
-                          删除
-                        </button>
-                      ) : null}
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        );
-      })}
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 };
