@@ -1319,6 +1319,14 @@
   border-radius: 8px;
 }
 
+/* template-admin.component.js's "相关课程计划" popup: full PlanCard tiles
+   (.pl-plan-grid) instead of the plain title/teacher/year rows .pl-modal-row
+   was sized for -- needs real room to lay those out, not the base .pl-modal's
+   480px. */
+.pl-modal-wide {
+  width: 900px;
+}
+
 .pl-modal-row {
   padding: 8px 12px;
   border-bottom: 1px solid var(--pl-line);

@@ -121,7 +121,7 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
               <label>{field.group ? `${field.group} · ${field.label}` : field.label}</label>
               <textarea
                 className="form-control"
-                rows="2"
+                rows="4"
                 // field.hint only fills in while the field is genuinely
                 // untouched (null/undefined) -- an explicit "" (the teacher
                 // deliberately cleared it) stays blank rather than snapping
