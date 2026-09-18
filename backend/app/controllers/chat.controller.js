@@ -148,6 +148,33 @@ const normalizePageContextQuery = (query) => ({
   reviewId: query.reviewId ? Number(query.reviewId) : undefined,
 });
 
+// Continuing an AI review's own discussion (opened via review-list.
+// component.js's 讨论 button, review-scoped pageContext.reviewId) is
+// reserved to the plan's owning teacher -- matches createAiReview's own
+// owner-only check above and review-list.component.js's canTriggerAi gate
+// on showing that button at all. Enforced here too (not just hidden client-
+// side) since every entry point that can establish a review-scoped
+// conversation (getCurrent's auto-create, startNew, sendMessage) accepts a
+// client-supplied reviewId. A bare planId pageContext (the general co-pilot,
+// not opened from a specific review) is unaffected -- broader browsing of a
+// plan's own content already has no ownership restriction elsewhere in this
+// app (see plan.controller.js#findAll's cross-teacher visibility), and this
+// gate only concerns the review-discussion affordance itself.
+const assertReviewOwnership = async (userId, reviewId) => {
+  const review = await Review.findByPk(reviewId, { attributes: ["id", "planId"] });
+  if (!review) {
+    const err = new Error("未找到该点评。");
+    err.status = 404;
+    throw err;
+  }
+  const plan = await Plan.findByPk(review.planId, { attributes: ["id", "teacherId"] });
+  if (!plan || plan.teacherId !== userId) {
+    const err = new Error("只能查看本人创建的乡土课程设计的点评讨论。");
+    err.status = 403;
+    throw err;
+  }
+};
+
 // Shared by both sendMessage (current-scope-resolved) and
 // sendMessageToConversation (an explicitly-picked past thread) -- appends
 // the user/assistant turn to whichever conversation row and pageContext the
@@ -212,6 +239,7 @@ const appendTurn = async (conversation, content, pageContext) => {
 exports.getCurrent = async (req, res) => {
   try {
     const pageContext = normalizePageContextQuery(req.query);
+    if (pageContext.reviewId) await assertReviewOwnership(req.userId, pageContext.reviewId);
     const scopeKey = deriveScopeKey(pageContext);
     const conversation = await getOrCreateCurrentConversation(req.userId, scopeKey);
     const messages = await ChatMessage.findAll({
@@ -221,7 +249,7 @@ exports.getCurrent = async (req, res) => {
     });
     return res.send({ conversation, messages: messages.reverse() });
   } catch (err) {
-    return res.status(500).send({ message: err.message || "加载对话失败。" });
+    return res.status(err.status || 500).send({ message: err.message || "加载对话失败。" });
   }
 };
 
@@ -230,11 +258,13 @@ exports.getCurrent = async (req, res) => {
 // user is currently looking at, not a fresh *global* thread.
 exports.startNew = async (req, res) => {
   try {
-    const scopeKey = deriveScopeKey(req.body.pageContext);
+    const pageContext = req.body.pageContext;
+    if (pageContext && pageContext.reviewId) await assertReviewOwnership(req.userId, pageContext.reviewId);
+    const scopeKey = deriveScopeKey(pageContext);
     const conversation = await ChatConversation.create({ userId: req.userId, scopeKey });
     return res.send({ conversation, messages: [] });
   } catch (err) {
-    return res.status(500).send({ message: err.message || "创建新对话失败。" });
+    return res.status(err.status || 500).send({ message: err.message || "创建新对话失败。" });
   }
 };
 
@@ -251,13 +281,14 @@ exports.sendMessage = async (req, res) => {
     }
 
     const pageContext = req.body.pageContext;
+    if (pageContext && pageContext.reviewId) await assertReviewOwnership(req.userId, pageContext.reviewId);
     const scopeKey = deriveScopeKey(pageContext);
     const conversation = await getOrCreateCurrentConversation(req.userId, scopeKey);
 
     const { userMessage, assistantMessage } = await appendTurn(conversation, content, pageContext);
     return res.send({ userMessage, assistantMessage });
   } catch (err) {
-    return res.status(500).send({ message: err.message || "发送消息时发生错误。" });
+    return res.status(err.status || 500).send({ message: err.message || "发送消息时发生错误。" });
   }
 };
 

@@ -55,6 +55,17 @@ module.exports = (sequelize, Sequelize) => {
       notes: {
         type: Sequelize.TEXT,
       },
+      // Set once, the first time an admin clicks 发起迁移 for this version
+      // (template.controller.js#migrate) -- never cleared, even once every
+      // dependent plan has migrated away and the button itself disappears
+      // (dependentPlanCount hits 0). That button is otherwise idempotent by
+      // design (safe to click again for plans added to this version later),
+      // so it carries no "already triggered" signal of its own -- this
+      // timestamp is what lets the admin UI tell the two apart instead of
+      // guessing from whether the button is still showing.
+      migrationInitiatedAt: {
+        type: Sequelize.DATE,
+      },
     },
     {
       tableName: "template_versions",

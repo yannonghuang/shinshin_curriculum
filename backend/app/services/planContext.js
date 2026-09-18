@@ -199,6 +199,62 @@ async function buildWholePlanContentText(plan) {
   return text.length > MAX_TOTAL_CHARS ? `${text.slice(0, MAX_TOTAL_CHARS)}\n……（内容过长，已截断）` : text;
 }
 
+const REVIEWER_TYPE_LABELS = { ai: "AI点评", expert: "专家点评", admin: "管理员点评" };
+
+// Mirrors review-list.component.js's sectionLabel, minus the sectionLabels
+// map it resolves a heading-parsed template's auto-generated anchor keys
+// ("S0"/"S1"/...) through -- that map is built client-side from the plan's
+// own template schema and isn't available here, so those fall back to their
+// raw key, which is still legible enough for an LLM prompt even if not as
+// polished as the UI's own label.
+const basicSectionLabel = (sectionKey, lessonIndex) => {
+  if (!sectionKey) return "整体";
+  if (sectionKey === "LESSON_DESIGN") return `分课时设计·第${lessonIndex || ""}课时`;
+  if (sectionKey === "EXECUTION_RECORD") return `实施记录·第${lessonIndex || ""}课时`;
+  if (sectionKey === "IMPLEMENTATION_OVERALL") return "实施整体";
+  return sectionKey;
+};
+
+// Bounds how much review history a prompt carries -- both by entry count and
+// by total rendered length -- so a plan with a long review history doesn't
+// blow up the AI-review prompt's token budget the way MAX_TOTAL_CHARS
+// already bounds buildWholePlanContentText's own content. Keeps the most
+// recent entries (in chronological order) when the count cap trims anything,
+// since recent feedback is more likely to still be actionable than old.
+const REVIEW_HISTORY_MAX_ENTRIES = 20;
+const REVIEW_HISTORY_MAX_CHARS = 4000;
+
+// Renders every existing review on a plan as plain text, so a new AI-review
+// request is aware of what's already been said -- by human experts and by
+// its own prior runs -- instead of writing as if from a blank slate every
+// time (see review.controller.js#createAiReview, which appends this to
+// whichever content text it already built). Deliberately plan-wide rather
+// than scoped to the requesting AI review's own section: a design-aggregate
+// review benefits from knowing what a segment reviewer already flagged on
+// WHAT·项目简介, for instance, not just prior 整体 comments.
+async function buildReviewHistoryText(planId) {
+  const reviews = await db.review.findAll({
+    where: { planId },
+    order: [["createdAt", "ASC"]],
+    limit: REVIEW_HISTORY_MAX_ENTRIES,
+  });
+  if (reviews.length === 0) return "";
+
+  const lines = [
+    "\n以下是该课程设计此前收到的全部点评记录（含历史版本，按时间顺序），请参考、避免重复此前已提出的意见，并可在此基础上继续深入：",
+  ];
+  for (const r of reviews) {
+    const typeLabel = REVIEWER_TYPE_LABELS[r.reviewerType] || r.reviewerType;
+    const sectionLabel = basicSectionLabel(r.sectionKey, r.lessonIndex);
+    const time = r.createdAt ? new Date(r.createdAt).toLocaleString("zh-cn") : "";
+    const scoreNote = r.score !== null && r.score !== undefined ? `，评分：${r.score}` : "";
+    lines.push(`- [${typeLabel} · ${sectionLabel} · ${time}${scoreNote}]\n  ${r.content}`);
+  }
+
+  const text = lines.join("\n");
+  return text.length > REVIEW_HISTORY_MAX_CHARS ? `${text.slice(0, REVIEW_HISTORY_MAX_CHARS)}\n……（历史点评过多，已截断）` : text;
+}
+
 // OpenAI-style tool definition for the co-pilot agent loop (chat.controller.js)
 // -- lets the model fetch a plan's actual content on demand rather than
 // having it force-injected into every single turn, mirroring
@@ -236,4 +292,10 @@ async function getPlanDetails({ planId }) {
   return { title: plan.title, content };
 }
 
-module.exports = { buildPlanContentText, buildWholePlanContentText, getPlanDetailsToolDef, getPlanDetails };
+module.exports = {
+  buildPlanContentText,
+  buildWholePlanContentText,
+  buildReviewHistoryText,
+  getPlanDetailsToolDef,
+  getPlanDetails,
+};
