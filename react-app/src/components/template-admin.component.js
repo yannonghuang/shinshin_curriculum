@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import mammoth from "mammoth";
-import { Link } from "react-router-dom";
 import TemplateDataService from "../services/template.service";
 import PlanDataService from "../services/plan.service";
+import AuthService from "../services/auth.service";
+import PlanCard from "./plan-card.component";
 import "../curriculum.css";
 
 const TEMPLATE_KEYS = [
@@ -96,6 +97,71 @@ const TemplateAdmin = () => {
   };
 
   const closeDependentModal = () => setDependentModal(null);
+
+  // Patches one plan's fields in place within the open modal's own plans
+  // array -- mirrors plans-list.component.js's toggleExcellent/toggleSuspend/
+  // onDelete (same PlanDataService calls, same confirm-before-suspend), just
+  // updating this modal's local state afterward instead of that page's
+  // retrieveAll(), since the two lists are otherwise unrelated.
+  const patchDependentPlan = (planId, patch) => {
+    setDependentModal((prev) =>
+      prev ? { ...prev, plans: prev.plans.map((p) => (p.id === planId ? { ...p, ...patch } : p)) } : prev
+    );
+  };
+
+  const toggleDependentExcellent = async (item) => {
+    try {
+      await PlanDataService.update(item.id, { isExcellentCase: !item.isExcellentCase });
+      patchDependentPlan(item.id, { isExcellentCase: !item.isExcellentCase });
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "操作失败。");
+    }
+  };
+
+  const toggleDependentSuspend = async (item) => {
+    if (!item.suspended) {
+      const ok = window.confirm(`确定停用「${item.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。`);
+      if (!ok) return;
+    }
+    try {
+      if (item.suspended) {
+        await PlanDataService.unsuspend(item.id);
+      } else {
+        await PlanDataService.suspend(item.id);
+      }
+      patchDependentPlan(item.id, { suspended: !item.suspended });
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "操作失败。");
+    }
+  };
+
+  // Mirrors plans-list.component.js's canEditItem -- editable inline (via
+  // PlanCard's own "编辑"/"查看详情" footer link) only for the admin's own
+  // plans, not-suspended; every other admin-viewed plan here is read-only
+  // browsing, same as everywhere else in the app (see plan-detail.
+  // component.js's canEditPlan, which enforces this same rule server-side
+  // too via plan.controller.js#update).
+  const isDependentPlanEditable = (item) => {
+    const currentUser = AuthService.getCurrentUser();
+    const isOwner = AuthService.isTeacher() && currentUser && String(item.teacherId) === String(currentUser.id);
+    return !item.suspended && isOwner;
+  };
+
+  const deleteDependentPlan = async (item) => {
+    const ok = window.confirm("此操作将永久删除该课程设计及其所有附件与点评，且无法撤销。确定继续吗？");
+    if (!ok) return;
+    try {
+      await PlanDataService.delete(item.id, true);
+      setDependentModal((prev) => (prev ? { ...prev, plans: prev.plans.filter((p) => p.id !== item.id) } : prev));
+      // The row's own 相关课程计划 count is now stale (one fewer) -- a full
+      // refetch keeps it (and the 发起迁移 button's self-hide-at-0 condition,
+      // see its own comment) accurate without the admin having to reload the
+      // page by hand.
+      retrieveAll();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "删除失败。");
+    }
+  };
 
   const retrieveAll = useCallback(async () => {
     try {
@@ -388,30 +454,37 @@ const TemplateAdmin = () => {
                               non-active version that still has dependent
                               plans; it self-hides once they've all migrated
                               away, since dependentPlanCount then drops to 0.
-                              The button stays clickable even after the first
-                              click (idempotent, see handleMigrate's confirm
-                              text), so its own presence never tells you
-                              whether it's been triggered before -- the
-                              migrationInitiatedAt badge does. */}
+                              Re-clicking after migrationInitiatedAt is set
+                              genuinely does nothing: needsMigration's only two
+                              writers are this action (sets true) and the
+                              teacher's own migrateMine (clears it exactly
+                              when -- never before -- they migrate, which also
+                              moves them off planTemplateVersionId onto the
+                              active version). So any plan still pinned here
+                              necessarily still has needsMigration=true from
+                              the first click; there's nothing a second click
+                              could ever flip. The button is swapped for the
+                              badge once initiated, rather than staying
+                              alongside it as a "重新发起" affordance that
+                              would just invite a no-op click. */}
                           {t.key === "plan_design" && !v.isActive && v.dependentPlanCount > 0 && (
-                            <>
+                            v.migrationInitiatedAt ? (
+                              <span
+                                className="pl-tag mr-1"
+                                title={`发起于 ${new Date(v.migrationInitiatedAt).toLocaleString()}`}
+                              >
+                                已发起迁移
+                              </span>
+                            ) : (
                               <button
                                 className="btn btn-outline-warning btn-sm mr-1"
                                 type="button"
                                 disabled={busyVersionId === v.id}
                                 onClick={() => handleMigrate(t.key, v)}
                               >
-                                {v.migrationInitiatedAt ? "重新发起迁移" : "发起迁移"}
+                                发起迁移
                               </button>
-                              {v.migrationInitiatedAt && (
-                                <span
-                                  className="pl-tag mr-1"
-                                  title={`首次发起于 ${new Date(v.migrationInitiatedAt).toLocaleString()}`}
-                                >
-                                  已发起迁移
-                                </span>
-                              )}
-                            </>
+                            )
                           )}
                           {!v.isActive && (
                             <button
@@ -474,7 +547,7 @@ const TemplateAdmin = () => {
 
       {dependentModal && (
         <div className="pl-modal-backdrop" onClick={closeDependentModal}>
-          <div className="pl-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="pl-modal pl-modal-wide" onClick={(e) => e.stopPropagation()}>
             <div className="d-flex justify-content-between align-items-center mb-2">
               <h6 className="mb-0">相关课程计划 · v{dependentModal.version.version}</h6>
               <button className="btn btn-link p-0" type="button" onClick={closeDependentModal}>
@@ -488,30 +561,27 @@ const TemplateAdmin = () => {
             ) : dependentModal.plans.length === 0 ? (
               <div className="pl-empty">暂无相关课程计划。</div>
             ) : (
-              <>
-                <div className="pl-modal-list">
-                  {dependentModal.plans.map((p) => (
-                    <Link
-                      key={p.id}
-                      to={`/plans/${p.id}`}
-                      className="pl-modal-row d-block"
-                      onClick={closeDependentModal}
-                    >
-                      <div>{p.title || "未命名课程设计"}</div>
-                      <div className="text-muted small">
-                        {p.Teacher ? p.Teacher.chineseName || p.Teacher.username : "-"}
-                        {p.year ? ` · ${p.year}` : ""}
-                        {p.season ? ` ${p.season}` : ""}
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-                <div className="mt-2 text-right">
-                  <Link to={`/plans?templateVersionId=${dependentModal.version.id}`} onClick={closeDependentModal}>
-                    在完整列表中查看 →
-                  </Link>
-                </div>
-              </>
+              // The actual plan list, in place -- same PlanCard used by
+              // plans-list.component.js/plans-hierarchy.component.js, tags
+              // (待迁移/已提交/优秀案例/...) and all, rather than a stripped-down
+              // title/teacher/year preview that only earned its keep as a
+              // stepping stone to "在完整列表中查看" (a separate route). This
+              // fetch already pulls every dependent plan (getAll's size: 200
+              // above), so this modal was always the complete list -- it just
+              // wasn't showing enough to be worth stopping at before now.
+              <div className="pl-plan-grid">
+                {dependentModal.plans.map((p) => (
+                  <PlanCard
+                    key={p.id}
+                    item={p}
+                    canEdit={isDependentPlanEditable(p)}
+                    canDelete={AuthService.isAdmin()}
+                    onDelete={deleteDependentPlan}
+                    onToggleExcellent={toggleDependentExcellent}
+                    onToggleSuspend={toggleDependentSuspend}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </div>
