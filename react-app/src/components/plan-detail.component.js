@@ -155,6 +155,34 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
   );
 };
 
+// 保存草稿/提交待点评, rendered both above and below a section's own fields
+// (see the three call sites below) -- a long section (WHY ·学习目标 routinely
+// runs to several full-height textareas, see plan-detail.component.js's own
+// rows="4" bump) previously left these reachable only by scrolling all the
+// way down, even though "save what I've typed so far" is exactly the kind of
+// action someone wants close at hand while still partway through a long
+// form. Both copies act on the exact same section state (planDirty/
+// executionDirty etc. are the section's, not this component's own), so
+// there's nothing to keep in sync -- either button just saves/submits
+// whatever's currently in the form.
+// showSubmit is false once the plan has left "draft" (submitted/reviewed) --
+// 提交待点评 doesn't apply anymore at that point (there's nothing left to
+// submit into review), so it's dropped entirely rather than left showing
+// disabled, same as every other case-content action in this file that's
+// owner/draft-gated by omission, not a greyed-out control.
+const SaveSubmitButtons = ({ onSaveDraft, saveDisabled, onSubmit, submitDisabled, showSubmit = true, position = "bottom" }) => (
+  <div className={`d-flex ${position === "top" ? "mb-3" : "mt-2"}`}>
+    <button className="btn btn-primary mr-2" type="button" onClick={onSaveDraft} disabled={saveDisabled}>
+      保存草稿
+    </button>
+    {showSubmit && (
+      <button className="btn btn-primary" type="button" onClick={onSubmit} disabled={submitDisabled}>
+        提交待点评
+      </button>
+    )}
+  </div>
+);
+
 // Plan-level 课程设计文件 panel, reached from a single sidebar leaf (see
 // PLAN_SECTIONS below). All three commands are shown at once:
 // 下载/预览 act immediately on click; 上传 just toggles the drop-zone/browse
@@ -1054,6 +1082,16 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card pl-why-what-how">
           <h6>{section.label}</h6>
+          {canEditPlan && (
+            <SaveSubmitButtons
+              position="top"
+              onSaveDraft={() => saveFormData()}
+              saveDisabled={!planDirty}
+              onSubmit={() => saveFormData("submitted")}
+              submitDisabled={!planNotEmpty}
+              showSubmit={plan.status === "draft"}
+            />
+          )}
           <DynamicSectionFields
             fields={directFields(section)}
             subsections={section.subsections}
@@ -1062,19 +1100,13 @@ const PlanDetail = (props) => {
             onFieldChange={(field, value) => onFormFieldChange(section.key, field, value)}
           />
           {canEditPlan && (
-            <div className="d-flex mt-2">
-              <button className="btn btn-primary mr-2" type="button" onClick={() => saveFormData()} disabled={!planDirty}>
-                保存草稿
-              </button>
-              <button
-                className="btn btn-primary"
-                type="button"
-                onClick={() => saveFormData("submitted")}
-                disabled={plan.status !== "draft" || !planNotEmpty}
-              >
-                提交待点评
-              </button>
-            </div>
+            <SaveSubmitButtons
+              onSaveDraft={() => saveFormData()}
+              saveDisabled={!planDirty}
+              onSubmit={() => saveFormData("submitted")}
+              submitDisabled={!planNotEmpty}
+              showSubmit={plan.status === "draft"}
+            />
           )}
           <hr />
           <ReviewList
@@ -1173,6 +1205,16 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card pl-why-what-how">
           <h6>分课时设计 · 课时 {n}</h6>
+          {canEditPlan && (
+            <SaveSubmitButtons
+              position="top"
+              onSaveDraft={() => saveFormData()}
+              saveDisabled={!planDirty}
+              onSubmit={() => saveFormData("submitted")}
+              submitDisabled={!planNotEmpty}
+              showSubmit={plan.status === "draft"}
+            />
+          )}
           {lessonSchema ? (
             // Schema-driven: a reusable per-课时 field template extracted
             // from the source template itself (see templateParser.js#
@@ -1211,19 +1253,13 @@ const PlanDetail = (props) => {
             </>
           )}
           {canEditPlan && (
-            <div className="d-flex mt-2">
-              <button className="btn btn-primary mr-2" type="button" onClick={() => saveFormData()} disabled={!planDirty}>
-                保存草稿
-              </button>
-              <button
-                className="btn btn-primary"
-                type="button"
-                onClick={() => saveFormData("submitted")}
-                disabled={plan.status !== "draft" || !planNotEmpty}
-              >
-                提交待点评
-              </button>
-            </div>
+            <SaveSubmitButtons
+              onSaveDraft={() => saveFormData()}
+              saveDisabled={!planDirty}
+              onSubmit={() => saveFormData("submitted")}
+              submitDisabled={!planNotEmpty}
+              showSubmit={plan.status === "draft"}
+            />
           )}
           <hr />
           <ReviewList
@@ -1250,6 +1286,16 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card pl-why-what-how">
           <h6>实施记录 · 课时 {n}</h6>
+          {canEditPlan && (
+            <SaveSubmitButtons
+              position="top"
+              onSaveDraft={() => saveExecutionRecord()}
+              saveDisabled={!executionDirty}
+              onSubmit={() => saveExecutionRecord("submitted")}
+              submitDisabled={!executionNotEmpty}
+              showSubmit={plan.status === "draft"}
+            />
+          )}
           <DynamicSectionFields
             fields={directFields(section)}
             subsections={section.subsections}
@@ -1258,19 +1304,13 @@ const PlanDetail = (props) => {
             onFieldChange={(field, value) => onExecutionFieldChange(n, field, value)}
           />
           {canEditPlan && (
-            <div className="d-flex mt-2">
-              <button className="btn btn-primary mr-2" type="button" onClick={() => saveExecutionRecord()} disabled={!executionDirty}>
-                保存草稿
-              </button>
-              <button
-                className="btn btn-primary"
-                type="button"
-                onClick={() => saveExecutionRecord("submitted")}
-                disabled={plan.status !== "draft" || !executionNotEmpty}
-              >
-                提交待点评
-              </button>
-            </div>
+            <SaveSubmitButtons
+              onSaveDraft={() => saveExecutionRecord()}
+              saveDisabled={!executionDirty}
+              onSubmit={() => saveExecutionRecord("submitted")}
+              submitDisabled={!executionNotEmpty}
+              showSubmit={plan.status === "draft"}
+            />
           )}
           <hr />
           <ReviewList
