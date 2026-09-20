@@ -95,13 +95,15 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
 
-  // The review-status toggles only make sense on the admin's plain
-  // "全部乡土课程" view (bare /plans, no fixed statusFilter and not the
-  // excellent-case gallery) -- matches exactly the condition
-  // plans-list.component.js's own `heading` uses to decide that's what this
-  // is. The expert's ?status=submitted queue and the public gallery keep
-  // browsing their own fixed set with no filter bar.
-  const showReviewFilters = !statusFilter && !excellentOnly;
+  // The review-status toggles/search boxes make sense on any staff browsing
+  // view -- admin/teacher's plain "全部乡土课程" (bare /plans, no
+  // statusFilter) and the expert's own "待点评案例" queue (?status=submitted)
+  // alike, both benefiting from narrowing a long tree down by teacher/
+  // school/theme/AI-or-expert-reviewed the same way. Only the public
+  // 优秀案例 gallery (excellentOnly, browsable logged-out) keeps a fixed set
+  // with no filter bar -- a stranger browsing showcase cases has no "my
+  // queue" to narrow down.
+  const showReviewFilters = !excellentOnly;
   // "已提交" is admin-only: plan.controller.js#findAll's restrictToSubmitted
   // already excludes drafts server-side for expert/teacher, so the toggle
   // would be redundant (always-on and un-toggleable-off) for them -- only
