@@ -304,11 +304,12 @@ const PlansList = (props) => {
     ? "待点评案例"
     : "全部乡土课程";
 
-  // Only the admin's plain 全部乡土课程 view offers the review-status filter
-  // toggles (see plans-hierarchy.component.js's own identical
-  // showReviewFilters condition) -- the expert's fixed 待点评 queue and the
-  // public 优秀案例 gallery never report a count up, so this stays null there.
-  const showHierarchyCount = isManagerOrExpertView && !statusFilter && !excellentOnly && hierarchyFilteredCount !== null;
+  // Every staff hierarchy view (admin/teacher's 全部乡土课程, the expert's
+  // 待点评案例 queue) offers the review-status filter toggles and reports a
+  // filtered count up -- see plans-hierarchy.component.js's own identical
+  // showReviewFilters condition. Only the public 优秀案例 gallery never
+  // reports one, so this stays null there.
+  const showHierarchyCount = isManagerOrExpertView && !excellentOnly && hierarchyFilteredCount !== null;
 
   return (
     <div className={`container ${stylishPublic ? "pl-page" : ""}`}>
