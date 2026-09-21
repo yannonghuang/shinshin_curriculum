@@ -467,6 +467,7 @@ const PlansList = (props) => {
               onDelete={onDelete}
               onToggleExcellent={toggleExcellent}
               onToggleSuspend={toggleSuspend}
+              showTeacher={!effectiveMineOnly}
             />
           ))}
         </div>
