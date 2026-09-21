@@ -579,6 +579,7 @@ const TemplateAdmin = () => {
                     onDelete={deleteDependentPlan}
                     onToggleExcellent={toggleDependentExcellent}
                     onToggleSuspend={toggleDependentSuspend}
+                    showTeacher
                   />
                 ))}
               </div>

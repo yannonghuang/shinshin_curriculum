@@ -13,7 +13,16 @@ const STATUS_LABELS = { draft: "草稿", submitted: "已提交", reviewed: "已�
 // presentational one; the 优秀案例/停用 admin toggles stay gated on
 // AuthService.isAdmin() directly here since that's a fixed, caller-independent
 // rule, not something either caller needs to vary.
-const PlanCard = ({ item, canEdit, canDelete, onDelete, onToggleExcellent, onToggleSuspend }) => (
+//
+// showTeacher: the card omits the teacher's name by default, since most
+// callers already establish whose plans these are via their own navigation
+// path (plans-hierarchy.component.js's selected-teacher panel header, or
+// plans-list.component.js's ?mine=true "我的乡土课程" view). Pass true from a
+// caller whose list can mix plans from different teachers with no such
+// context of its own (template-admin.component.js's 相关课程计划 modal, and
+// plans-list.component.js's own flat grid when it's showing that same
+// cross-teacher ?templateVersionId list rather than ?mine=true).
+const PlanCard = ({ item, canEdit, canDelete, onDelete, onToggleExcellent, onToggleSuspend, showTeacher }) => (
   <div className="pl-plan-card">
     {item.isExcellentCase && <span className="pl-plan-card-excellent">优秀案例</span>}
     {item.suspended && <span className="pl-plan-card-suspended">已停用</span>}
@@ -25,6 +34,7 @@ const PlanCard = ({ item, canEdit, canDelete, onDelete, onToggleExcellent, onTog
         <h6 className="pl-plan-card-title">{item.title}</h6>
         <div className="pl-plan-card-year">
           {item.year || "-"} 年{item.season ? ` · ${item.season}` : ""}
+          {showTeacher && <> · {(item.Teacher && (item.Teacher.chineseName || item.Teacher.username)) || "教师未知"}</>}
         </div>
       </div>
     </div>
