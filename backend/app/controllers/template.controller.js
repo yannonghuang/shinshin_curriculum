@@ -291,20 +291,24 @@ exports.getActive = async (req, res) => {
 // GET /api/templates/:templateKey/blank-doc -- teacher-only-facing (the
 // "下载乡土课程设计方案模版"/"下载乡土课程实施记录模版" buttons on the plans
 // list are the only caller, see plans-list.component.js#downloadTemplateFile/
-// previewTemplateFile). Always rendered on the fly from the active version's
-// own schemaJson via dynamicDocGenerator, the same engine
-// plan.controller.js#renderDoc/renderExecutionDoc use for a plan that hasn't
-// filled in a field yet -- rather than streaming the original uploaded .docx
-// bytes (unlike #download below, the admin-only per-version download, which
-// still does exactly that). A source-authored "-" line under a field's label
-// is the parser's own hint marker (see templateParser.js#parseHeadingSections),
-// not content meant for a teacher to see verbatim; schemaJson's own
-// field.hint already has that leading "-" stripped at parse time, so
-// generating from it is what actually gets a teacher a clean hint instead of
-// literal "-您的驱动问题是：" text. stylesXml/numberingXml/themeXml (all
-// resolved from the version's own source file when it has one, null for a
-// hand-authored seed version) keep the real template's fonts/numbering/theme
-// intact despite not streaming the file itself.
+// previewTemplateFile). If the active version came from an upload
+// (sourceFilePath set, see #upload above), streams the *exact* original
+// .docx bytes admin's own #download below streams -- full fidelity, same
+// file, same sections (基本信息, the real 分课时设计 worked example, everything
+// else) -- except every templateParser.js#parseHeadingSections hint-marker
+// "-" stripped, via templateParser.js#stripHintMarkerDashes (see its own
+// comment for why: a teacher was never meant to see that "-" literally, but
+// reconstructing the whole document from schemaJson to get rid of it isn't
+// safe -- schemaJson only captures what the parser modeled as fields, not
+// the full document, so regenerating from it silently drops content no
+// reader would expect missing, e.g. 基本信息's meta rows and the real
+// 分课时设计 worked-example count, both learned the hard way). Only the
+// hand-authored seed versions (no file on disk) fall back to rendering a
+// blank .docx on the fly from schemaJson with every field "（未填写）", same
+// engine plan.controller.js#renderDoc/renderExecutionDoc use for a plan
+// that hasn't filled in a field yet -- a seed version never went through
+// the parser's own docx-paragraph reading, so it has no "-" markers to
+// strip in the first place.
 exports.downloadBlank = async (req, res) => {
   try {
     const templateKey = req.params.templateKey;
@@ -315,39 +319,27 @@ exports.downloadBlank = async (req, res) => {
 
     const docTitle = TEMPLATE_DISPLAY_NAMES[templateKey] || templateKey;
 
-    // 课程设计方案's own "基本信息" (a Plan's own columns, not part of `schema`
-    // -- see dynamicDocGenerator.js#buildPlanMetaRows) and "第二部分：分课时
-    // 设计" tail (see plan.controller.js#renderDoc's identical
-    // buildLessonDesignTrailingChildren call) are both plan_design-only
-    // sections a real plan's own renderDoc adds on top of `schema` -- a
-    // blank template still needs to show them (with every value/lesson
-    // blank, no real Plan behind this download) or a teacher's downloaded
-    // template is missing its first and last sections entirely. Neither
-    // exists for 课时实施记录 (renderExecutionDoc doesn't add either either).
-    const isPlanDesign = templateKey === "plan_design";
-    const meta = isPlanDesign ? dynamicDocGenerator.buildPlanMetaRows(version, null) : undefined;
-    const trailingChildren = isPlanDesign
-      ? dynamicDocGenerator.buildLessonDesignTrailingChildren({
-          planFormData: {},
-          plannedLessonCount: null,
-          PlanTemplateVersion: { schemaJson: version.schemaJson },
-        })
-      : undefined;
+    if (version.sourceFilePath) {
+      if (!fs.existsSync(version.sourceFilePath)) {
+        return res.status(404).send({ message: "模板源文件已丢失。" });
+      }
+      const buffer = await templateParser.stripHintMarkerDashes(version.sourceFilePath);
+      res.set({
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(version.sourceFileName || `${docTitle}.docx`)}`,
+      });
+      return res.send(buffer);
+    }
 
     const buffer = await dynamicDocGenerator.generateDoc({
       docTitle,
-      meta,
       schema: version.schemaJson,
       answers: {},
-      trailingChildren,
-      stylesXml: templateParser.resolveStylesXml(version),
-      numberingXml: templateParser.resolveNumberingXml(version),
-      themeXml: templateParser.resolveThemeXml(version),
     });
 
     res.set({
       "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(version.sourceFileName || `${docTitle}.docx`)}`,
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(docTitle)}.docx`,
     });
     return res.send(buffer);
   } catch (err) {
