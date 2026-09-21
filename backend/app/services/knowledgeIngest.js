@@ -5,6 +5,7 @@ const MaterialTopic = db.materialTopic;
 const MaterialLink = db.materialLink;
 const MaterialArtifact = db.materialArtifact;
 const llmClient = require("./llmClient");
+const { MANUAL_CATEGORY } = require("../constants/materialCategories");
 
 const CHUNK_TARGET_SIZE = 600;
 const CHUNK_OVERLAP = 100;
@@ -68,6 +69,19 @@ function splitIntoChunks(text) {
 // now is stale content lingering after a genuine intentional change to
 // something non-extractable -- far cheaper than losing real content outright.
 async function ingestSource({ sourceType, sourceId, materialTopicId, text }) {
+  // 手册 (teacher-manual) topics are UI documentation, not domain material --
+  // they must never feed 欣欣助手/AI 点评's retrieval (searchKnowledgeBase
+  // reads only from knowledge_chunks, so simply never writing rows here is
+  // sufficient). Checked here, in the one shared choke point every material-
+  // topic/-link/-artifact controller already routes through, rather than at
+  // each of those call sites, so a future new call site inherits the
+  // exclusion automatically instead of needing its own copy of this check.
+  if (materialTopicId) {
+    const topic = await MaterialTopic.findByPk(materialTopicId, { attributes: ["category"] });
+    if (topic && topic.category === MANUAL_CATEGORY) {
+      return { written: false, chunkCount: 0, skipped: "manual_category" };
+    }
+  }
   const pieces = splitIntoChunks(text);
   if (pieces.length === 0) {
     console.warn(`知识库摄取：来源 ${sourceType}#${sourceId}（主题 ${materialTopicId}）提取到的文本为空，保留原有知识条目不变。`);
@@ -114,6 +128,11 @@ async function regenerateSkillCardInner(materialTopicId, { force = false } = {})
   try {
     const topic = await MaterialTopic.findByPk(materialTopicId);
     if (!topic) return { ok: false, reason: "not_found" };
+    // Same 手册-exclusion as ingestSource above -- a 知识卡片 summarizing UI
+    // documentation would be meaningless (and would itself get pulled into
+    // retrieval via the skill-card tier), so this never even attempts the
+    // LLM call for that category.
+    if (topic.category === MANUAL_CATEGORY) return { ok: false, reason: "manual_category" };
 
     // An admin who has edited or explicitly reviewed a card has taken
     // ownership of it -- silently regenerating over that on the next

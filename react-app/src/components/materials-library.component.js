@@ -1,13 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import CreatableSelect from "react-select/creatable";
+import mammoth from "mammoth/mammoth.browser";
 
 import MaterialTopicDataService from "../services/material-topic.service";
 import MaterialLinkDataService from "../services/material-link.service";
 import MaterialFolderDataService from "../services/material-folder.service";
 import MaterialArtifactDataService from "../services/material-artifact.service";
+import TeacherManualDataService from "../services/teacher-manual.service";
 import AuthService from "../services/auth.service";
 import LessonFileManager from "./lesson-file-manager.component";
 import "../curriculum.css";
+
+// Mirrors backend/app/constants/materialCategories.js's MANUAL_CATEGORY --
+// a topic filed under this category (currently only 手册/教师在线手册, created
+// by the "教师手册" admin card below) is UI documentation, not admin-curated
+// domain material, so it gets a plain read-only "在线手册" reading view
+// instead of the usual 基本信息/材料内容/视频链接/知识卡片 tab set (see
+// renderManualViewer below) -- it's meant to be read like a web page, not
+// managed like a file library, and (per knowledgeIngest.js's own
+// MANUAL_CATEGORY exclusion) never feeds 欣欣助手/AI 点评's retrieval either.
+const MANUAL_CATEGORY = "手册";
 
 // 学习资源库 -- a Category -> Theme(主题/Event) tree, laid out like
 // plan-detail.component.js's own explorer (left nav tree, right content
@@ -39,6 +51,7 @@ const MaterialsLibrary = () => {
   const [topics, setTopics] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [manualBusy, setManualBusy] = useState(""); // "" | "download" | "publish"
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState({});
   const [expandedTopics, setExpandedTopics] = useState({});
@@ -85,6 +98,12 @@ const MaterialsLibrary = () => {
   const [searchResults, setSearchResults] = useState(null); // null = no search run yet
   const [isSearching, setIsSearching] = useState(false);
 
+  // 在线手册 (manual-viewer) state -- see renderManualViewer/retrieveManual.
+  const [manualHtml, setManualHtml] = useState(null);
+  const [manualArtifact, setManualArtifact] = useState(null);
+  const [isLoadingManualDoc, setIsLoadingManualDoc] = useState(false);
+  const [manualLoadError, setManualLoadError] = useState("");
+
   const retrieveTopics = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -101,6 +120,50 @@ const MaterialsLibrary = () => {
   useEffect(() => {
     retrieveTopics();
   }, [retrieveTopics]);
+
+  // Streams the always-freshly-generated .docx straight to the browser --
+  // same blob/object-URL pattern as plans-list.component.js's
+  // downloadTemplateFile, since this is a raw arraybuffer response, not a
+  // navigable URL.
+  const downloadTeacherManual = async () => {
+    setManualBusy("download");
+    setMessage("");
+    try {
+      const resp = await TeacherManualDataService.download();
+      const url = window.URL.createObjectURL(
+        new Blob([resp.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", "教师使用手册.docx");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "教师手册下载失败。");
+    } finally {
+      setManualBusy("");
+    }
+  };
+
+  // Publishing files/updates the 手册/教师在线手册 topic below -- reload the tree
+  // afterward so a first-time publish's brand-new topic (or an updated
+  // artifact size/timestamp on a republish) shows up without a manual
+  // page refresh.
+  const publishTeacherManual = async () => {
+    setManualBusy("publish");
+    setMessage("");
+    try {
+      const resp = await TeacherManualDataService.publish();
+      setMessage((resp.data && resp.data.message) || "教师手册已发布。");
+      await retrieveTopics();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "教师手册发布失败。");
+    } finally {
+      setManualBusy("");
+    }
+  };
 
   const selectedTopic = useMemo(
     () => topics.find((t) => t.id === selected.topicId) || null,
@@ -200,6 +263,48 @@ const MaterialsLibrary = () => {
       clearInterval(intervalId);
     };
   }, [selected.key, selected.topicId, retrieveSkill]);
+
+  // 在线手册 viewer: fetches the 手册-category topic's one artifact (the
+  // generated .docx -- see teacherManual.controller.js#publish) and converts
+  // it to HTML client-side via mammoth, same conversion plan-detail.
+  // component.js's own 预览 button uses, just rendered inline in the page
+  // instead of opened in a new tab -- this is meant to read like a web page,
+  // not a downloadable file. Picks the most-recently-updated artifact if a
+  // topic somehow ends up with more than one (shouldn't normally happen --
+  // #publish always overwrites the same row -- but stays correct either way
+  // rather than assuming array order).
+  const retrieveManual = useCallback(async (topicId) => {
+    setIsLoadingManualDoc(true);
+    setManualLoadError("");
+    setManualHtml(null);
+    try {
+      const listResp = await MaterialArtifactDataService.getByPlan(topicId);
+      const artifacts = Array.isArray(listResp.data) ? listResp.data : [];
+      const doc =
+        artifacts
+          .filter((a) => a.type === "docx")
+          .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))[0] || null;
+      setManualArtifact(doc);
+      if (!doc) {
+        setManualLoadError("本主题下暂无手册文档。");
+        return;
+      }
+      const fileResp = await MaterialArtifactDataService.download(doc.id);
+      const result = await mammoth.convertToHtml({ arrayBuffer: fileResp.data });
+      setManualHtml(result.value || "");
+    } catch (e) {
+      console.log(e);
+      setManualLoadError("加载手册内容失败。");
+    } finally {
+      setIsLoadingManualDoc(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selected.key === "manual" && selected.topicId) {
+      retrieveManual(selected.topicId);
+    }
+  }, [selected.key, selected.topicId, retrieveManual]);
 
   const topicsByCategory = useMemo(() => {
     const byCategory = new Map();
@@ -735,6 +840,55 @@ const MaterialsLibrary = () => {
     );
   };
 
+  // Read-only in-page rendering of a 手册-category topic's document --
+  // deliberately not the 基本信息/材料内容/视频链接/知识卡片 tab set (see
+  // MANUAL_CATEGORY's own comment above): a teacher opening 手册/教师在线手册
+  // should land straight on readable content, not a file manager.
+  const renderManualViewer = () => (
+    <div className="pl-card">
+      {isLoadingManualDoc && <div className="pl-empty">加载中...</div>}
+      {!isLoadingManualDoc && manualLoadError && <div className="alert alert-info py-2">{manualLoadError}</div>}
+      {!isLoadingManualDoc && manualHtml !== null && (
+        <>
+          {manualArtifact && (
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <span className="text-muted" style={{ fontSize: "0.85em" }}>
+                {manualArtifact.attachmentName}
+                {manualArtifact.updatedAt && ` · 更新于 ${new Date(manualArtifact.updatedAt).toLocaleString("zh-cn")}`}
+              </span>
+              <button
+                type="button"
+                className="btn btn-outline-primary btn-sm"
+                onClick={async () => {
+                  try {
+                    const resp = await MaterialArtifactDataService.download(manualArtifact.id);
+                    const url = window.URL.createObjectURL(
+                      new Blob([resp.data], {
+                        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                      })
+                    );
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.setAttribute("download", manualArtifact.attachmentName);
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    window.URL.revokeObjectURL(url);
+                  } catch (e) {
+                    setMessage("下载失败。");
+                  }
+                }}
+              >
+                下载 Word 文档
+              </button>
+            </div>
+          )}
+          <div className="pl-manual-doc" dangerouslySetInnerHTML={{ __html: manualHtml }} />
+        </>
+      )}
+    </div>
+  );
+
   const renderContent = () => {
     if (!selected.topicId || !selected.key) {
       return <div className="pl-empty">请选择左侧主题。</div>;
@@ -742,6 +896,7 @@ const MaterialsLibrary = () => {
     if (selected.key === "basic") return renderBasicInfo();
     if (selected.key === "links") return renderLinks();
     if (selected.key === "skill") return renderSkillCard();
+    if (selected.key === "manual") return renderManualViewer();
     if (selected.key === "contents") {
       return (
         <LessonFileManager
@@ -772,6 +927,32 @@ const MaterialsLibrary = () => {
       <div className="pl-hero">
         <h4 className="pl-title">学习资源库</h4>
       </div>
+
+      {isAdmin && (
+        <div className="pl-card mb-4">
+          <div className="d-flex justify-content-between align-items-center mb-2">
+            <h6 className="mb-0">教师手册</h6>
+          </div>
+          <p className="text-muted mb-2">
+            教师使用手册根据系统当前功能自动生成，涵盖课程设计的创建/编辑/保存/提交/上传/下载/删除、专家评审、AI 点评、
+            评审历史、AI 讨论、欣欣助手、执行阶段支撑材料管理与模板迁移等内容。
+          </p>
+          <button
+            type="button"
+            className="btn btn-outline-primary btn-sm mr-2"
+            onClick={downloadTeacherManual}
+            disabled={!!manualBusy}
+          >
+            {manualBusy === "download" ? "生成中..." : "下载最新教师手册"}
+          </button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={publishTeacherManual} disabled={!!manualBusy}>
+            {manualBusy === "publish" ? "发布中..." : "生成并发布到「手册 / 教师在线手册」"}
+          </button>
+          <div className="text-muted mt-2" style={{ fontSize: "0.85em" }}>
+            发布后将出现在下方的「手册 / 教师在线手册」主题下，教师可自行查看；再次发布会更新同一份文件。
+          </div>
+        </div>
+      )}
 
       <div className="pl-explorer">
         <button
@@ -982,6 +1163,21 @@ const MaterialsLibrary = () => {
                               <span className="spinner-border spinner-border-sm pl-explorer-row-spinner" role="status"></span>
                             )}
                           </form>
+                        ) : topic.category === MANUAL_CATEGORY ? (
+                          // 手册 topics have exactly one thing to show (see
+                          // renderManualViewer) -- clicking the row itself opens
+                          // it directly instead of expanding into a single
+                          // redundant child leaf underneath.
+                          <button
+                            type="button"
+                            className={`pl-explorer-folder pl-explorer-subfolder pl-explorer-row-main ${
+                              selected.topicId === topic.id && selected.key === "manual" ? "is-active" : ""
+                            }`}
+                            onClick={() => select(topic.id, "manual")}
+                          >
+                            <i className="fas fa-book pl-explorer-chevron"></i>
+                            {topic.theme}
+                          </button>
                         ) : (
                           <button
                             type="button"
@@ -1024,32 +1220,40 @@ const MaterialsLibrary = () => {
                           </span>
                         )}
                       </div>
-                        {expandedTopics[topic.id] && (
+                        {expandedTopics[topic.id] && topic.category !== MANUAL_CATEGORY && (
                           <div className="pl-explorer-children pl-explorer-children-nested">
                             <button
                               type="button"
-                              className={`pl-explorer-leaf ${selected.topicId === topic.id && selected.key === "basic" ? "is-active" : ""}`}
+                              className={`pl-explorer-leaf ${
+                                selected.topicId === topic.id && selected.key === "basic" ? "is-active" : ""
+                              }`}
                               onClick={() => select(topic.id, "basic")}
                             >
                               基本信息
                             </button>
                             <button
                               type="button"
-                              className={`pl-explorer-leaf ${selected.topicId === topic.id && selected.key === "contents" ? "is-active" : ""}`}
+                              className={`pl-explorer-leaf ${
+                                selected.topicId === topic.id && selected.key === "contents" ? "is-active" : ""
+                              }`}
                               onClick={() => select(topic.id, "contents")}
                             >
                               材料内容
                             </button>
                             <button
                               type="button"
-                              className={`pl-explorer-leaf ${selected.topicId === topic.id && selected.key === "links" ? "is-active" : ""}`}
+                              className={`pl-explorer-leaf ${
+                                selected.topicId === topic.id && selected.key === "links" ? "is-active" : ""
+                              }`}
                               onClick={() => select(topic.id, "links")}
                             >
                               视频链接
                             </button>
                             <button
                               type="button"
-                              className={`pl-explorer-leaf ${selected.topicId === topic.id && selected.key === "skill" ? "is-active" : ""}`}
+                              className={`pl-explorer-leaf ${
+                                selected.topicId === topic.id && selected.key === "skill" ? "is-active" : ""
+                              }`}
                               onClick={() => select(topic.id, "skill")}
                             >
                               知识卡片
