@@ -31,6 +31,7 @@
 //      heuristic -- every non-empty paragraph except the title is a field.
 const childProcess = require("child_process");
 const fs = require("fs");
+const JSZip = require("jszip");
 
 const MAX_LABEL_CHARS = 30;
 const NO_FIELDS_ERROR = "未能从该文件中识别出任何字段，请确认文件包含加粗的字段标签或按行分隔的字段列表。";
@@ -245,6 +246,61 @@ const documentUsesAnyHeadingStyle = (xml, headingLevelMap) => {
     if (headingLevelMap.has(m[1])) return true;
   }
   return false;
+};
+
+// Detects the exact same "-" hint-marker paragraph parseHeadingSections
+// looks for (a non-heading paragraph whose full trimmed text starts with
+// "-" -- see its own comment above) and strips just that leading "-" (plus
+// any whitespace right after it) from the paragraph's rendered text, in
+// place in the raw document.xml. Used to give the teacher-facing blank-
+// template download (template.controller.js#downloadBlank) the exact
+// original uploaded .docx -- byte-identical to what admin's own #download
+// streams -- minus this one cosmetic marker a teacher was never meant to
+// see literally, rather than reconstructing the whole document from
+// schemaJson (which isn't a full mirror of the source file at all -- it
+// never captured 基本信息's meta rows or 分课时设计's own worked-example
+// lesson count, both Plan/caller-supplied concepts layered on top of
+// `schema`, not part of it -- see dynamicDocGenerator.js#buildPlanMetaRows/
+// buildLessonDesignTrailingChildren).
+// Only ever edits the first non-blank <w:t> run in a qualifying paragraph --
+// the dash is always the very first character Word wrote for one of these
+// lines in every real template inspected -- and leaves a paragraph
+// untouched on any mismatch (e.g. the rare case where the dash itself is
+// split across two runs) rather than risk a wrong edit to a document a
+// teacher is about to open in Word.
+const stripHintMarkerDashesFromXml = (documentXml, headingLevelMap) => {
+  const paragraphRe = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g;
+  const textNodeRe = /<w:t([^>]*)>([^<]*)<\/w:t>/g;
+  return documentXml.replace(paragraphRe, (paragraph, inner) => {
+    const styleMatch = inner.match(/<w:pStyle\s+w:val="([^"]+)"/);
+    if (styleMatch && headingLevelMap.has(styleMatch[1])) return paragraph;
+
+    const textNodes = [...inner.matchAll(textNodeRe)];
+    const fullText = textNodes.map((t) => t[2]).join("");
+    if (!fullText.trim().startsWith("-")) return paragraph;
+
+    const first = textNodes.find((t) => t[2].trim() !== "");
+    const strippedFirstText = first ? first[2].replace(/^\s*-\s*/, "") : null;
+    if (!first || strippedFirstText === first[2]) return paragraph;
+
+    return paragraph.replace(first[0], `<w:t${first[1]}>${strippedFirstText}</w:t>`);
+  });
+};
+
+// filePath: local path to an uploaded template's own source .docx (see
+// template_versions.source_file_path). Resolves to the exact same file,
+// byte for byte, except every hint-marker "-" stripped per
+// stripHintMarkerDashesFromXml above. Rejects on an unreadable/corrupt
+// file, same as every other filePath-taking export here -- left for the
+// caller to handle (template.controller.js#downloadBlank already checks
+// fs.existsSync before calling this, so in practice this only ever rejects
+// on a genuinely corrupt .docx).
+const stripHintMarkerDashes = async (filePath) => {
+  const zip = await JSZip.loadAsync(fs.readFileSync(filePath));
+  const documentXml = await zip.file("word/document.xml").async("string");
+  const headingLevelMap = buildHeadingLevelMap(readStylesXml(filePath));
+  zip.file("word/document.xml", stripHintMarkerDashesFromXml(documentXml, headingLevelMap));
+  return zip.generateAsync({ type: "nodebuffer" });
 };
 
 // Top-level heading sections that map to something else entirely elsewhere
@@ -606,6 +662,7 @@ module.exports = {
   resolveStylesXml,
   resolveNumberingXml,
   resolveThemeXml,
+  stripHintMarkerDashes,
   readDocumentXml,
   extractRuns,
   normalizeLabel,
