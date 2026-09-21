@@ -288,16 +288,23 @@ exports.getActive = async (req, res) => {
   }
 };
 
-// GET /api/templates/:templateKey/blank-doc -- the currently active
-// version's document, streamed back for the "下载乡土课程设计方案模版"/
-// "下载乡土课程实施记录模版" buttons on the plans list. If that version came
-// from an upload (sourceFilePath set, see #upload above), this returns the
-// original .docx bytes as-is -- so what a user downloads is byte-identical
-// to what an admin uploaded, not a regenerated approximation. Only the
-// hand-authored seed versions (no file on disk) fall back to rendering a
-// blank .docx on the fly from schemaJson with every field "（未填写）", same
-// engine plan.controller.js#renderDoc/renderExecutionDoc use for a plan
-// that hasn't filled in a field yet.
+// GET /api/templates/:templateKey/blank-doc -- teacher-only-facing (the
+// "下载乡土课程设计方案模版"/"下载乡土课程实施记录模版" buttons on the plans
+// list are the only caller, see plans-list.component.js#downloadTemplateFile/
+// previewTemplateFile). Always rendered on the fly from the active version's
+// own schemaJson via dynamicDocGenerator, the same engine
+// plan.controller.js#renderDoc/renderExecutionDoc use for a plan that hasn't
+// filled in a field yet -- rather than streaming the original uploaded .docx
+// bytes (unlike #download below, the admin-only per-version download, which
+// still does exactly that). A source-authored "-" line under a field's label
+// is the parser's own hint marker (see templateParser.js#parseHeadingSections),
+// not content meant for a teacher to see verbatim; schemaJson's own
+// field.hint already has that leading "-" stripped at parse time, so
+// generating from it is what actually gets a teacher a clean hint instead of
+// literal "-您的驱动问题是：" text. stylesXml/numberingXml/themeXml (all
+// resolved from the version's own source file when it has one, null for a
+// hand-authored seed version) keep the real template's fonts/numbering/theme
+// intact despite not streaming the file itself.
 exports.downloadBlank = async (req, res) => {
   try {
     const templateKey = req.params.templateKey;
@@ -308,22 +315,18 @@ exports.downloadBlank = async (req, res) => {
 
     const docTitle = TEMPLATE_DISPLAY_NAMES[templateKey] || templateKey;
 
-    if (version.sourceFilePath) {
-      if (!fs.existsSync(version.sourceFilePath)) {
-        return res.status(404).send({ message: "模板源文件已丢失。" });
-      }
-      return res.download(version.sourceFilePath, version.sourceFileName || `${docTitle}.docx`);
-    }
-
     const buffer = await dynamicDocGenerator.generateDoc({
       docTitle,
       schema: version.schemaJson,
       answers: {},
+      stylesXml: templateParser.resolveStylesXml(version),
+      numberingXml: templateParser.resolveNumberingXml(version),
+      themeXml: templateParser.resolveThemeXml(version),
     });
 
     res.set({
       "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(docTitle)}.docx`,
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(version.sourceFileName || `${docTitle}.docx`)}`,
     });
     return res.send(buffer);
   } catch (err) {

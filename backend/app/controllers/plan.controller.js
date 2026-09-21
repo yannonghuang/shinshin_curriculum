@@ -69,33 +69,12 @@ const parseLessonCount = (value) => {
   return Number.isInteger(n) && n >= 0 ? n : null;
 };
 
-// Pulls the real template's own word/styles.xml (see
-// templateParser.js#extractStylesXml) so a generated/filled-in doc adopts
-// the source template's fonts/sizes instead of docx's own defaults --
-// only possible when the pinned template version came from an upload
-// (sourceFilePath set); the hand-authored seed versions have no source file
-// and simply keep today's default styling.
-const resolveStylesXml = (version) => {
-  if (!version || !version.sourceFilePath || !fs.existsSync(version.sourceFilePath)) return null;
-  return templateParser.extractStylesXml(version.sourceFilePath);
-};
-
-// See resolveStylesXml above and dynamicDocGenerator.js#generateDoc's
-// `numberingXml` -- a heading style's real multi-level numbering/indentation
-// lives in word/numbering.xml, not styles.xml.
-const resolveNumberingXml = (version) => {
-  if (!version || !version.sourceFilePath || !fs.existsSync(version.sourceFilePath)) return null;
-  return templateParser.extractNumberingXml(version.sourceFilePath);
-};
-
-// See resolveStylesXml above and dynamicDocGenerator.js#generateDoc's
-// `themeXml` -- a modern template's heading fonts/colors are usually
-// theme-relative references, not literal values, so styles.xml alone isn't
-// enough for Word to render them as the original template did.
-const resolveThemeXml = (version) => {
-  if (!version || !version.sourceFilePath || !fs.existsSync(version.sourceFilePath)) return null;
-  return templateParser.extractThemeXml(version.sourceFilePath);
-};
+// Pulls the real template's own word/{styles,numbering,theme1}.xml so a
+// generated/filled-in doc adopts the source template's fonts/sizes/numbering
+// instead of docx's own defaults -- see templateParser.js#resolveStylesXml
+// (also shared with template.controller.js#downloadBlank, the teacher-facing
+// blank template, for the same reason).
+const { resolveStylesXml, resolveNumberingXml, resolveThemeXml } = templateParser;
 
 // The real template can leave a meta label un-bold (confirmed: the 2026
 // template's own "课程名称：" isn't bold, while its schema fields elsewhere
