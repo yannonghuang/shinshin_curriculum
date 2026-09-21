@@ -30,6 +30,7 @@
 //   3. Flat/no-heading fallback: unchanged from the original ad-hoc
 //      heuristic -- every non-empty paragraph except the title is a field.
 const childProcess = require("child_process");
+const fs = require("fs");
 
 const MAX_LABEL_CHARS = 30;
 const NO_FIELDS_ERROR = "未能从该文件中识别出任何字段，请确认文件包含加粗的字段标签或按行分隔的字段列表。";
@@ -578,6 +579,20 @@ const extractStylesXml = (filePath) => readStylesXml(filePath);
 const extractNumberingXml = (filePath) => readNumberingXml(filePath);
 const extractThemeXml = (filePath) => readThemeXml(filePath);
 
+// Resolves one template_versions row -> its own real word/{styles,numbering,
+// theme1}.xml, each null when this version has no uploaded source file (a
+// hand-authored seed version) or that file no longer exists on disk. Shared
+// by plan.controller.js (a filled-in plan/execution doc's download) and
+// template.controller.js#downloadBlank (the teacher-facing blank template)
+// so every generateDoc call reproduces the real template's own fonts/
+// numbering/theme the same way, rather than each resolving it by hand.
+const resolveStylesXml = (version) =>
+  version && version.sourceFilePath && fs.existsSync(version.sourceFilePath) ? extractStylesXml(version.sourceFilePath) : null;
+const resolveNumberingXml = (version) =>
+  version && version.sourceFilePath && fs.existsSync(version.sourceFilePath) ? extractNumberingXml(version.sourceFilePath) : null;
+const resolveThemeXml = (version) =>
+  version && version.sourceFilePath && fs.existsSync(version.sourceFilePath) ? extractThemeXml(version.sourceFilePath) : null;
+
 // readDocumentXml/extractRuns are also exported for planDocExtract.js's
 // own raw-XML table-row walker (see that file's tableRowTexts) -- both
 // sides now live in the same backend package, so reusing the exact same
@@ -588,6 +603,9 @@ module.exports = {
   extractStylesXml,
   extractNumberingXml,
   extractThemeXml,
+  resolveStylesXml,
+  resolveNumberingXml,
+  resolveThemeXml,
   readDocumentXml,
   extractRuns,
   normalizeLabel,
