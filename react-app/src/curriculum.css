@@ -76,6 +76,36 @@
   font-weight: 700;
 }
 
+/* 在线手册 reading view (materials-library.component.js's renderManualViewer)
+   -- mammoth's raw output is plain h1-h6/p/table/ul, unstyled by default, so
+   this gives it readable measure/line-height and lets its own headings and
+   tables stand out from surrounding body text. */
+.pl-manual-doc {
+  max-width: 760px;
+  margin: 0 auto;
+  line-height: 1.7;
+}
+.pl-manual-doc h1,
+.pl-manual-doc h2,
+.pl-manual-doc h3 {
+  color: var(--pl-text);
+  margin-top: 28px;
+  margin-bottom: 10px;
+}
+.pl-manual-doc table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 14px;
+}
+.pl-manual-doc table td,
+.pl-manual-doc table th {
+  border: 1px solid var(--pl-line);
+  padding: 6px 10px;
+}
+.pl-manual-doc p {
+  margin-bottom: 10px;
+}
+
 .pl-table-wrap {
   background: var(--pl-panel);
   border: 1px solid var(--pl-line);
