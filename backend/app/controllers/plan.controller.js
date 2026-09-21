@@ -76,21 +76,6 @@ const parseLessonCount = (value) => {
 // blank template, for the same reason).
 const { resolveStylesXml, resolveNumberingXml, resolveThemeXml } = templateParser;
 
-// The real template can leave a meta label un-bold (confirmed: the 2026
-// template's own "课程名称：" isn't bold, while its schema fields elsewhere
-// are inconsistently bold/not) -- resolved per label from templateParser.js's
-// basicInfoBold, captured from that same "基本信息" heading before it was
-// dropped from the schema, so this reproduces the template's real choice
-// instead of the previous blanket-bold default. Undefined (not just a
-// missing key) for any schema that never captured one -- a table/flat-
-// parsed schema, the hand-authored seed, or a heading-parsed template with
-// no "基本信息" heading at all -- so generateDoc's own bold=true default
-// applies there, unchanged from before this existed.
-const metaBold = (version, label) => {
-  const bold = version && version.schemaJson && version.schemaJson.basicInfoBold;
-  return bold ? bold[label] : undefined;
-};
-
 // "super" inherits every admin privilege, including the admin bypasses this
 // gates (edit/delete any plan regardless of ownership, suspend/unsuspend).
 const isAdminRequester = async (userId, t) => {
@@ -808,14 +793,7 @@ exports.renderDoc = async (req, res) => {
 
     const buffer = await dynamicDocGenerator.generateDoc({
       docTitle: "乡土课程设计方案",
-      meta: [
-        ["课程名称", plan.title, metaBold(plan.PlanTemplateVersion, "课程名称")],
-        ["乡土主题", plan.theme, metaBold(plan.PlanTemplateVersion, "乡土主题")],
-        ["任教年级", plan.grade, metaBold(plan.PlanTemplateVersion, "任教年级")],
-        ["学生人数", plan.studentCount, metaBold(plan.PlanTemplateVersion, "学生人数")],
-        ["执教人", plan.instructorName, metaBold(plan.PlanTemplateVersion, "执教人")],
-        ["预计课时", plan.plannedLessonCount, metaBold(plan.PlanTemplateVersion, "预计课时")],
-      ],
+      meta: dynamicDocGenerator.buildPlanMetaRows(plan.PlanTemplateVersion, plan),
       schema: plan.PlanTemplateVersion ? plan.PlanTemplateVersion.schemaJson : { sections: [] },
       answers: plan.planFormData,
       trailingChildren,

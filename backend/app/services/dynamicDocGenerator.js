@@ -262,6 +262,30 @@ const buildSchemaChildren = (schema, answers) => {
   return children;
 };
 
+// The six Plan columns 课程设计文件's own "基本信息" section shows -- never
+// part of `schema` (they're dedicated Plan table columns, not
+// template-defined fields, see templateParser.js#EXCLUDED_TOP_LEVEL_LABELS-
+// adjacent handling), so this is the one place that lists them, shared by
+// plan.controller.js#renderDoc (a real plan's own column values) and
+// template.controller.js#downloadBlank (the teacher-facing blank template,
+// `plan` null there so every row falls back to `p()`'s own "（未填写）") --
+// kept as one function so a future column added to this list can't drift
+// between the two callers. `version` is the pinned/active TemplateVersion,
+// used only for basicInfoBold (see templateParser.js's real-template capture
+// of which meta labels the source template itself bolded).
+const buildPlanMetaRows = (version, plan) => {
+  const boldMap = version && version.schemaJson && version.schemaJson.basicInfoBold;
+  const bold = (label) => (boldMap ? boldMap[label] : undefined);
+  return [
+    ["课程名称", plan ? plan.title : null, bold("课程名称")],
+    ["乡土主题", plan ? plan.theme : null, bold("乡土主题")],
+    ["任教年级", plan ? plan.grade : null, bold("任教年级")],
+    ["学生人数", plan ? plan.studentCount : null, bold("学生人数")],
+    ["执教人", plan ? plan.instructorName : null, bold("执教人")],
+    ["预计课时", plan ? plan.plannedLessonCount : null, bold("预计课时")],
+  ];
+};
+
 // meta: [[label, value], ...] printed right under the title, before any
 // section (课程名称/任教年级/预计课时 for a plan doc, etc.).
 // trailingChildren: extra Paragraph objects appended after the schema
@@ -417,5 +441,6 @@ module.exports = {
   plain,
   multiline,
   lessonOrdinal,
+  buildPlanMetaRows,
   buildLessonDesignTrailingChildren,
 };

@@ -315,10 +315,31 @@ exports.downloadBlank = async (req, res) => {
 
     const docTitle = TEMPLATE_DISPLAY_NAMES[templateKey] || templateKey;
 
+    // 课程设计方案's own "基本信息" (a Plan's own columns, not part of `schema`
+    // -- see dynamicDocGenerator.js#buildPlanMetaRows) and "第二部分：分课时
+    // 设计" tail (see plan.controller.js#renderDoc's identical
+    // buildLessonDesignTrailingChildren call) are both plan_design-only
+    // sections a real plan's own renderDoc adds on top of `schema` -- a
+    // blank template still needs to show them (with every value/lesson
+    // blank, no real Plan behind this download) or a teacher's downloaded
+    // template is missing its first and last sections entirely. Neither
+    // exists for 课时实施记录 (renderExecutionDoc doesn't add either either).
+    const isPlanDesign = templateKey === "plan_design";
+    const meta = isPlanDesign ? dynamicDocGenerator.buildPlanMetaRows(version, null) : undefined;
+    const trailingChildren = isPlanDesign
+      ? dynamicDocGenerator.buildLessonDesignTrailingChildren({
+          planFormData: {},
+          plannedLessonCount: null,
+          PlanTemplateVersion: { schemaJson: version.schemaJson },
+        })
+      : undefined;
+
     const buffer = await dynamicDocGenerator.generateDoc({
       docTitle,
+      meta,
       schema: version.schemaJson,
       answers: {},
+      trailingChildren,
       stylesXml: templateParser.resolveStylesXml(version),
       numberingXml: templateParser.resolveNumberingXml(version),
       themeXml: templateParser.resolveThemeXml(version),
