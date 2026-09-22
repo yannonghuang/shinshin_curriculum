@@ -197,13 +197,17 @@ async function run() {
       await adminPage.waitForTimeout(3000);
     }
 
-    console.log("==> 学习资源库 目录树");
-    const usageGuideFolder = adminPage.getByText("使用指南", { exact: true }).first();
-    if (await usageGuideFolder.count()) {
-      await usageGuideFolder.click();
-      await adminPage.waitForTimeout(300);
-    }
-    await shoot(adminPage.locator(".pl-explorer").first(), "materials-library-tree");
+    // A populated 材料内容 file listing, not an empty "请选择左侧主题" state --
+    // uses the demo topic seedManualDemoData.js creates specifically for
+    // this (real MaterialArtifact rows, not a mockup).
+    console.log("==> 学习资源库：材料内容 文件列表");
+    await adminPage.locator("button.pl-explorer-folder", { hasText: "教师手册截图示例" }).first().click();
+    await adminPage.waitForTimeout(300);
+    await adminPage.getByText("乡土课程设计与实施培训", { exact: true }).first().click();
+    await adminPage.waitForTimeout(300);
+    await adminPage.getByText("材料内容", { exact: true }).first().click();
+    await adminPage.waitForTimeout(300);
+    await shoot(adminPage.locator(".pl-explorer").first(), "materials-library-content");
     await adminContext.close();
 
     console.log("\n==> All screenshots captured into", OUT_DIR);

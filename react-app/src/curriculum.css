@@ -92,6 +92,18 @@
   margin-top: 28px;
   margin-bottom: 10px;
 }
+/* mammoth's raw h1/h2/h3 render at the browser's default 2em/1.5em/1.17em --
+   fine in a real document but oversized crammed into this 760px reading
+   column (see .pl-manual-doc's own max-width above). */
+.pl-manual-doc h1 {
+  font-size: 26px;
+}
+.pl-manual-doc h2 {
+  font-size: 20px;
+}
+.pl-manual-doc h3 {
+  font-size: 17px;
+}
 .pl-manual-doc table {
   border-collapse: collapse;
   width: 100%;

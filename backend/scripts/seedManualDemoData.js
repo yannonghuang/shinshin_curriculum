@@ -12,6 +12,8 @@
 //
 // Run inside the backend container against your local dev stack:
 //   docker compose exec backend node scripts/seedManualDemoData.js
+const fs = require("fs");
+const path = require("path");
 const bcrypt = require("bcryptjs");
 const db = require("../app/models");
 const User = db.user;
@@ -19,6 +21,9 @@ const Role = db.role;
 const Plan = db.plan;
 const Review = db.review;
 const TemplateVersion = db.templateVersion;
+const MaterialTopic = db.materialTopic;
+const MaterialArtifact = db.materialArtifact;
+const { getArtifactStorageDirectory } = require("../app/controllers/material-artifact.controller");
 const { Op } = db.Sequelize;
 
 const DEMO_PASSWORD = "ManualDemo!2026";
@@ -165,6 +170,52 @@ function buildExecutionFormData(templateVersion) {
     needsMigration: true,
     needsManualMigrationReview: true,
   });
+
+  // A populated 学习资源库 topic -- materials-library-content.png (see
+  // captureManualScreenshots.js) needs an actual 材料内容 file listing to
+  // show, not an empty "请选择左侧主题" state. Category name is short (kept
+  // off the demo plans' longer "（教师手册截图用）" suffix so it doesn't wrap
+  // across 3 lines in the narrow sidebar) but still unambiguously demo data,
+  // so this destroy-then-recreate stays safe to re-run.
+  console.log("==> Seeding demo 学习资源库 主题（含示例材料文件）...");
+  const demoCategory = "教师手册截图示例";
+  const demoTheme = "乡土课程设计与实施培训";
+  await MaterialTopic.destroy({ where: { category: demoCategory } });
+  const materialTopic = await MaterialTopic.create({
+    category: demoCategory,
+    theme: demoTheme,
+    lecturer: "示例专家",
+    comment: "示例材料主题，仅用于生成教师手册截图。",
+  });
+
+  const demoFiles = [
+    {
+      name: "乡土课程设计与实施培训-要点纪要.docx",
+      category: "Word文档",
+      mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    },
+    {
+      name: "乡土课程项目启动会.pptx",
+      category: "课件PPT",
+      mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    },
+  ];
+  for (const f of demoFiles) {
+    const dir = getArtifactStorageDirectory(materialTopic.id, f.category);
+    const filePath = path.join(dir, f.name);
+    fs.writeFileSync(filePath, "示例占位内容，仅用于教师手册截图展示文件列表外观。");
+    await MaterialArtifact.create({
+      materialTopicId: materialTopic.id,
+      folderId: null,
+      category: f.category,
+      description: "示例材料，仅用于生成教师手册截图。",
+      attachmentPath: path.resolve(filePath),
+      attachmentName: f.name,
+      attachmentMime: f.mime,
+      attachmentSize: fs.statSync(filePath).size,
+      type: path.extname(f.name).slice(1).toLowerCase(),
+    });
+  }
 
   console.log(`==> Done. Demo accounts (password for all: ${DEMO_PASSWORD}):`);
   DEMO_USERS.forEach((u) => console.log(`    ${u.username} (${u.roles.join("/")})`));
