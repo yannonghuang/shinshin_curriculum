@@ -37,7 +37,7 @@ whole document, so it's fine to add these incrementally.
 | `copilot-panel.png` | 十二、AI 聊天助手「欣欣助手」 |
 | `lesson-file-manager.png` | 十三、执行阶段支撑材料管理 |
 | `manual-migration-panel.png` | 十四、模板迁移 |
-| `materials-library-tree.png` | 十五、学习资源库 |
+| `materials-library-content.png` | 十五、学习资源库 |
 
 To add another screenshot: capture it in `captureManualScreenshots.js`,
 reference it via `screenshot("name", "caption")` at the right point in
