@@ -5,9 +5,19 @@
 // dialogs, status values, etc.) captured from the actual components/
 // controllers at the time this was written -- see teacherManual.controller.js
 // for the two ways it's surfaced to an admin (plain download, or publish
-// into 学习资源库 as a 手册/教师手册 topic so teachers can find it themselves).
-// Keep this file (not a one-off script) so the manual can be regenerated
-// after a real UI/workflow change instead of silently going stale.
+// into 学习资源库 as a 使用指南/教师在线手册 topic so teachers can find it
+// themselves). Keep this file (not a one-off script) so the manual can be
+// regenerated after a real UI/workflow change instead of silently going
+// stale.
+//
+// Screenshots (see the screenshot() helper below) are real PNGs captured
+// from a running instance by scripts/captureManualScreenshots.js (Playwright,
+// a devDependency, never present in the production image) against demo data
+// from scripts/seedManualDemoData.js, checked into
+// assets/manual-screenshots/ -- generation here only ever *reads* whatever
+// is on disk at request time, it never launches a browser itself.
+const fs = require("fs");
+const path = require("path");
 const {
   Document,
   Packer,
@@ -25,6 +35,7 @@ const {
   Bookmark,
   InternalHyperlink,
   UnderlineType,
+  ImageRun,
 } = require("docx");
 
 const GREEN = "1F4E2C";
@@ -202,6 +213,80 @@ const table = (headers, rows, ratios) => {
   });
 };
 
+// PNG width/height sit at fixed byte offsets (16/20, both 4-byte
+// big-endian) right after the 8-byte signature + IHDR chunk header --
+// reading them directly avoids pulling in an image-dimensions dependency
+// just for this one, PNG-only, need (captureManualScreenshots.js only ever
+// produces PNGs).
+const readPngDimensions = (buffer) => {
+  const isPng = buffer.length >= 24 && buffer.readUInt32BE(0) === 0x89504e47 && buffer.readUInt32BE(4) === 0x0d0a1a0a;
+  if (!isPng) throw new Error("not a PNG file");
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+};
+
+const SCREENSHOT_DIR = path.join(__dirname, "..", "..", "assets", "manual-screenshots");
+// 560px ~= 5.83in at the standard 96dpi docx.js assumes for ImageRun's plain
+// pixel width/height -- comfortably inside TABLE_WIDTH's own "safely inside
+// the page margins" usable-width budget (see its own comment above).
+const SCREENSHOT_DISPLAY_WIDTH = 560;
+// 420px ~= 4.375in -- a second, independent cap on the *other* dimension.
+// Width alone isn't enough: a tall/narrow capture (欣欣助手's portrait panel,
+// 360x520 natively) stays comfortably under SCREENSHOT_DISPLAY_WIDTH on
+// width but would still render ~5.4in tall at that width, often forcing it
+// onto a page of its own. Whichever bound is tighter wins (see the scale
+// computation below), so every screenshot -- whatever its native aspect
+// ratio -- ends up sized to actually sit within a page alongside its own
+// caption and the surrounding text, not just technically inside the left/
+// right margins.
+const SCREENSHOT_MAX_HEIGHT = 420;
+
+// Embeds assets/manual-screenshots/<name>.png (captured by
+// scripts/captureManualScreenshots.js -- see this file's header comment) at
+// its natural aspect ratio, scaled down to SCREENSHOT_DISPLAY_WIDTH, with an
+// optional italic caption underneath. Missing files are skipped silently
+// (just a console.warn, not a thrown error) rather than failing the whole
+// generation -- a manual with a few not-yet-captured screenshots is still
+// far more useful than no manual at all, and this runs on every admin
+// download/publish request, not just in a controlled build step.
+const screenshot = (name, caption) => {
+  const filePath = path.join(SCREENSHOT_DIR, `${name}.png`);
+  if (!fs.existsSync(filePath)) {
+    console.warn(
+      `teacherManualGenerator: screenshot "${name}.png" not found -- run scripts/captureManualScreenshots.js to generate it. Skipping.`
+    );
+    return [];
+  }
+  const buffer = fs.readFileSync(filePath);
+  let width;
+  let height;
+  try {
+    ({ width, height } = readPngDimensions(buffer));
+  } catch (e) {
+    console.warn(`teacherManualGenerator: "${name}.png" isn't a readable PNG (${e.message}). Skipping.`);
+    return [];
+  }
+  const scale = Math.min(1, SCREENSHOT_DISPLAY_WIDTH / width, SCREENSHOT_MAX_HEIGHT / height);
+  const displayWidth = Math.round(width * scale);
+  const displayHeight = Math.round(height * scale);
+  const items = [
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 80, after: caption ? 40 : 160 },
+      children: [new ImageRun({ data: buffer, transformation: { width: displayWidth, height: displayHeight } })],
+    }),
+  ];
+  if (caption) {
+    items.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 160 },
+        children: [new TextRun({ text: caption, italics: true, size: 18, color: MUTED })],
+      })
+    );
+  }
+  return items;
+};
+
 // ============================================================
 // 封面
 // ============================================================
@@ -258,7 +343,8 @@ push(
     ],
     [1, 3]
   ),
-  spacer()
+  spacer(),
+  ...screenshot("nav-bar", "顶部导航栏")
 );
 
 // ============================================================
@@ -275,6 +361,7 @@ push(
   numberedItem("系统自动生成标题为「未命名课程设计」的新课程设计，并跳转到其详情页面。", 3),
   numberedItem("在详情页的「基本信息」中补充真实的标题、乡土主题、年级、年份、学季、学生人数、执教人、预计课时等信息。", 4),
   spacer(),
+  ...screenshot("plans-list", "「我的乡土课程」列表 -- 左上角「新增乡土课程」按钮"),
   note(
     "新课程设计默认采用「在线填写」模式（planMode=online），即通过页面表单直接填写 WHY/WHAT/HOW 各部分及分课时设计；" +
       "也可以改为「上传文件」模式，通过上传已经填好的 Word 文档来提供内容（详见「五、上传文件」）。"
@@ -316,7 +403,8 @@ push(
   warn(
     "如果修改后未保存就尝试离开当前页面或关闭浏览器标签页，系统会弹出提示：" +
       "「有未保存的内容，确定要离开吗？」请留意该提示，避免内容丢失。"
-  )
+  ),
+  ...screenshot("save-submit-buttons", "「保存草稿」「提交待点评」按钮组合")
 );
 
 // ============================================================
@@ -363,6 +451,7 @@ push(
       "且无法撤销，确定继续吗？」——这是整份覆盖，不是合并，请务必确认文件内容无误后再上传。"
   ),
   p("系统会自动解析上传的 Word 文档内容，并按当前课程设计所使用的模板结构提取各字段，写入在线表单。"),
+  ...screenshot("upload-dropzone", "「课程设计文件」上传区域（拖拽或点击上传）"),
   h2("2. 课程实施文件上传（覆盖某一课时的实施记录）"),
   bulletItem("入口：对应课时「实施记录」板块的「上传」区域，同样仅支持 .docx。"),
   warn(
@@ -444,7 +533,8 @@ push(
     "点评作者本人可以删除自己撰写的点评；但如果该课程设计的相关内容在点评之后被教师修改过，" +
       "该点评会被锁定为历史记录，任何人（含作者与管理员）都无法再删除，以保留完整的评审轨迹。"
   ),
-  note("如果某条点评所对应的内容在点评完成后又被教师编辑，该点评行会显示「内容已更新」标签，提示这是一条可能已过时的点评。")
+  note("如果某条点评所对应的内容在点评完成后又被教师编辑，该点评行会显示「内容已更新」标签，提示这是一条可能已过时的点评。"),
+  ...screenshot("review-panel", "「计划整体点评」板块 -- 专家点评、AI点评、请AI点评与讨论入口")
 );
 
 // ============================================================
@@ -538,7 +628,8 @@ push(
     [1, 2]
   ),
   spacer(),
-  note("离开当前页面（切换到其他课程设计或其他功能页）不会清空对话内容，只会在再次打开时按新的上下文加载「当前」对话。")
+  note("离开当前页面（切换到其他课程设计或其他功能页）不会清空对话内容，只会在再次打开时按新的上下文加载「当前」对话。"),
+  ...screenshot("copilot-panel", "「欣欣助手」面板（打开状态）")
 );
 
 // ============================================================
@@ -570,7 +661,8 @@ push(
   bulletItem(
     "课程设计所有者拥有全部操作权限；管理员即使不是所有者，也可以下载支撑材料，但不能上传/移动/删除/重命名" +
       "（这些操作仅限所有者本人）。"
-  )
+  ),
+  ...screenshot("lesson-file-manager", "「支撑材料」文件管理器")
 );
 
 // ============================================================
@@ -585,6 +677,7 @@ push(
   h2("什么时候会看到迁移提示"),
   bulletItem("「我的乡土课程」页面顶部会出现闪烁的橙色「迁移课程计划（N）」按钮，N 为受影响的课程设计数量。"),
   bulletItem("受影响的每份课程设计卡片上会出现闪烁的「待迁移」标签。"),
+  ...screenshot("plans-list", "闪烁的「迁移课程计划」按钮与课程设计卡片上的「待迁移」标签"),
   h2("点击迁移后会发生什么"),
   numberedItem("系统会将该教师名下全部标记为「待迁移」的课程设计，逐一从旧模板结构迁移到当前启用的新模板结构。", 1),
   numberedItem(
@@ -611,7 +704,8 @@ push(
   note(
     "「待迁移」与「待手动整理」是两个先后出现、不会同时存在的标签：点击迁移会立即清除「待迁移」，" +
       "只有当迁移后确实留有未匹配内容时，才会转为出现「待手动整理」。"
-  )
+  ),
+  ...screenshot("manual-migration-panel", "「手动迁移内容」板块")
 );
 
 // ============================================================
@@ -624,6 +718,7 @@ push(
       "均指同一入口。"
   ),
   p("学习资源库由管理员按「分类 → 主题」两级组织和维护，教师、专家、管理员均可浏览与下载，教师无法自行新增分类或主题。"),
+  ...screenshot("materials-library-tree", "学习资源库目录树（分类 → 主题）"),
   h2("每个主题下的四个标签页"),
   table(
     ["标签页", "内容"],
