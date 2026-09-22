@@ -10,7 +10,7 @@
     "migrate": "sequelize-cli db:migrate",
     "migrate:undo": "sequelize-cli db:migrate:undo",
     "migrate:status": "sequelize-cli db:migrate:status",
-    "seed:manual-demo": "node scripts/seedManualDemoData.js",
+    "prepare:manual-screenshot-state": "node scripts/prepareManualScreenshotState.js",
     "capture:manual-screenshots": "node scripts/captureManualScreenshots.js"
   },
   "author": "",
