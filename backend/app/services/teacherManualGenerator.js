@@ -12,8 +12,9 @@
 //
 // Screenshots (see the screenshot() helper below) are real PNGs captured
 // from a running instance by scripts/captureManualScreenshots.js (Playwright,
-// a devDependency, never present in the production image) against demo data
-// from scripts/seedManualDemoData.js, checked into
+// a devDependency, never present in the production image) against real
+// existing accounts and real existing content on that server (see
+// scripts/prepareManualScreenshotState.js), checked into
 // assets/manual-screenshots/ -- generation here only ever *reads* whatever
 // is on disk at request time, it never launches a browser itself.
 const fs = require("fs");

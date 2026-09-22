@@ -2,15 +2,28 @@
 
 PNGs captured by `scripts/captureManualScreenshots.js` and embedded by
 `app/services/teacherManualGenerator.js` into the auto-generated teacher
-manual. Nothing in this directory is hand-drawn or edited — every file here
-is a real screenshot of the running app, taken against demo data from
-`scripts/seedManualDemoData.js`.
+manual. Every file here is a real screenshot of the running app, taken
+against **real existing accounts and real existing 乡土课程设计/学习资源库
+content** already on the dev server it was run against — not a fabricated
+demo account with placeholder text. `scripts/prepareManualScreenshotState.js`
+adds only the couple of small, clearly-scoped nudges (a review pair, a
+`needsMigration` flag) that a specific screenshot needs but this server's
+organic content doesn't already have sitting ready.
+
+`scripts/mintDevToken.js` is how the capture script "logs in" — it mints a
+real JWT for an existing user id and injects it into localStorage, so no
+account's actual password is ever touched or known.
+
+**Both scripts hardcode ids specific to the dev database they were last run
+against** (see their own header comments) — on a different server, inspect
+what's actually there (`Plan.findAll` by teacherId, etc.) and update the
+constants to match, rather than assuming these same ids exist.
 
 ## Regenerating
 
 ```
 docker compose up --build
-docker compose exec backend node scripts/seedManualDemoData.js
+docker compose exec backend node scripts/prepareManualScreenshotState.js
 
 # From the HOST, not inside the alpine backend container (Playwright's
 # bundled Chromium needs glibc):
