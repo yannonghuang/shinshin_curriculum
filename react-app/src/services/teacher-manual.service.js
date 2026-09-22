@@ -14,7 +14,7 @@ class TeacherManualDataService {
     });
   }
 
-  // Regenerates the manual and files it into 学习资源库 under 手册/教师在线手册
+  // Regenerates the manual and files it into 学习资源库 under 使用指南/教师在线手册
   // (creating that topic on first use, overwriting the same entry on later
   // publishes).
   publish() {

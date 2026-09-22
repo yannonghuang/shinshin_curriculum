@@ -11,15 +11,22 @@ import AuthService from "../services/auth.service";
 import LessonFileManager from "./lesson-file-manager.component";
 import "../curriculum.css";
 
-// Mirrors backend/app/constants/materialCategories.js's MANUAL_CATEGORY --
-// a topic filed under this category (currently only 手册/教师在线手册, created
-// by the "教师手册" admin card below) is UI documentation, not admin-curated
-// domain material, so it gets a plain read-only "在线手册" reading view
-// instead of the usual 基本信息/材料内容/视频链接/知识卡片 tab set (see
-// renderManualViewer below) -- it's meant to be read like a web page, not
-// managed like a file library, and (per knowledgeIngest.js's own
-// MANUAL_CATEGORY exclusion) never feeds 欣欣助手/AI 点评's retrieval either.
-const MANUAL_CATEGORY = "手册";
+// Mirrors backend/app/constants/materialCategories.js's MANUAL_CATEGORY/
+// MANUAL_THEME -- 使用指南 is an ordinary category an admin can file any
+// "how to use the system" topic under (each behaving exactly like any other
+// topic: normal tabs, normal knowledge-base ingestion feeding 欣欣助手/AI 点评
+// -- see teacherManual.controller.js#publish's own comment on the "学习资源库
+// is the single source of truth" design). The one specific topic these two
+// constants identify together -- the auto-generated manual, created by the
+// "教师手册" admin card below -- is the sole exception: it gets a plain
+// read-only "在线手册" reading view instead of the usual 基本信息/材料内容/
+// 视频链接/知识卡片 tab set (see isManualTopic/renderManualViewer below),
+// since it's meant to be read like a web page, not managed like a file
+// library. Any *other* topic filed under 使用指南 (e.g. a hand-written
+// "使用说明") gets the normal tab set, same as any other category.
+const MANUAL_CATEGORY = "使用指南";
+const MANUAL_THEME = "教师在线手册";
+const isManualTopic = (topic) => !!topic && topic.category === MANUAL_CATEGORY && topic.theme === MANUAL_THEME;
 
 // 学习资源库 -- a Category -> Theme(主题/Event) tree, laid out like
 // plan-detail.component.js's own explorer (left nav tree, right content
@@ -147,7 +154,7 @@ const MaterialsLibrary = () => {
     }
   };
 
-  // Publishing files/updates the 手册/教师在线手册 topic below -- reload the tree
+  // Publishing files/updates the 使用指南/教师在线手册 topic below -- reload the tree
   // afterward so a first-time publish's brand-new topic (or an updated
   // artifact size/timestamp on a republish) shows up without a manual
   // page refresh.
@@ -264,7 +271,7 @@ const MaterialsLibrary = () => {
     };
   }, [selected.key, selected.topicId, retrieveSkill]);
 
-  // 在线手册 viewer: fetches the 手册-category topic's one artifact (the
+  // 在线手册 viewer: fetches the manual topic's one artifact (the
   // generated .docx -- see teacherManual.controller.js#publish) and converts
   // it to HTML client-side via mammoth, same conversion plan-detail.
   // component.js's own 预览 button uses, just rendered inline in the page
@@ -840,10 +847,10 @@ const MaterialsLibrary = () => {
     );
   };
 
-  // Read-only in-page rendering of a 手册-category topic's document --
-  // deliberately not the 基本信息/材料内容/视频链接/知识卡片 tab set (see
-  // MANUAL_CATEGORY's own comment above): a teacher opening 手册/教师在线手册
-  // should land straight on readable content, not a file manager.
+  // Read-only in-page rendering of the auto-generated manual topic's document
+  // -- deliberately not the 基本信息/材料内容/视频链接/知识卡片 tab set (see
+  // isManualTopic's own comment above): a teacher opening 使用指南/教师在线
+  // 手册 should land straight on readable content, not a file manager.
   const renderManualViewer = () => (
     <div className="pl-card">
       {isLoadingManualDoc && <div className="pl-empty">加载中...</div>}
@@ -946,10 +953,10 @@ const MaterialsLibrary = () => {
             {manualBusy === "download" ? "生成中..." : "下载最新教师手册"}
           </button>
           <button type="button" className="btn btn-primary btn-sm" onClick={publishTeacherManual} disabled={!!manualBusy}>
-            {manualBusy === "publish" ? "发布中..." : "生成并发布到「手册 / 教师在线手册」"}
+            {manualBusy === "publish" ? "发布中..." : "生成并发布到「使用指南 / 教师在线手册」"}
           </button>
           <div className="text-muted mt-2" style={{ fontSize: "0.85em" }}>
-            发布后将出现在下方的「手册 / 教师在线手册」主题下，教师可自行查看；再次发布会更新同一份文件。
+            发布后将出现在下方的「使用指南 / 教师在线手册」主题下，教师可自行查看；再次发布会更新同一份文件。
           </div>
         </div>
       )}
@@ -1163,11 +1170,14 @@ const MaterialsLibrary = () => {
                               <span className="spinner-border spinner-border-sm pl-explorer-row-spinner" role="status"></span>
                             )}
                           </form>
-                        ) : topic.category === MANUAL_CATEGORY ? (
-                          // 手册 topics have exactly one thing to show (see
-                          // renderManualViewer) -- clicking the row itself opens
-                          // it directly instead of expanding into a single
-                          // redundant child leaf underneath.
+                        ) : isManualTopic(topic) ? (
+                          // The auto-generated manual topic has exactly one
+                          // thing to show (see renderManualViewer) -- clicking
+                          // the row itself opens it directly instead of
+                          // expanding into a single redundant child leaf
+                          // underneath. Any other 使用指南 topic (e.g. a
+                          // hand-written 使用说明) falls through to the normal
+                          // expand/leaf branch below.
                           <button
                             type="button"
                             className={`pl-explorer-folder pl-explorer-subfolder pl-explorer-row-main ${
@@ -1220,7 +1230,7 @@ const MaterialsLibrary = () => {
                           </span>
                         )}
                       </div>
-                        {expandedTopics[topic.id] && topic.category !== MANUAL_CATEGORY && (
+                        {expandedTopics[topic.id] && !isManualTopic(topic) && (
                           <div className="pl-explorer-children pl-explorer-children-nested">
                             <button
                               type="button"

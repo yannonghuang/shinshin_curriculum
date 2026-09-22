@@ -1,9 +1,19 @@
 // Admin-only access to the generated 教师使用手册 (see teacherManualGenerator.js
 // for the actual content) -- #download just streams a freshly-built .docx,
-// while #publish additionally files it into 学习资源库 under a 手册/教师在线
-// 手册 topic (creating that topic on first use), so both the "download it
-// straight from admin" and the "hand it to teachers via the resource
+// while #publish additionally files it into 学习资源库 under a 使用指南/教师
+// 在线手册 topic (creating that topic on first use), so both the "download
+// it straight from admin" and the "hand it to teachers via the resource
 // library they already know" paths stay in sync with the same generator.
+//
+// 使用指南 is deliberately just an ordinary MaterialTopic category, not a
+// special-cased one: per the "学习资源库 is the single source of truth, on
+// both thematic topics and system usage, feeding 欣欣助手/AI 点评 alike"
+// design, this topic's content is ingested into the knowledge base exactly
+// like any other -- see the ingestOne() call below -- and an admin is free
+// to file other "how to use the system" topics alongside it under the same
+// category (materials-library.component.js only special-cases the *render*
+// of this one specific topic, by category+theme, not the category as a
+// whole).
 const fs = require("fs");
 const path = require("path");
 
@@ -12,7 +22,9 @@ const MaterialTopic = db.materialTopic;
 const MaterialArtifact = db.materialArtifact;
 const { generateTeacherManualBuffer } = require("../services/teacherManualGenerator");
 const { getArtifactStorageDirectory } = require("./material-artifact.controller");
-const { MANUAL_CATEGORY } = require("../constants/materialCategories");
+const knowledgeIngest = require("../services/knowledgeIngest");
+const textExtract = require("../services/textExtract");
+const { MANUAL_CATEGORY, LEGACY_MANUAL_CATEGORY } = require("../constants/materialCategories");
 
 const MANUAL_THEME = "教师在线手册";
 const MANUAL_FILENAME = "教师使用手册.docx";
@@ -35,7 +47,7 @@ exports.download = async (req, res) => {
 };
 
 // PUT /api/admin/teacher-manual/publish -- regenerates the manual and
-// finds-or-creates the 学习资源库 手册/教师在线手册 topic, overwriting (or
+// finds-or-creates the 学习资源库 使用指南/教师在线手册 topic, overwriting (or
 // creating, first time) the single MaterialArtifact row that holds it, so
 // republishing after a content change updates the same library entry in
 // place instead of piling up duplicate files.
@@ -43,19 +55,26 @@ exports.publish = async (req, res) => {
   try {
     const buffer = await generateTeacherManualBuffer();
 
-    // Looked up by category alone, not category+theme -- MANUAL_CATEGORY is
-    // exclusively used by this feature (see materialCategories.js), so this
-    // stays correct across a MANUAL_THEME rename too (rather than creating a
-    // second, orphaned topic the moment MANUAL_THEME's own literal changes).
-    let topic = await MaterialTopic.findOne({ where: { category: MANUAL_CATEGORY } });
+    // Looked up by category+theme, not category alone -- unlike the old
+    // 手册-only category this replaced, 使用指南 is shared with whatever other
+    // "how to use the system" topics an admin files there by hand, so an
+    // exact match is what identifies *this* topic specifically.
+    let topic = await MaterialTopic.findOne({ where: { category: MANUAL_CATEGORY, theme: MANUAL_THEME } });
     if (!topic) {
-      topic = await MaterialTopic.create({
-        category: MANUAL_CATEGORY,
-        theme: MANUAL_THEME,
-        comment: "系统自动生成的教师使用手册，由「教师手册」管理页面发布/更新。",
-      });
-    } else if (topic.theme !== MANUAL_THEME) {
-      await topic.update({ theme: MANUAL_THEME });
+      // One-time migration: the manual used to live under its own dedicated
+      // 手册 category (see LEGACY_MANUAL_CATEGORY) before moving here --
+      // renamed in place on its next publish rather than left orphaned under
+      // a now-unused category, or duplicated as a second topic.
+      const legacy = await MaterialTopic.findOne({ where: { category: LEGACY_MANUAL_CATEGORY, theme: MANUAL_THEME } });
+      if (legacy) {
+        topic = await legacy.update({ category: MANUAL_CATEGORY });
+      } else {
+        topic = await MaterialTopic.create({
+          category: MANUAL_CATEGORY,
+          theme: MANUAL_THEME,
+          comment: "系统自动生成的教师使用手册，由「教师手册」管理页面发布/更新。",
+        });
+      }
     }
 
     const targetDir = getArtifactStorageDirectory(topic.id, "Word文档");
@@ -86,16 +105,28 @@ exports.publish = async (req, res) => {
       });
     }
 
-    // Deliberately no knowledgeIngest.ingestSource/regenerateSkillCard call
-    // here -- 手册 topics are UI documentation, not domain material, and
-    // must never feed 欣欣助手/AI 点评's retrieval or trigger a 知识卡片
-    // summarization. Both would be no-ops anyway (knowledgeIngest.js itself
-    // now excludes MANUAL_CATEGORY at its own choke points), but skipping
-    // the call here also avoids the wasted textExtract() work on every
-    // publish.
+    // Same fire-and-forget contract as material-artifact.controller.js#
+    // create's own ingestOne -- the file is already safely saved by this
+    // point, so the publish response shouldn't hang on extraction/
+    // summarization. This is what makes the manual's own content
+    // (workflow/button/status wording) answerable by 欣欣助手.
+    (async () => {
+      try {
+        const text = await textExtract.extractTextFromFile(attachmentPath, "docx");
+        await knowledgeIngest.ingestSource({
+          sourceType: "material_artifact",
+          sourceId: artifact.id,
+          materialTopicId: topic.id,
+          text,
+        });
+        await knowledgeIngest.regenerateSkillCard(topic.id);
+      } catch (e) {
+        console.error("教师手册知识库摄取失败（不影响手册本身的发布）:", e.message);
+      }
+    })();
 
     return res.send({
-      message: "教师手册已生成并发布到学习资源库「手册 / 教师在线手册」。",
+      message: "教师手册已生成并发布到学习资源库「使用指南 / 教师在线手册」。",
       materialTopicId: topic.id,
     });
   } catch (err) {
