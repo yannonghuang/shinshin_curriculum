@@ -387,9 +387,10 @@
   padding: 4px 12px;
   border-radius: 999px;
   font-size: 13px;
+  font-weight: 700;
   line-height: 1.4;
   background: #fff;
-  color: var(--pl-muted);
+  color: var(--pl-text);
   border: 1px solid var(--pl-line);
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -404,7 +405,6 @@
   background: var(--pl-accent-soft);
   color: var(--pl-accent);
   border-color: #ccebdd;
-  font-weight: 600;
 }
 
 .pl-filter-toggle-ai.is-active {
