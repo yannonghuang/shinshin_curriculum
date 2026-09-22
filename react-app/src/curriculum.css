@@ -105,6 +105,19 @@
 .pl-manual-doc p {
   margin-bottom: 10px;
 }
+/* mammoth's own <img> tags carry no width/height/style at all (verified --
+   it drops the docx's own explicit transformation size entirely), so
+   without this every screenshot renders at its native pixel resolution --
+   several of teacherManualGenerator.js's screenshots are 800-1100px wide
+   natively, well past this container's 760px, and overflow it horizontally
+   in the browser even though the same images sit safely inside the actual
+   .docx's page margins (Word itself does honor that explicit size). */
+.pl-manual-doc img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 12px auto;
+}
 
 .pl-table-wrap {
   background: var(--pl-panel);
