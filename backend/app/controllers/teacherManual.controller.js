@@ -1,8 +1,8 @@
 // Admin-only access to the generated 教师使用手册 (see teacherManualGenerator.js
 // for the actual content) -- #download just streams a freshly-built .docx,
 // while #publish additionally files it into 学习资源库 under a 使用指南/教师
-// 在线手册 topic (creating that topic on first use), so both the "download
-// it straight from admin" and the "hand it to teachers via the resource
+// 手册 topic (creating that topic on first use), so both the "download it
+// straight from admin" and the "hand it to teachers via the resource
 // library they already know" paths stay in sync with the same generator.
 //
 // 使用指南 is deliberately just an ordinary MaterialTopic category, not a
@@ -26,7 +26,11 @@ const knowledgeIngest = require("../services/knowledgeIngest");
 const textExtract = require("../services/textExtract");
 const { MANUAL_CATEGORY, LEGACY_MANUAL_CATEGORY } = require("../constants/materialCategories");
 
-const MANUAL_THEME = "教师在线手册";
+const MANUAL_THEME = "教师手册";
+// Renamed from this on 2026-09 ("在线" was misleading -- the download-only
+// path exists too, see #download above) -- kept only so #publish can rename
+// that one existing topic in place on its next run instead of orphaning it.
+const OLD_MANUAL_THEME = "教师在线手册";
 const MANUAL_FILENAME = "教师使用手册.docx";
 const MANUAL_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -47,7 +51,7 @@ exports.download = async (req, res) => {
 };
 
 // PUT /api/admin/teacher-manual/publish -- regenerates the manual and
-// finds-or-creates the 学习资源库 使用指南/教师在线手册 topic, overwriting (or
+// finds-or-creates the 学习资源库 使用指南/教师手册 topic, overwriting (or
 // creating, first time) the single MaterialArtifact row that holds it, so
 // republishing after a content change updates the same library entry in
 // place instead of piling up duplicate files.
@@ -61,13 +65,16 @@ exports.publish = async (req, res) => {
     // exact match is what identifies *this* topic specifically.
     let topic = await MaterialTopic.findOne({ where: { category: MANUAL_CATEGORY, theme: MANUAL_THEME } });
     if (!topic) {
-      // One-time migration: the manual used to live under its own dedicated
-      // 手册 category (see LEGACY_MANUAL_CATEGORY) before moving here --
-      // renamed in place on its next publish rather than left orphaned under
-      // a now-unused category, or duplicated as a second topic.
-      const legacy = await MaterialTopic.findOne({ where: { category: LEGACY_MANUAL_CATEGORY, theme: MANUAL_THEME } });
+      // Two one-time migrations, checked in order, each renaming the
+      // existing topic in place rather than orphaning it or duplicating it:
+      //   1. still under the old theme name (教师在线手册 -> 教师手册);
+      //   2. still under the even older dedicated 手册 category (see
+      //      LEGACY_MANUAL_CATEGORY) from before that existed.
+      const renamedTheme = await MaterialTopic.findOne({ where: { category: MANUAL_CATEGORY, theme: OLD_MANUAL_THEME } });
+      const legacy =
+        renamedTheme || (await MaterialTopic.findOne({ where: { category: LEGACY_MANUAL_CATEGORY, theme: OLD_MANUAL_THEME } }));
       if (legacy) {
-        topic = await legacy.update({ category: MANUAL_CATEGORY });
+        topic = await legacy.update({ category: MANUAL_CATEGORY, theme: MANUAL_THEME });
       } else {
         topic = await MaterialTopic.create({
           category: MANUAL_CATEGORY,
@@ -126,7 +133,7 @@ exports.publish = async (req, res) => {
     })();
 
     return res.send({
-      message: "教师手册已生成并发布到学习资源库「使用指南 / 教师在线手册」。",
+      message: "教师手册已生成并发布到学习资源库「使用指南 / 教师手册」。",
       materialTopicId: topic.id,
     });
   } catch (err) {
