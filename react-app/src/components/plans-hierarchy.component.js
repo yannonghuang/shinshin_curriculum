@@ -1,10 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useHistory, useLocation } from "react-router-dom";
+import Select from "react-select";
 import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
 import { PLAN_THEMES } from "../constants/plan-options";
+import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
+
+// Same {value: code, label: name, address} shape as register.component.js's
+// own school picker, so typing a school's name OR code finds it here too
+// (schoolFilterOption checks both, plus address); onChange still only feeds
+// filterSchoolName (a name) below, since that's what filteredPlans matches
+// against, not the code.
+const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, address: s.address }));
+const formatSchoolOptionLabel = (option) => (
+  <div>
+    <div>{option.label}</div>
+    {option.address && <div style={{ fontSize: "0.85em", color: "#6c757d" }}>{option.address}</div>}
+  </div>
+);
 
 // Manager/expert plan browser: a 3-level 年份-学期 -> 学校 -> 教师 navigation
 // tree (plans-list.component.js renders this in place of its own flat
@@ -391,12 +406,16 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
               />
             </div>
             <div className="form-group col-md-4">
-              <label>学校名称筛选</label>
-              <input
-                className="form-control"
-                placeholder="按学校名称搜索"
-                value={filterSchoolName}
-                onChange={(e) => setFilterSchoolName(e.target.value)}
+              <label htmlFor="schoolFilter">学校名称筛选</label>
+              <Select
+                inputId="schoolFilter"
+                options={schoolOptions}
+                value={schoolOptions.find((o) => o.label === filterSchoolName) || null}
+                onChange={(option) => setFilterSchoolName(option ? option.label : "")}
+                placeholder="搜索并选择学校（支持名称/代码）..."
+                formatOptionLabel={formatSchoolOptionLabel}
+                filterOption={schoolFilterOption}
+                isClearable
               />
             </div>
             <div className="form-group col-md-4">
