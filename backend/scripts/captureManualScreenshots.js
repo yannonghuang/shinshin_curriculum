@@ -1,28 +1,47 @@
 // Drives a headless Chromium (via Playwright, a devDependency -- never
-// installed in the production image, see backend/package.json) against a
-// running local dev instance of the app to capture the screenshots
-// teacherManualGenerator.js embeds in the auto-generated teacher manual.
+// installed in the production image, see backend/package.json) to capture
+// the screenshots teacherManualGenerator.js embeds in the auto-generated
+// teacher manual -- sourcing each one from whichever real server (local dev
+// or production) actually has the more representative real content for it.
+// Right now that's local dev for everything plan-related (richer 乡土课程设计
+// content there) and production for 学习资源库 (its real 2026年秋季学期 topic
+// has several real uploaded files; dev's only real topic is a single-file
+// placeholder-ish "test1") -- see MATERIAL_* below.
 //
-// Uses REAL existing accounts and REAL existing 乡土课程设计/学习资源库 content
-// already on this dev server -- not fabricated demo data. Logging in is done
+// Uses REAL existing accounts and REAL existing content on whichever server
+// each screenshot comes from -- not fabricated demo data. Logging in is done
 // by minting a real JWT for an existing user id (scripts/mintDevToken.js,
-// run inside the backend container, where the real JWT_SECRET lives) and
-// injecting it into localStorage, never by touching/knowing anyone's actual
-// password. See scripts/prepareManualScreenshotState.js for the couple of
-// small, clearly-scoped nudges (a review pair, a needsMigration flag) this
-// still needs on top of what's already there naturally.
+// run *on that server* -- inside the local backend container via `docker
+// compose exec`, or on the production ECS host via SSH -- wherever that
+// server's own real JWT_SECRET actually lives) and injecting it into
+// localStorage, never by touching/knowing anyone's actual password. See
+// scripts/prepareManualScreenshotState.js for the couple of small,
+// clearly-scoped nudges (a review pair, a needsMigration flag) dev's real
+// content still needed on top of what was already there naturally.
 //
-// The account ids and plan ids below are specific to THIS dev database --
-// on a different server, inspect what's actually there and update them
-// (see prepareManualScreenshotState.js's own header for the same caveat).
+// No real person's name is ever displayed in any captured screenshot --
+// checked by hand for each one (dev's teacher/expert display names are
+// genericized by prepareManualScreenshotState.js; production's 学习资源库
+// topic has a real 主讲人 name on its 基本信息 tab, so this deliberately only
+// ever captures its 材料内容 tab, never 基本信息).
 //
-// Prerequisites (all local/dev-only, never run against a real deployment):
+// The account ids/plan titles/SSH target below are specific to *these*
+// servers -- on a different one, inspect what's actually there and update
+// them (see prepareManualScreenshotState.js's own header for the same
+// caveat, and scripts/deploy-aliyun-hk.env for where the SSH target/prod
+// domain come from).
+//
+// Prerequisites (dev screenshots -- local/dev-only, never run destructive
+// steps against a real deployment):
 //   1. `docker compose up --build` (frontend on :3000, backend on :8080).
 //   2. `docker compose exec backend node scripts/prepareManualScreenshotState.js`
 //   3. From the HOST (not inside the alpine backend container -- Playwright's
 //      bundled Chromium needs glibc, which alpine doesn't have):
 //        cd backend && npm install && npx playwright install --with-deps chromium
 //        node scripts/captureManualScreenshots.js
+// Production screenshots additionally need SSH access to the deploy target
+// (same key deploy-aliyun-hk.env uses) -- this script only ever *reads*
+// production (view a real 学习资源库 topic), never writes to it.
 //
 // Writes PNGs into backend/assets/manual-screenshots/ -- commit them once
 // you've eyeballed that they look right; teacherManualGenerator.js embeds
@@ -31,6 +50,7 @@
 // Re-run this any time the UI changes enough that a screenshot goes stale.
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const { execFileSync } = require("child_process");
 const { chromium } = require("playwright");
 
@@ -38,24 +58,31 @@ const BASE_URL = process.env.MANUAL_SCREENSHOT_BASE_URL || "http://localhost:300
 const OUT_DIR = path.join(__dirname, "..", "assets", "manual-screenshots");
 const REPO_ROOT = path.join(__dirname, "..", "..");
 
-const TEACHER_ID = 8; // yannonghuang / 黄砚农教师 -- a real existing teacher account
-const ADMIN_ID = 4; // manager / 管理员 -- a real existing admin account
+const TEACHER_ID = 8; // yannonghuang / 黄教师 -- a real existing teacher account (dev)
 
-// Real plans already on this server (see prepareManualScreenshotState.js's
+// Real plans already on the dev server (see prepareManualScreenshotState.js's
 // own comment on how these were picked).
 const REVIEW_PLAN_TITLE = "小小菜农 —— 萝卜种植乡土实践课"; // real 设计 content + a real review pair
 const MANUAL_MIGRATION_PLAN_TITLE = "童心探敦煌，巧手汇非遗"; // real leftover 手动迁移内容 from an actual past migration
 
-// Real 学习资源库 topic already on this server, with one real uploaded file.
+// 学习资源库 content is sourced from PRODUCTION instead of dev -- see this
+// file's header comment on why, and on why only 材料内容 (never 基本信息, which
+// carries a real 主讲人 name) is ever captured from it.
+const PROD_BASE_URL = "https://xtclass.shinshinfoundation.org";
+const PROD_SSH_HOST = "root@8.210.148.145";
+const PROD_SSH_KEY = path.join(os.homedir(), ".ssh", "shinshin_deploy");
+const PROD_DEPLOY_PATH = "/opt/shinshin_curriculum";
+const PROD_TEACHER_ID = 2; // yannonghuang -- the same real teacher, on production
 const MATERIAL_CATEGORY = "2026";
-const MATERIAL_THEME = "test1";
+const MATERIAL_THEME = "2026年秋季学期";
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
 // Mints the same {id, username, ..., accessToken, ...} shape auth.
 // controller.js#signin returns, for an existing user id, by running
-// mintDevToken.js *inside* the backend container (only place the real
-// JWT_SECRET env var lives) -- never touches that user's actual password.
+// mintDevToken.js *inside the backend container on the given server* (the
+// only place that server's own real JWT_SECRET env var lives) -- never
+// touches that user's actual password.
 const mintToken = (userId) => {
   const output = execFileSync(
     "docker",
@@ -65,12 +92,20 @@ const mintToken = (userId) => {
   return JSON.parse(output);
 };
 
+const mintTokenOnProd = (userId) => {
+  const remoteCmd = `cd ${PROD_DEPLOY_PATH} && docker compose exec -T backend node scripts/mintDevToken.js ${userId}`;
+  const output = execFileSync("ssh", ["-i", PROD_SSH_KEY, "-o", "ConnectTimeout=10", PROD_SSH_HOST, remoteCmd], {
+    encoding: "utf8",
+  });
+  return JSON.parse(output);
+};
+
 // Injects the minted token into localStorage before the app's own first
 // script runs (addInitScript fires on every new document in this context),
 // so AuthService.getCurrentUser() already finds a valid session on first
 // paint -- no /login form, no password, ever.
-const loginAs = async (context, userId) => {
-  const user = mintToken(userId);
+const loginAs = async (context, userId, mintFn = mintToken) => {
+  const user = mintFn(userId);
   await context.addInitScript((userJson) => {
     window.localStorage.setItem("user", userJson);
   }, JSON.stringify(user));
@@ -207,37 +242,29 @@ async function run() {
     await page.locator(".copilot-toggle").click();
 
     // ---------------------------------------------------------------
-    // Admin-role screenshots (学习资源库) -- a fresh browser context, not the
-    // teacher's `page` above: two different logged-in sessions can't share
-    // one localStorage-backed context.
+    // 学习资源库 screenshot -- sourced from PRODUCTION (see this file's header
+    // for why), read-only: browses a real topic as the same real teacher
+    // account, never writes anything. A fresh browser context -- different
+    // server entirely, so it needs its own localStorage-backed session.
     // ---------------------------------------------------------------
-    console.log("==> Logging in as real admin account (no password used)...");
-    const adminContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    await loginAs(adminContext, ADMIN_ID);
-    const adminPage = await adminContext.newPage();
-    await adminPage.goto(`${BASE_URL}/materials`, { waitUntil: "load" });
-
-    // A real admin action (publishes/updates the actual 使用指南/教师在线手册
-    // topic) -- not captured for its own screenshot here, just exercised so
-    // a stale publish doesn't linger if this script is the only thing run.
-    console.log("==> Publishing 教师在线手册 into 使用指南...");
-    const publishButton = adminPage.getByRole("button", { name: /生成并发布到/ });
-    if (await publishButton.count()) {
-      await publishButton.click();
-      await adminPage.waitForTimeout(3000);
-    }
+    console.log("==> Logging in on PRODUCTION as the real teacher account (no password used)...");
+    const prodContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await loginAs(prodContext, PROD_TEACHER_ID, mintTokenOnProd);
+    const prodPage = await prodContext.newPage();
+    await prodPage.goto(`${PROD_BASE_URL}/materials`, { waitUntil: "load" });
 
     // A populated 材料内容 file listing from a real, already-existing 学习
-    // 资源库 topic (see this file's header) -- not staged for the screenshot.
-    console.log("==> 学习资源库：材料内容 文件列表 (真实主题的真实文件)");
-    await adminPage.locator("button.pl-explorer-folder", { hasText: MATERIAL_CATEGORY }).first().click();
-    await adminPage.waitForTimeout(300);
-    await adminPage.getByText(MATERIAL_THEME, { exact: true }).first().click();
-    await adminPage.waitForTimeout(300);
-    await adminPage.getByText("材料内容", { exact: true }).first().click();
-    await adminPage.waitForTimeout(300);
-    await shoot(adminPage.locator(".pl-explorer").first(), "materials-library-content");
-    await adminContext.close();
+    // 资源库 topic on production -- deliberately never opens 基本信息 (see
+    // this file's header on why); reads only, writes nothing.
+    console.log("==> 学习资源库：材料内容 文件列表 (生产环境真实主题的真实文件)");
+    await prodPage.locator("button.pl-explorer-folder", { hasText: MATERIAL_CATEGORY }).first().click();
+    await prodPage.waitForTimeout(300);
+    await prodPage.getByText(MATERIAL_THEME, { exact: true }).first().click();
+    await prodPage.waitForTimeout(300);
+    await prodPage.getByText("材料内容", { exact: true }).first().click();
+    await prodPage.waitForTimeout(300);
+    await shoot(prodPage.locator(".pl-explorer").first(), "materials-library-content");
+    await prodContext.close();
 
     console.log("\n==> All screenshots captured into", OUT_DIR);
   } catch (err) {
