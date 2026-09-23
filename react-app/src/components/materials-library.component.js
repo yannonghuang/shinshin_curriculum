@@ -25,7 +25,7 @@ import "../curriculum.css";
 // library. Any *other* topic filed under 使用指南 (e.g. a hand-written
 // "使用说明") gets the normal tab set, same as any other category.
 const MANUAL_CATEGORY = "使用指南";
-const MANUAL_THEME = "教师在线手册";
+const MANUAL_THEME = "教师手册";
 const isManualTopic = (topic) => !!topic && topic.category === MANUAL_CATEGORY && topic.theme === MANUAL_THEME;
 
 // 学习资源库 -- a Category -> Theme(主题/Event) tree, laid out like
@@ -154,7 +154,7 @@ const MaterialsLibrary = () => {
     }
   };
 
-  // Publishing files/updates the 使用指南/教师在线手册 topic below -- reload the tree
+  // Publishing files/updates the 使用指南/教师手册 topic below -- reload the tree
   // afterward so a first-time publish's brand-new topic (or an updated
   // artifact size/timestamp on a republish) shows up without a manual
   // page refresh.
@@ -849,8 +849,8 @@ const MaterialsLibrary = () => {
 
   // Read-only in-page rendering of the auto-generated manual topic's document
   // -- deliberately not the 基本信息/材料内容/视频链接/知识卡片 tab set (see
-  // isManualTopic's own comment above): a teacher opening 使用指南/教师在线
-  // 手册 should land straight on readable content, not a file manager.
+  // isManualTopic's own comment above): a teacher opening 使用指南/教师手册
+  // should land straight on readable content, not a file manager.
   const renderManualViewer = () => (
     <div className="pl-card">
       {isLoadingManualDoc && <div className="pl-empty">加载中...</div>}
@@ -953,10 +953,10 @@ const MaterialsLibrary = () => {
             {manualBusy === "download" ? "生成中..." : "下载最新教师手册"}
           </button>
           <button type="button" className="btn btn-primary btn-sm" onClick={publishTeacherManual} disabled={!!manualBusy}>
-            {manualBusy === "publish" ? "发布中..." : "生成并发布到「使用指南 / 教师在线手册」"}
+            {manualBusy === "publish" ? "发布中..." : "生成并发布到「使用指南 / 教师手册」"}
           </button>
           <div className="text-muted mt-2" style={{ fontSize: "0.85em" }}>
-            发布后将出现在下方的「使用指南 / 教师在线手册」主题下，教师可自行查看；再次发布会更新同一份文件。
+            发布后将出现在下方的「使用指南 / 教师手册」主题下，教师可自行查看；再次发布会更新同一份文件。
           </div>
         </div>
       )}

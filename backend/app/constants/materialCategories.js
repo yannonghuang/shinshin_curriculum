@@ -1,4 +1,4 @@
-// Used by teacherManual.controller.js -- the auto-generated 教师在线手册 is
+// Used by teacherManual.controller.js -- the auto-generated 教师手册 is
 // filed under this category, alongside any other "how to use the system"
 // topics an admin defines by hand (see materials-library.component.js's own
 // mirrored constant). Deliberately NOT excluded from knowledgeIngest.js's
@@ -8,7 +8,7 @@
 // just like any other 学习资源库 topic.
 const MANUAL_CATEGORY = "使用指南";
 
-// The category 教师在线手册 used to be filed under, before it moved here --
+// The category 教师手册 used to be filed under, before it moved here --
 // kept only so teacherManual.controller.js#publish can migrate that one
 // pre-existing topic in place on its next publish instead of leaving it
 // orphaned under a now-unused category.

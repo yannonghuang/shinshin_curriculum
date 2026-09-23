@@ -5,7 +5,7 @@
 // dialogs, status values, etc.) captured from the actual components/
 // controllers at the time this was written -- see teacherManual.controller.js
 // for the two ways it's surfaced to an admin (plain download, or publish
-// into 学习资源库 as a 使用指南/教师在线手册 topic so teachers can find it
+// into 学习资源库 as a 使用指南/教师手册 topic so teachers can find it
 // themselves). Keep this file (not a one-off script) so the manual can be
 // regenerated after a real UI/workflow change instead of silently going
 // stale.
@@ -315,22 +315,6 @@ push(
       "课程实施阶段的支撑材料管理，以及模板更新后的迁移流程。"
   ),
   p("本手册所有界面文案、按钮名称均以系统当前实际界面为准；如系统后续升级，个别措辞可能略有差异。"),
-  h2("角色与权限速览"),
-  table(
-    ["角色", "在「课程设计」相关功能中的权限"],
-    [
-      ["教师", "创建/编辑/保存/提交/上传/下载/删除自己名下的课程设计；请求 AI 点评；与欣欣助手讨论点评。"],
-      ["专家", "对教师提交的课程设计撰写「专家点评」（评审），查看待点评案例列表；不能编辑课程设计内容本身。"],
-      [
-        "管理员",
-        "可撰写点评（标记为「管理员点评」）、停用/删除任意课程设计、管理模板版本与发起模板迁移、" +
-          "管理学习资源库内容；不能编辑教师课程设计的内容。",
-      ],
-    ],
-    [1, 4]
-  ),
-  spacer(),
-  note("同一账号只会拥有其中一种角色；顶部导航栏显示的菜单会随登录角色自动变化。"),
   h2("常用导航入口"),
   table(
     ["菜单名称", "说明"],
@@ -806,13 +790,7 @@ const INDEX_GROUPS = [
   },
   { letter: "M", terms: [["模板迁移", "十四、模板迁移"]] },
   { letter: "N", terms: [["内容已更新标签", "十、评审轨迹与历史"]] },
-  {
-    letter: "Q",
-    terms: [
-      ["全选", "主要功能"],
-      ["权限速览", "角色与权限速览"],
-    ],
-  },
+  { letter: "Q", terms: [["全选", "主要功能"]] },
   {
     letter: "S",
     terms: [
