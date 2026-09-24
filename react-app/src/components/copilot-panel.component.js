@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import ChatDataService from "../services/chat.service";
 import AuthService from "../services/auth.service";
@@ -68,6 +70,11 @@ const CopilotPanel = () => {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const messagesEndRef = useRef(null);
+  // Keyed by message id (or the same fallback key used for React's `key`
+  // prop below) -- lets the copy button grab the already-markdown-rendered
+  // DOM node for that exact bubble without re-deriving HTML from scratch.
+  const messageContentRefs = useRef({});
+  const [copiedKey, setCopiedKey] = useState(null);
   const [panelSize, setPanelSize] = useState({ width: PANEL_DEFAULT_WIDTH, height: PANEL_DEFAULT_HEIGHT });
   const panelRef = useRef(null);
   // Only populated while an actual drag is in progress -- see
@@ -309,6 +316,34 @@ const CopilotPanel = () => {
     );
   };
 
+  // Copies both the rendered formatting (as HTML, so pasting into e.g. a
+  // doc or email keeps headings/bold/lists) and a plain-text fallback in the
+  // same clipboard write -- the target app picks whichever it understands.
+  // Falls back to plain text alone when the browser lacks the multi-type
+  // Clipboard API (e.g. older Safari).
+  const copyMessage = async (key) => {
+    const node = messageContentRefs.current[key];
+    if (!node) return;
+    const html = node.innerHTML;
+    const text = node.innerText;
+    try {
+      if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new window.ClipboardItem({
+            "text/html": new Blob([html], { type: "text/html" }),
+            "text/plain": new Blob([text], { type: "text/plain" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((prev) => (prev === key ? null : prev)), 1500);
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
   const currentThreadLabel = historyList && explicitConversationId
     ? (historyList.find((c) => c.id === explicitConversationId) || {}).label
     : null;
@@ -383,12 +418,34 @@ const CopilotPanel = () => {
                 {isLoaded && messages.length === 0 && (
                   <div className="pl-empty">{displayName ? `${displayName}，有什么可以帮您的？` : "有什么可以帮您的？"}</div>
                 )}
-                {messages.map((m, i) => (
-                  <div key={m.id || `pending-${i}`} className={`copilot-bubble copilot-bubble-${m.role}`}>
-                    <div className="copilot-bubble-content">{m.content}</div>
-                    {m.role === "assistant" && renderCitations(m)}
-                  </div>
-                ))}
+                {messages.map((m, i) => {
+                  const key = m.id || `pending-${i}`;
+                  return (
+                    <div key={key} className={`copilot-bubble copilot-bubble-${m.role}`}>
+                      {m.role === "assistant" && !m._pending && (
+                        <button
+                          type="button"
+                          className="copilot-copy-btn"
+                          title="复制"
+                          onClick={() => copyMessage(key)}
+                        >
+                          <i className={`fas fa-${copiedKey === key ? "check" : "copy"}`}></i>
+                        </button>
+                      )}
+                      {m.role === "assistant" ? (
+                        <div
+                          className="copilot-bubble-content copilot-markdown"
+                          ref={(el) => (messageContentRefs.current[key] = el)}
+                        >
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <div className="copilot-bubble-content">{m.content}</div>
+                      )}
+                      {m.role === "assistant" && renderCitations(m)}
+                    </div>
+                  );
+                })}
                 {isSending && (
                   <div className="copilot-bubble copilot-bubble-assistant copilot-bubble-thinking">
                     <div className="copilot-bubble-content">思考中...</div>
