@@ -8,12 +8,6 @@ import { PLAN_THEMES } from "../constants/plan-options";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
 
-// Same {value: code, label: name, address} shape as register.component.js's
-// own school picker, so typing a school's name OR code finds it here too
-// (schoolFilterOption checks both, plus address); onChange still only feeds
-// filterSchoolName (a name) below, since that's what filteredPlans matches
-// against, not the code.
-const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, address: s.address }));
 const formatSchoolOptionLabel = (option) => (
   <div>
     <div>{option.label}</div>
@@ -183,6 +177,32 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   useEffect(() => {
     retrieveAll();
   }, [retrieveAll]);
+
+  // Same {value: code, label: name, address} shape as register.component.js's
+  // own school picker, so typing a school's name OR code finds it here too
+  // (schoolFilterOption checks both, plus address); onChange still only feeds
+  // filterSchoolName (a name) below, since that's what filteredPlans matches
+  // against, not the code. Narrowed down from the full 390-school master
+  // directory (SCHOOLS) to just the ones with at least one plan in `plans` --
+  // register.component.js's own picker still shows the full directory (any
+  // school can sign up a teacher), but here the other 400-ish schools with no
+  // submitted plans at all would just be dead-end search results. Built off
+  // `plans` (this view's full fetch, before the school/teacher-name/theme
+  // filters below are applied client-side) rather than `filteredPlans`, so
+  // picking a school doesn't shrink the dropdown down to just itself.
+  const schoolOptions = useMemo(() => {
+    const codesWithPlans = new Set(
+      plans
+        .map((p) => p.Teacher && p.Teacher.School && p.Teacher.School.code)
+        .filter((code) => code !== undefined && code !== null)
+        .map(String)
+    );
+    return SCHOOLS.filter((s) => codesWithPlans.has(String(s.code))).map((s) => ({
+      value: s.code,
+      label: s.name,
+      address: s.address,
+    }));
+  }, [plans]);
 
   // aiReviewed/expertReviewed come pre-computed from plan.controller.js#findAll
   // (derived, not stored -- see that controller's own comment); filtering
