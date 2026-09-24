@@ -8,6 +8,7 @@ import ReviewList from "./review-list.component";
 import LessonFileManager from "./lesson-file-manager.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, PLAN_STATUSES, EMPTY_LESSON, currentSeason } from "../constants/plan-options";
 import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
+import { registerSessionExpiryHandler } from "../utils/sessionExpiryGuard";
 import "../curriculum.css";
 
 // True if an answers object (shaped like planFormData/one executionFormData
@@ -540,6 +541,45 @@ const PLAN_SECTIONS = [
   { key: "reviews", label: "计划整体点评" },
 ];
 
+// 基本信息 form -> PlanDataService.update payload. Shared by saveMeta and the
+// session-timeout auto-save, so both send the same fields.
+const metaFormPayload = (metaForm) => ({
+  title: metaForm.title,
+  theme: metaForm.theme || null,
+  grade: metaForm.grade || null,
+  studentCount: metaForm.studentCount ? Number(metaForm.studentCount) : null,
+  instructorName: metaForm.instructorName || null,
+  year: Number(metaForm.year),
+  season: metaForm.season || null,
+  plannedLessonCount: metaForm.plannedLessonCount ? Number(metaForm.plannedLessonCount) : null,
+});
+
+// Local fallback for edits a session timeout couldn't get to the server
+// (see the session-expiry handler in PlanDetail). Keyed per plan *and* user,
+// so a draft never leaks into someone else's session on a shared computer.
+const planDraftKey = (planId, userId) => `planDraft:${planId}:${userId}`;
+const DRAFT_CLOCK_SLACK_MS = 5 * 60 * 1000;
+
+const writePlanDraft = (planId, userId, parts) => {
+  try {
+    localStorage.setItem(planDraftKey(planId, userId), JSON.stringify({ ...parts, savedAt: Date.now() }));
+  } catch (e) {
+    console.log(e);
+  }
+};
+
+// Reads and removes the draft in one go.
+const takePlanDraft = (planId, userId) => {
+  try {
+    const key = planDraftKey(planId, userId);
+    const raw = localStorage.getItem(key);
+    localStorage.removeItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
 const PlanDetail = (props) => {
   const planId = props.match.params.id;
   const [plan, setPlan] = useState(null);
@@ -643,6 +683,34 @@ const PlanDetail = (props) => {
       setMetaDirty(false);
       setFormData(mergeFormData(resp.data.planFormData, resp.data.PlanTemplateVersion && resp.data.PlanTemplateVersion.schemaJson));
       setExecutionFormData(Array.isArray(resp.data.executionFormData) ? resp.data.executionFormData : []);
+
+      // Edits stashed by a session timeout that never made it to the server
+      // (see the session-expiry handler below) -- restored as still-unsaved
+      // (dirty) so the teacher reviews them and saves explicitly. Consumed
+      // on restore: from here on the usual beforeunload/<Prompt> guards and
+      // a repeat timeout's own stash cover them. Dropped if the plan changed
+      // server-side after the stash (e.g. edited later from another device),
+      // so a stale draft never clobbers newer content -- with some slack,
+      // since savedAt is the browser's clock and updatedAt the server's, and
+      // a partially-successful auto-save bumps updatedAt just before the
+      // draft of its failed remainder is written.
+      const user = AuthService.getCurrentUser();
+      const draft = user && String(resp.data.teacherId) === String(user.id) ? takePlanDraft(planId, user.id) : null;
+      if (draft && !(resp.data.updatedAt && new Date(resp.data.updatedAt).getTime() > draft.savedAt + DRAFT_CLOCK_SLACK_MS)) {
+        if (draft.metaForm) {
+          setMetaForm(draft.metaForm);
+          setMetaDirty(true);
+        }
+        if (draft.formData) {
+          setFormData(draft.formData);
+          setPlanDirty(true);
+        }
+        if (draft.executionFormData) {
+          setExecutionFormData(draft.executionFormData);
+          setExecutionDirty(true);
+        }
+        setMessage("已恢复登录超时前未保存的内容，请检查后保存。");
+      }
     } catch (e) {
       console.log(e);
       setPlan(null);
@@ -678,6 +746,66 @@ const PlanDetail = (props) => {
 
   const currentUser = AuthService.getCurrentUser();
   const isOwner = !!(plan && currentUser && String(plan.teacherId) === String(currentUser.id));
+
+  // Session-timeout auto-save (see utils/sessionExpiryGuard.js). Reads the
+  // latest edits through a ref, updated every render, so the handler is
+  // registered once per plan rather than re-registered on every keystroke.
+  // Each dirty part is saved as a draft (no `status`, so a submitted plan
+  // stays submitted) in its own request, so e.g. an invalid 基本信息 field
+  // can't block the lesson content from saving; whatever fails stays in the
+  // local draft.
+  const expiryStateRef = useRef({});
+  expiryStateRef.current = {
+    canEdit: isOwner && !(plan && plan.suspended),
+    userId: currentUser && currentUser.id,
+    metaForm,
+    formData,
+    executionFormData,
+    metaDirty,
+    planDirty,
+    executionDirty,
+  };
+  useEffect(() => {
+    const unsavedParts = () => {
+      const s = expiryStateRef.current;
+      if (!s.canEdit || !s.userId) return null;
+      const parts = {};
+      if (s.metaDirty && s.metaForm) parts.metaForm = s.metaForm;
+      if (s.planDirty) parts.formData = s.formData;
+      if (s.executionDirty) parts.executionFormData = s.executionFormData;
+      return Object.keys(parts).length ? parts : null;
+    };
+    return registerSessionExpiryHandler({
+      hasUnsaved: () => !!unsavedParts(),
+      stash: () => {
+        const parts = unsavedParts();
+        if (parts) writePlanDraft(planId, expiryStateRef.current.userId, parts);
+      },
+      save: async () => {
+        const parts = unsavedParts();
+        if (!parts) return;
+        const s = expiryStateRef.current;
+        const remaining = { ...parts };
+        const attempt = async (key, payload, markClean) => {
+          try {
+            await PlanDataService.update(planId, payload);
+            delete remaining[key];
+            s[markClean] = false;
+          } catch (e) {
+            console.log(e);
+          }
+        };
+        if (parts.metaForm) await attempt("metaForm", metaFormPayload(parts.metaForm), "metaDirty");
+        if (parts.formData) await attempt("formData", { planFormData: parts.formData }, "planDirty");
+        if (parts.executionFormData) await attempt("executionFormData", { executionFormData: parts.executionFormData }, "executionDirty");
+        if (Object.keys(remaining).length) writePlanDraft(planId, s.userId, remaining);
+        else takePlanDraft(planId, s.userId);
+        setMetaDirty(s.metaDirty);
+        setPlanDirty(s.planDirty);
+        setExecutionDirty(s.executionDirty);
+      },
+    });
+  }, [planId]);
   const isAdmin = AuthService.isAdmin();
   // Always editable for the owner/admin, regardless of status (submitting for
   // review no longer locks the plan) -- previously gated on plan.status ===
@@ -731,16 +859,7 @@ const PlanDetail = (props) => {
   const saveMeta = async (e) => {
     e.preventDefault();
     try {
-      await PlanDataService.update(planId, {
-        title: metaForm.title,
-        theme: metaForm.theme || null,
-        grade: metaForm.grade || null,
-        studentCount: metaForm.studentCount ? Number(metaForm.studentCount) : null,
-        instructorName: metaForm.instructorName || null,
-        year: Number(metaForm.year),
-        season: metaForm.season || null,
-        plannedLessonCount: metaForm.plannedLessonCount ? Number(metaForm.plannedLessonCount) : null,
-      });
+      await PlanDataService.update(planId, metaFormPayload(metaForm));
       setMetaDirty(false);
       setMessage("课程设计信息已更新。");
       retrievePlan();
