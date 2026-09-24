@@ -1,5 +1,6 @@
 import AuthService from "./auth.service";
 import clearSessionAndRedirectToLogin from "./clear-session";
+import { hasUnsavedWork, saveUnsavedWork, stashUnsavedWork } from "../utils/sessionExpiryGuard";
 
 // token-renewal-interceptor.js's expiry handling is entirely *reactive* --
 // it only fires when some network request happens to go out and come back
@@ -20,12 +21,63 @@ import clearSessionAndRedirectToLogin from "./clear-session";
 // comfortably precise for a 900s window at effectively zero cost.
 const CHECK_INTERVAL_MS = 30 * 1000;
 
+// How long before expiry to auto-save unsaved edits (see
+// utils/sessionExpiryGuard.js) -- has to be comfortably wider than the check
+// interval, including a background tab's throttled one (Chrome clamps a
+// long-hidden tab's timers to roughly once a minute), or the whole window
+// can slip by between two checks.
+const AUTO_SAVE_LEAD_SECONDS = 120;
+
+const secondsUntilExpiry = (user) => {
+  if (!user.thisLogin || !user.validity) return Infinity;
+  return user.thisLogin + user.validity - Math.floor(Date.now() / 1000);
+};
+
 const startSessionWatchdog = () => {
-  setInterval(() => {
-    if (AuthService.getCurrentUser() && !AuthService.isValid()) {
+  // Also catches the session vanishing out from under this tab (another tab
+  // expired/logged out and cleared the shared localStorage "user") -- a
+  // plain `getCurrentUser() && !isValid()` check skips that case entirely,
+  // leaving this tab showing a logged-in page with no user behind it (every
+  // owner-gated editor silently turns read-only). Only redirects a tab that
+  // actually had a session, so an anonymous visitor on a public page is
+  // never bounced to /login.
+  let hadUser = !!AuthService.getCurrentUser();
+  let autoSaving = false;
+
+  const check = async () => {
+    if (autoSaving) return;
+    const user = AuthService.getCurrentUser();
+    if (user) {
+      hadUser = true;
+      if (!AuthService.isValid()) {
+        clearSessionAndRedirectToLogin();
+      } else if (secondsUntilExpiry(user) <= AUTO_SAVE_LEAD_SECONDS && hasUnsavedWork()) {
+        // Save while the token still works, then end the session anyway --
+        // the save itself renews the token (it's a request like any other),
+        // but an idle user's session should still time out on schedule
+        // rather than be kept alive by its own auto-save. Stash first so a
+        // save that fails still leaves a local draft behind.
+        autoSaving = true;
+        stashUnsavedWork();
+        await saveUnsavedWork();
+        clearSessionAndRedirectToLogin();
+      }
+    } else if (hadUser) {
+      hadUser = false;
       clearSessionAndRedirectToLogin();
     }
-  }, CHECK_INTERVAL_MS);
+  };
+
+  setInterval(check, CHECK_INTERVAL_MS);
+  // Background tabs get their timers heavily throttled, so the interval
+  // alone can lag well past the real expiry -- check immediately when the
+  // tab comes back into view, and when another tab changes the session.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") check();
+  });
+  window.addEventListener("storage", (e) => {
+    if (e.key === "user" || e.key === null) check();
+  });
 };
 
 export default startSessionWatchdog;
