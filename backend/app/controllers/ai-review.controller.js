@@ -80,7 +80,7 @@ exports.generateStandard = async (req, res) => {
   }
 };
 
-// GET /api/ai-review/scores -- every AI-reviewed plan with its newest AI
+// GET /api/ai-review/scores -- every submitted plan with its newest AI
 // score, plus the current/last AI 打分 batch status.
 exports.getScores = async (req, res) => {
   try {
@@ -96,7 +96,7 @@ exports.getScores = async (req, res) => {
 };
 
 // POST /api/ai-review/scores/run -- starts a background batch scoring
-// every AI-reviewed plan that isn't already up to date (see
+// every submitted plan that isn't already up to date (see
 // aiPlanScoring.js#startBatchInner); a no-op batch when all are.
 exports.runScoring = async (req, res) => {
   try {

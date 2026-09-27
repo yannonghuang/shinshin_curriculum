@@ -1,8 +1,8 @@
-// AI 打分: scores every AI-reviewed plan against the AI 点评标准 currently
-// in effect (aiReviewStandard.js) -- the same rubric for every plan, so
-// scores are comparable across plans. The plan's own content (design + every
-// lesson's 实施记录, via planContext.js) is the only evidence; its existing
-// AI 点评 only decides which plans are in scope, and isn't fed to the scorer,
+// AI 打分: scores every submitted plan (see findScorablePlanIds) against
+// the AI 点评标准 currently in effect (aiReviewStandard.js) -- the same
+// rubric for every plan, so scores are comparable across plans. The plan's
+// own content (design + every lesson's 实施记录, via planContext.js) is the
+// only evidence; existing reviews (AI or expert) aren't fed to the scorer,
 // so a score reflects the plan itself rather than a previous opinion of it.
 const db = require("../models");
 const { Op } = db.Sequelize;
@@ -35,13 +35,17 @@ const planIncludes = [
   { model: db.user, as: "Teacher", include: [{ model: db.school, as: "School" }] },
 ];
 
-async function findAiReviewedPlanIds() {
-  const rows = await Review.findAll({
-    attributes: [[db.Sequelize.fn("DISTINCT", db.Sequelize.col("plan_id")), "planId"]],
-    where: { reviewerType: "ai" },
+// In scope: every submitted plan -- "submitted" in the same sense as
+// plan.controller.js#findAll's restrictToSubmitted (status past draft, i.e.
+// submitted or already reviewed) -- minus suspended ones, which an admin
+// has taken out of circulation.
+async function findScorablePlanIds() {
+  const rows = await Plan.findAll({
+    attributes: ["id"],
+    where: { status: { [Op.ne]: "draft" }, suspended: false },
     raw: true,
   });
-  return rows.map((r) => Number(r.planId));
+  return rows.map((r) => Number(r.id));
 }
 
 // Maps the model's per-dimension output back onto the standard's own
@@ -151,7 +155,7 @@ async function startBatchInner({ userId }) {
     throw err;
   }
 
-  const planIds = await findAiReviewedPlanIds();
+  const planIds = await findScorablePlanIds();
   const plans = planIds.length ? await Plan.findAll({ where: { id: { [Op.in]: planIds } } }) : [];
   const latest = await latestScoresByPlan(planIds);
   const queue = plans.filter((p) => !isUpToDate(latest.get(Number(p.id)), p, standard.id)).map((p) => p.id);
@@ -208,10 +212,10 @@ async function startBatchInner({ userId }) {
   return getJobStatus();
 }
 
-// Every AI-reviewed plan with its newest score (null if never scored), for
+// Every in-scope plan with its newest score (null if never scored), for
 // the AI 打分 table.
 async function listScores() {
-  const planIds = await findAiReviewedPlanIds();
+  const planIds = await findScorablePlanIds();
   if (planIds.length === 0) return [];
   const plans = await Plan.findAll({
     where: { id: { [Op.in]: planIds } },
@@ -226,14 +230,15 @@ async function listScores() {
     ],
   });
   const latest = await latestScoresByPlan(planIds);
-  // Same derivation as plan.controller.js#findAll's expertReviewed, for the
-  // AI 打分 page's 专家已点评 filter toggle.
-  const expertRows = await Review.findAll({
-    attributes: ["planId"],
-    where: { planId: { [Op.in]: planIds }, reviewerType: "expert" },
+  // Same derivation as plan.controller.js#findAll's aiReviewed/
+  // expertReviewed, for the AI 打分 page's AI已点评/专家已点评 toggles.
+  const reviewRows = await Review.findAll({
+    attributes: ["planId", "reviewerType"],
+    where: { planId: { [Op.in]: planIds }, reviewerType: { [Op.in]: ["ai", "expert"] } },
     raw: true,
   });
-  const expertReviewedIds = new Set(expertRows.map((r) => Number(r.planId)));
+  const aiReviewedIds = new Set(reviewRows.filter((r) => r.reviewerType === "ai").map((r) => Number(r.planId)));
+  const expertReviewedIds = new Set(reviewRows.filter((r) => r.reviewerType === "expert").map((r) => Number(r.planId)));
 
   return plans
     .map((p) => {
@@ -246,6 +251,7 @@ async function listScores() {
         year: p.year,
         season: p.season,
         status: p.status,
+        aiReviewed: aiReviewedIds.has(Number(p.id)),
         expertReviewed: expertReviewedIds.has(Number(p.id)),
         teacherName: p.Teacher ? p.Teacher.chineseName || p.Teacher.username : "",
         schoolCode: p.Teacher && p.Teacher.School ? p.Teacher.School.code : null,
