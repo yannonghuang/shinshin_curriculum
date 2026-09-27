@@ -10,8 +10,16 @@ const fs = require("fs");
 const db = require("../models");
 const knowledgeIngest = require("./knowledgeIngest");
 const knowledgeTree = require("./knowledgeTree");
+const embeddings = require("./embeddings");
 
-async function rebuildSources({ topicId = null, summariesOnly = false, log = () => {} } = {}) {
+async function rebuildSources({ topicId = null, summariesOnly = false, embeddingsOnly = false, log = () => {} } = {}) {
+  if (embeddingsOnly) {
+    // Just (re-)embed chunks lacking a current-model vector -- no
+    // re-extraction or re-summarization.
+    const n = await embeddings.embedMissing({ topicId, log });
+    log(`向量化完成：${n} 段`);
+    return;
+  }
   // Required lazily: the controller module pulls in multer/express bits a
   // service shouldn't load at require time.
   const { artifactKnowledgeSegments } = require("../controllers/material-artifact.controller");
@@ -50,6 +58,11 @@ async function rebuildSources({ topicId = null, summariesOnly = false, log = () 
     const s = await knowledgeTree.summarizeSource({ sourceType: "material_topic_meta", sourceId: t.id, materialTopicId: t.id });
     log(`${s ? "✓" : "-"} 主题基本信息 #${t.id} ${t.theme}`);
   }
+
+  // Sources whose chunks weren't rewritten above (links, topic meta, files
+  // whose extraction yielded nothing) still need vectors.
+  const n = await embeddings.embedMissing({ topicId, log });
+  log(`补充向量化：${n} 段`);
 }
 
 // Per-topic "rebuild running" flags for the 学习资源库 button's polling --

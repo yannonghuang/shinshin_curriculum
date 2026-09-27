@@ -95,7 +95,7 @@ async function searchKnowledgeTree(
   });
 
   const sources = provenance
-    ? [...provenance.anchors, ...provenance.verbatim, ...provenance.summarized].map((x) => ({
+    ? [...provenance.anchors, ...provenance.verbatim, ...(provenance.semantic || []), ...provenance.summarized].map((x) => ({
         title: x.title,
         topic: x.topic,
         locator: x.locator || null,

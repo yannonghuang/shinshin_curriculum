@@ -28,6 +28,7 @@ const KnowledgeSkill = db.knowledgeSkill;
 const KnowledgeChunk = db.knowledgeChunk;
 const KnowledgeSourceSummary = db.knowledgeSourceSummary;
 const llmClient = require("./llmClient");
+const embeddings = require("./embeddings");
 const { MANUAL_CATEGORY } = require("../constants/materialCategories");
 
 const CONTENT_KINDS = ["rubric", "case", "method", "concept", "data", "other"];
@@ -367,6 +368,8 @@ async function route(subject, topics, sources, headerOpts) {
 //   includeTopicMeta  -- show topics' 主讲人/备注 (chat needs these to answer
 //                     "谁讲过…"; standards/reviews must not name people)
 //   redact         -- strip person names from source titles (see redactNames)
+//   semantic       -- add chunk-level embedding matches (embeddings.js),
+//                     up to semanticLimit passages
 // Returns { text, provenance, usedChunkIds }.
 async function buildContext({
   subject,
@@ -375,6 +378,8 @@ async function buildContext({
   budget = 60000,
   includeTopicMeta = false,
   redact = false,
+  semantic = true,
+  semanticLimit = 6,
 }) {
   const { topics, sources } = await loadCatalog(excludeCategories);
   if (sources.length === 0) return { text: "", provenance: null, usedChunkIds: [] };
@@ -408,8 +413,8 @@ async function buildContext({
 
   let remaining = budget;
   const usedChunkIds = new Set();
-  const sections = { anchors: [], items: [], verbatim: [], summaries: [], background: [] };
-  const provenance = { subject, anchors: [], verbatim: [], summarized: [], background: [], routedBy: routed.model };
+  const sections = { anchors: [], items: [], semantic: [], verbatim: [], summaries: [], background: [] };
+  const provenance = { subject, anchors: [], verbatim: [], semantic: [], summarized: [], background: [], routedBy: routed.model };
   const touchedTopics = new Set();
 
   // Verbatim text for a chunk range of one source, skipping chunks already
@@ -442,7 +447,58 @@ async function buildContext({
     }
   }
 
-  // 2. Routed items verbatim.
+  // 2. Chunk-level semantic hits (embeddings.js): the pages closest in
+  // meaning to the subject, wherever they are -- including details no
+  // summary or inventory label mentions, which routing alone can't see.
+  // Contiguous hits from the same source are merged into one passage.
+  // Placed before routed items: a hit is one precise ~600-char chunk,
+  // while a routed inventory item can span several, so under a tight
+  // budget the precise matches must not be crowded out by the broad ones.
+  if (semantic) {
+    let hits = [];
+    try {
+      hits = await embeddings.semanticSearch(subject, {
+        topicIds: topics.map((t) => Number(t.id)),
+        excludeSourceTypes: ["material_topic_meta"],
+        limit: semanticLimit,
+      });
+    } catch (e) {
+      console.error("语义检索失败，跳过:", e.message);
+    }
+    const bySourceKey = new Map(sources.map((x) => [x.key, x]));
+    const groups = new Map();
+    for (const h of hits) {
+      const src = bySourceKey.get(`${h.sourceType}:${h.sourceId}`);
+      if (!src) continue;
+      if (!groups.has(src.key)) groups.set(src.key, { src, hits: [] });
+      groups.get(src.key).hits.push(h);
+    }
+    for (const { src, hits: hs } of groups.values()) {
+      hs.sort((a, b) => a.chunkIndex - b.chunkIndex);
+      const runs = [];
+      for (const h of hs) {
+        const last = runs[runs.length - 1];
+        if (last && h.chunkIndex === last.to + 1) {
+          last.to = h.chunkIndex;
+          last.score = Math.max(last.score, h.score);
+        } else runs.push({ from: h.chunkIndex, to: h.chunkIndex, score: h.score });
+      }
+      for (const run of runs) {
+        const got = await takeChunks(src, run.from, run.to);
+        if (!got || !got.text) continue;
+        sections.semantic.push(`${place(src, got.chunks)}：\n${got.text}`);
+        provenance.semantic.push({
+          title: src.title,
+          topic: topicLabel(src.topic),
+          locator: locatorOf(got.chunks),
+          score: Math.round(run.score * 1000) / 1000,
+        });
+        touchedTopics.add(Number(src.topic.id));
+      }
+    }
+  }
+
+  // 3. Routed items verbatim.
   for (const ref of routed.items) {
     const m = ref.match(/^(S\d+)\.(\d+)$/);
     const s = m && byRef.get(m[1]);
@@ -455,7 +511,7 @@ async function buildContext({
     touchedTopics.add(Number(s.topic.id));
   }
 
-  // 3. High-relevance sources in full, or their summary if they don't fit.
+  // 4. High-relevance sources in full, or their summary if they don't fit.
   const summarize = (s) => {
     const line = `《${s.title}》（${topicLabel(s.topic)}）：${s.summary || "（暂无摘要）"}${
       s.contents.length ? `\n  包含：${s.contents.map((it) => it.label).join("；")}` : ""
@@ -476,10 +532,10 @@ async function buildContext({
     }
   }
 
-  // 4. Medium-relevance sources as summaries.
+  // 5. Medium-relevance sources as summaries.
   for (const s of sources.filter((x) => routed.medium.has(x.ref) && !routed.high.has(x.ref))) summarize(s);
 
-  // 5. Untouched topics: one line of background each.
+  // 6. Untouched topics: one line of background each.
   const backgroundTopicIds = [];
   for (const t of topics) {
     if (touchedTopics.has(Number(t.id)) || !t.Skill || !t.Skill.summary) continue;
@@ -490,6 +546,7 @@ async function buildContext({
 
   const blocks = [];
   if (sections.anchors.length) blocks.push(`【资料中已有的评价/评分标准（原文）】\n\n${sections.anchors.join("\n\n")}`);
+  if (sections.semantic.length) blocks.push(`【语义相关片段原文】\n\n${sections.semantic.join("\n\n")}`);
   if (sections.items.length) blocks.push(`【相关内容原文】\n\n${sections.items.join("\n\n")}`);
   if (sections.verbatim.length) blocks.push(`【相关资料原文】\n\n${sections.verbatim.join("\n\n")}`);
   if (sections.summaries.length) blocks.push(`【其他相关资料摘要】\n\n${sections.summaries.join("\n\n")}`);

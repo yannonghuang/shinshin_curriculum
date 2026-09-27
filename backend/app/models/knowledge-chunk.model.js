@@ -37,8 +37,13 @@ module.exports = (sequelize, Sequelize) => {
       pageTo: {
         type: Sequelize.INTEGER,
       },
+      // Chunk-level semantic vector (services/embeddings.js) and the model
+      // that produced it -- vectors from different models aren't comparable.
       embedding: {
-        type: Sequelize.JSON, // unused in v1, reserved for a future semantic-rerank pass
+        type: Sequelize.JSON,
+      },
+      embeddingModel: {
+        type: Sequelize.STRING(64),
       },
     },
     {

@@ -6,6 +6,7 @@ const MaterialLink = db.materialLink;
 const MaterialArtifact = db.materialArtifact;
 const llmClient = require("./llmClient");
 const knowledgeTree = require("./knowledgeTree");
+const embeddings = require("./embeddings");
 
 const CHUNK_TARGET_SIZE = 600;
 const CHUNK_OVERLAP = 100;
@@ -103,8 +104,10 @@ function splitSegmentsIntoChunks(segments) {
 // `segments` ([{ page, text }], see textExtract.js#extractSegmentsFromFile)
 // when the caller has page-aware text; plain `text` otherwise. Every
 // successful (re)ingestion also rebuilds this source's knowledge-tree
-// summary node (knowledgeTree.js#summarizeSource), so the tree stays
-// current incrementally, one changed source at a time.
+// summary node (knowledgeTree.js#summarizeSource) and embeds its chunks
+// (embeddings.js#embedSource -- after the summary, whose title it uses as
+// context), so the tree stays current incrementally, one changed source at
+// a time.
 async function ingestSource({ sourceType, sourceId, materialTopicId, text, segments }) {
   const pieces = splitSegmentsIntoChunks(segments || [{ page: null, text }]);
   if (pieces.length === 0) {
@@ -124,6 +127,7 @@ async function ingestSource({ sourceType, sourceId, materialTopicId, text, segme
     }))
   );
   await knowledgeTree.summarizeSource({ sourceType, sourceId, materialTopicId });
+  await embeddings.embedSource({ sourceType, sourceId });
   return { written: true, chunkCount: pieces.length };
 }
 
