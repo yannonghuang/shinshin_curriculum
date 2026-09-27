@@ -203,17 +203,25 @@ async function listScores() {
   if (planIds.length === 0) return [];
   const plans = await Plan.findAll({
     where: { id: { [Op.in]: planIds } },
-    attributes: ["id", "title", "theme", "grade", "year", "season", "contentVersionAt"],
+    attributes: ["id", "title", "theme", "grade", "year", "season", "status", "contentVersionAt"],
     include: [
       {
         model: db.user,
         as: "Teacher",
         attributes: ["id", "username", "chineseName"],
-        include: [{ model: db.school, as: "School", attributes: ["name"] }],
+        include: [{ model: db.school, as: "School", attributes: ["code", "name"] }],
       },
     ],
   });
   const latest = await latestScoresByPlan(planIds);
+  // Same derivation as plan.controller.js#findAll's expertReviewed, for the
+  // AI 打分 page's 专家已点评 filter toggle.
+  const expertRows = await Review.findAll({
+    attributes: ["planId"],
+    where: { planId: { [Op.in]: planIds }, reviewerType: "expert" },
+    raw: true,
+  });
+  const expertReviewedIds = new Set(expertRows.map((r) => Number(r.planId)));
 
   return plans
     .map((p) => {
@@ -225,7 +233,10 @@ async function listScores() {
         grade: p.grade,
         year: p.year,
         season: p.season,
+        status: p.status,
+        expertReviewed: expertReviewedIds.has(Number(p.id)),
         teacherName: p.Teacher ? p.Teacher.chineseName || p.Teacher.username : "",
+        schoolCode: p.Teacher && p.Teacher.School ? p.Teacher.School.code : null,
         schoolName: p.Teacher && p.Teacher.School ? p.Teacher.School.name : "",
         score: s
           ? {
