@@ -49,7 +49,7 @@ const scoreClass =(score, weight) => {
 };
 
 // AI 点评 -> AI 打分 (expert/admin only). Opening the page triggers a
-// background batch scoring every AI-reviewed plan against the AI 点评标准 in
+// background batch scoring every submitted plan against the AI 点评标准 in
 // effect (backend services/aiPlanScoring.js). The batch is incremental --
 // plans already scored on that standard with unchanged content are skipped
 // -- so revisiting the page only scores what's new or changed. 更新打分
@@ -77,13 +77,10 @@ const AiScores = () => {
   const [filterTeacherName, setFilterTeacherName] = useState(() => initialParams.get("teacherName") || "");
   const [filterSchoolName, setFilterSchoolName] = useState(() => initialParams.get("schoolName") || "");
   const [filterTheme, setFilterTheme] = useState(() => initialParams.get("theme") || "");
-  const [filterSubmitted, setFilterSubmitted] = useState(() => initialParams.get("submitted") === "1");
+  const [filterAiReviewed, setFilterAiReviewed] = useState(() => initialParams.get("aiReviewed") === "1");
   const [filterExpertReviewed, setFilterExpertReviewed] = useState(() => initialParams.get("expertReviewed") === "1");
   const [sortKey, setSortKey] = useState(() => (initialParams.get("sort") === "title" ? "title" : "score"));
   const [sortDir, setSortDir] = useState(() => (initialParams.get("dir") === "asc" ? "asc" : "desc"));
-  // "已提交" is admin-only, same as 全部乡土课程 -- experts never see drafts
-  // there, so the toggle would be meaningless for them.
-  const showSubmittedToggle = AuthService.isAdmin();
 
   const [themeOptions, setThemeOptions] = useState(PLAN_THEMES);
   useEffect(() => {
@@ -101,7 +98,7 @@ const AiScores = () => {
     setOrDelete("teacherName", filterTeacherName);
     setOrDelete("schoolName", filterSchoolName);
     setOrDelete("theme", filterTheme);
-    setOrDelete("submitted", filterSubmitted ? "1" : "");
+    setOrDelete("aiReviewed", filterAiReviewed ? "1" : "");
     setOrDelete("expertReviewed", filterExpertReviewed ? "1" : "");
     setOrDelete("sort", sortKey === "score" ? "" : sortKey);
     setOrDelete("dir", sortDir === "desc" ? "" : sortDir);
@@ -110,9 +107,9 @@ const AiScores = () => {
       history.replace({ pathname: location.pathname, search: nextSearch });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterTerm, filterTeacherName, filterSchoolName, filterTheme, filterSubmitted, filterExpertReviewed, sortKey, sortDir]);
+  }, [filterTerm, filterTeacherName, filterSchoolName, filterTheme, filterAiReviewed, filterExpertReviewed, sortKey, sortDir]);
 
-  // Only schools/terms that actually have an AI-reviewed plan -- same
+  // Only schools/terms that actually have a submitted plan -- same
   // "no dead-end options" narrowing as 全部乡土课程's school dropdown.
   const schoolOptions = useMemo(() => {
     const codes = new Set(plans.map((p) => p.schoolCode).filter((c) => c !== null && c !== undefined).map(String));
@@ -137,11 +134,11 @@ const AiScores = () => {
           (!teacherQuery || (p.teacherName || "").toLowerCase().includes(teacherQuery)) &&
           (!schoolQuery || (p.schoolName || UNASSIGNED_SCHOOL_NAME).toLowerCase().includes(schoolQuery)) &&
           (!filterTheme || p.theme === filterTheme) &&
-          (!filterSubmitted || p.status === "submitted") &&
+          (!filterAiReviewed || p.aiReviewed) &&
           (!filterExpertReviewed || p.expertReviewed)
       )
       .sort(compareBy(sortKey, sortDir));
-  }, [plans, filterTerm, filterTeacherName, filterSchoolName, filterTheme, filterSubmitted, filterExpertReviewed, sortKey, sortDir]);
+  }, [plans, filterTerm, filterTeacherName, filterSchoolName, filterTheme, filterAiReviewed, filterExpertReviewed, sortKey, sortDir]);
 
   // First click on a column sorts it in its natural direction (课程 A→Z,
   // 总分 high→low); clicking the active column again flips it.
@@ -236,7 +233,7 @@ const AiScores = () => {
           <Link to="/ai-review/standard" className="mx-1">
             AI 点评标准（版本 #{standard.id}）
           </Link>
-          对全部已有 AI 点评的课程打分，满分 {standard.content.totalScore}。已打过分且标准与课程内容均未变化的课程不会重复打分。
+          对全部已提交的课程打分，满分 {standard.content.totalScore}。已打过分且标准与课程内容均未变化的课程不会重复打分。
         </p>
       )}
       {loaded && !standard && (
@@ -287,7 +284,7 @@ const AiScores = () => {
         </div>
       )}
 
-      {loaded && plans.length === 0 && <p className="text-muted">暂无已有 AI 点评的课程。</p>}
+      {loaded && plans.length === 0 && <p className="text-muted">暂无已提交的课程。</p>}
 
       {plans.length > 0 && (
         <>
@@ -338,15 +335,16 @@ const AiScores = () => {
             </div>
           </div>
           <div className="pl-filter-bar mb-3">
-            {showSubmittedToggle && (
-              <button
-                type="button"
-                className={`pl-filter-toggle ${filterSubmitted ? "is-active" : ""}`}
-                onClick={() => setFilterSubmitted((prev) => !prev)}
-              >
-                已提交
-              </button>
-            )}
+            {/* No 已提交 toggle here (unlike 全部乡土课程): every plan on this
+                page is already submitted -- see backend
+                aiPlanScoring.js#findScorablePlanIds. */}
+            <button
+              type="button"
+              className={`pl-filter-toggle pl-filter-toggle-ai ${filterAiReviewed ? "is-active" : ""}`}
+              onClick={() => setFilterAiReviewed((prev) => !prev)}
+            >
+              AI已点评
+            </button>
             <button
               type="button"
               className={`pl-filter-toggle pl-filter-toggle-expert ${filterExpertReviewed ? "is-active" : ""}`}
