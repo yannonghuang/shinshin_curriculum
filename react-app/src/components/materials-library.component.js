@@ -9,6 +9,7 @@ import MaterialArtifactDataService from "../services/material-artifact.service";
 import TeacherManualDataService from "../services/teacher-manual.service";
 import AuthService from "../services/auth.service";
 import LessonFileManager from "./lesson-file-manager.component";
+import KnowledgeIndex from "./knowledge-index.component";
 import "../curriculum.css";
 
 // Mirrors backend/app/constants/materialCategories.js's MANUAL_CATEGORY/
@@ -843,6 +844,7 @@ const MaterialsLibrary = () => {
             保存
           </button>
         )}
+        <KnowledgeIndex topicId={selected.topicId} isAdmin={isAdmin} />
       </div>
     );
   };

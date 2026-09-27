@@ -29,6 +29,14 @@ module.exports = (sequelize, Sequelize) => {
         type: Sequelize.TEXT,
         allowNull: false,
       },
+      // Page/slide range of the source file this chunk came from (see
+      // textExtract.js#extractSegmentsFromFile); NULL for page-less sources.
+      pageFrom: {
+        type: Sequelize.INTEGER,
+      },
+      pageTo: {
+        type: Sequelize.INTEGER,
+      },
       embedding: {
         type: Sequelize.JSON, // unused in v1, reserved for a future semantic-rerank pass
       },

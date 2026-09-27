@@ -90,4 +90,71 @@ const extractTextFromFile = async (filePath, ext) => {
   return "";
 };
 
-module.exports = { extractTextFromFile, extractDocxText, extractDocxTextFromBuffer, extractPptxText, extractPdfText };
+// Page-aware variant for the knowledge base (knowledgeIngest.js): returns
+// [{ page, text }] so every chunk can record which page(s)/slide(s) it came
+// from -- that's what lets a retrieved passage be cited ("第 39 页") and a
+// source's contents inventory point at exact pages. PDF pages come from
+// mutool's form-feed page separators; .pptx slides from their per-slide XML
+// files in slide-number order. .docx has no fixed pages, so it's one
+// segment with page null. Empty pages are dropped (their numbers are kept
+// on the rest, so page N is still the file's real page N).
+const extractPdfSegments = (filePath) => {
+  const text = extractPdfText(filePath);
+  if (!text) return [];
+  return text
+    .split("\f")
+    .map((t, i) => ({ page: i + 1, text: t.trim() }))
+    .filter((s) => s.text);
+};
+
+const extractPptxSegments = (filePath) => {
+  let names;
+  try {
+    names = childProcess
+      .execFileSync("unzip", ["-Z1", filePath], { stdio: ["ignore", "pipe", "ignore"] })
+      .toString("utf8")
+      .split("\n")
+      .map((n) => n.trim())
+      .filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+  } catch (e) {
+    return [];
+  }
+  const slideNo = (n) => Number(n.match(/slide(\d+)\.xml$/)[1]);
+  return names
+    .sort((a, b) => slideNo(a) - slideNo(b))
+    .map((name) => {
+      let xml = "";
+      try {
+        xml = childProcess.execFileSync("unzip", ["-p", filePath, name], { stdio: ["ignore", "pipe", "ignore"] }).toString("utf8");
+      } catch (e) {
+        return null;
+      }
+      const text = [...xml.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]).join(" ").trim();
+      return text ? { page: slideNo(name), text } : null;
+    })
+    .filter(Boolean);
+};
+
+const extractSegmentsFromFile = async (filePath, ext) => {
+  const normalizedExt = (ext || "").toLowerCase().replace(/^\./, "");
+  try {
+    if (normalizedExt === "pdf") return extractPdfSegments(filePath);
+    if (normalizedExt === "pptx") return extractPptxSegments(filePath);
+    if (normalizedExt === "docx") {
+      const text = await extractDocxText(filePath);
+      return text ? [{ page: null, text }] : [];
+    }
+  } catch (e) {
+    console.error("文本提取失败:", filePath, e.message);
+  }
+  return [];
+};
+
+module.exports = {
+  extractTextFromFile,
+  extractSegmentsFromFile,
+  extractDocxText,
+  extractDocxTextFromBuffer,
+  extractPptxText,
+  extractPdfText,
+};

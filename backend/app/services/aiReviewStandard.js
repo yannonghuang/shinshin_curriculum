@@ -4,10 +4,12 @@
 // of each AI review improvising its own criteria from whatever it happens to
 // retrieve for that one plan.
 //
-// Input is the knowledge base the ingestion pipeline already built
-// (knowledgeIngest.js): each topic's curated skill card when it has one, plus
-// a budgeted excerpt of its raw chunks, so topics without a card yet still
-// contribute. No extraction happens here.
+// Input comes from the knowledge tree (knowledgeTree.js#buildContext): every
+// evaluation standard already present anywhere in the library (rubric
+// items of the sources' contents inventories) verbatim as anchors, plus the
+// material the router judges relevant to building a scoring standard --
+// verbatim where it fits the budget, as summaries where it doesn't. What
+// was used is stored on the standard (`retrieval`) and shown on its page.
 //
 // Experts/admins can then override the AI's standard (checkRevision/
 // saveRevision below): every override is checked -- structurally, and by the
@@ -16,88 +18,35 @@
 const crypto = require("crypto");
 const db = require("../models");
 const authConfig = require("../config/auth.config");
-const { Op } = db.Sequelize;
-const MaterialTopic = db.materialTopic;
-const KnowledgeSkill = db.knowledgeSkill;
-const KnowledgeChunk = db.knowledgeChunk;
 const AiReviewStandard = db.aiReviewStandard;
 const llmClient = require("./llmClient");
-const { MANUAL_CATEGORY } = require("../constants/materialCategories");
+const knowledgeTree = require("./knowledgeTree");
 
-// Whole-library prompt budget, split evenly across topics (capped per topic
-// so a small library still doesn't send one topic's entire text).
-const TOTAL_MATERIAL_BUDGET = 40000;
-const PER_TOPIC_MAX = 3000;
+const MATERIAL_BUDGET = 60000;
+
+// What the router is asked to find material for. 使用指南 (the system's own
+// usage docs) is excluded by buildContext's default -- it documents how to
+// use the app, not what makes a good 乡土课程.
+const STANDARD_SUBJECT = "为乡土课程设计方案与课时实施记录制定统一的点评评分标准（评分维度、权重、评分要点、等级描述）";
+const REVISION_CHECK_SUBJECT = "审核对乡土课程点评评分标准的人工修订是否有资料依据";
 
 const SYSTEM_PROMPT =
-  "你是乡土课程教学评价专家。下面是「学习资源库」中全部学习材料的整理摘要（包括各主题的知识卡片与材料原文摘录）。" +
-  "请分析、综合这些材料所体现的乡土课程理念、设计要求与优秀实践，制定一套统一的「乡土课程 AI 点评评分标准」，" +
+  "你是乡土课程教学评价专家。下面是从「学习资源库」中检索出的材料：首先是资料中已有的评价/评分标准原文（如有），" +
+  "然后是其他相关资料的原文或摘要。请分析、综合这些材料所体现的乡土课程理念、设计要求与优秀实践，制定一套统一的「乡土课程 AI 点评评分标准」，" +
   "用于对所有教师提交的乡土课程设计方案与课时实施记录进行一致的点评与打分。\n" +
   "要求：\n" +
-  "1. 满分 100 分，划分为 4-7 个评分维度，各维度 weight（分值）之和必须等于 100；\n" +
-  "2. 每个维度给出：name（名称）、weight（分值）、description（该维度考察什么，1-2句）、" +
+  "1. 资料中已有针对课程设计的评估标准时，必须以它为骨架：沿用其评分维度与权重，把其等级描述细化为下面要求的四级，" +
+  "只有在其他资料有明确依据时才增补或调整维度，并在 basis 中说明调整依据；其他类型的评价标准（如学生发展评价）用于充实评分要点；\n" +
+  "2. 满分 100 分，划分为 4-7 个评分维度，各维度 weight（分值）之和必须等于 100；\n" +
+  "3. 每个维度给出：name（名称）、weight（分值）、description（该维度考察什么，1-2句）、" +
   "criteria（3-5条具体、可观察的评分要点）、levels（4个等级：优秀/良好/合格/待改进，每级给出分数区间 range 与判定描述 descriptor）；\n" +
-  "3. 标准必须来源于材料：尽量引用或提炼材料中的理念与要求，不要编造材料中没有依据的内容；" +
-  "每个维度的 basis 字段用一句话说明它依据了哪些材料主题；全文不得提及任何人名、主讲人或专家；\n" +
-  "4. 标准需通用于不同乡土主题、年级与地区，避免只适用于某一个具体主题；\n" +
-  "5. scoringNotes 给出 3-5 条跨维度的评分说明（如扣分原则、证据要求、如何处理信息缺失）。\n" +
+  "4. 标准必须来源于材料：尽量引用或提炼材料中的理念与要求，不要编造材料中没有依据的内容；" +
+  "每个维度的 basis 字段用一句话说明它依据了哪份资料的哪部分内容；全文不得提及任何人名、主讲人或专家；\n" +
+  "5. 标准需通用于不同乡土主题、年级与地区，避免只适用于某一个具体主题；\n" +
+  "6. scoringNotes 给出 3-5 条跨维度的评分说明（如扣分原则、证据要求、如何处理信息缺失）。\n" +
   "严格以 JSON 格式回复，不要包含其他文字或代码块标记：" +
   '{"title": "...", "overview": "...", "totalScore": 100, "dimensions": [{"name": "...", "weight": 20, "description": "...", ' +
   '"basis": "...", "criteria": ["..."], "levels": [{"label": "优秀", "range": "18-20", "descriptor": "..."}]}], "scoringNotes": ["..."]}';
-
-async function buildMaterialsText() {
-  // 使用指南 (the auto-generated 教师手册 and similar) documents how to use
-  // the system, not what makes a good 乡土课程 -- it would only dilute a
-  // pedagogical rubric.
-  const topics = await MaterialTopic.findAll({
-    where: { category: { [Op.ne]: MANUAL_CATEGORY } },
-    include: [{ model: KnowledgeSkill, as: "Skill", required: false }],
-    order: [["category", "ASC"], ["id", "ASC"]],
-  });
-  if (topics.length === 0) return { text: "", topicIds: [] };
-
-  const perTopic = Math.min(PER_TOPIC_MAX, Math.floor(TOTAL_MATERIAL_BUDGET / topics.length));
-  const sections = [];
-  const topicIds = [];
-
-  for (const topic of topics) {
-    // 主讲人 deliberately omitted: the standard must not cite or attribute
-    // anything to a named person, only to the material itself.
-    const lines = [`## ${topic.category} / ${topic.theme}`];
-    if (topic.comment) lines.push(`备注：${topic.comment}`);
-
-    const skill = topic.Skill;
-    if (skill) {
-      if (skill.summary) lines.push(`摘要：${skill.summary}`);
-      if (Array.isArray(skill.keyPoints) && skill.keyPoints.length > 0) {
-        lines.push(`要点：${skill.keyPoints.join("；")}`);
-      }
-    }
-
-    const header = lines.join("\n");
-    const remaining = perTopic - header.length;
-    let excerpt = "";
-    if (remaining > 200) {
-      const chunks = await KnowledgeChunk.findAll({
-        where: { materialTopicId: topic.id, sourceType: { [Op.ne]: "material_topic_meta" } },
-        order: [["id", "ASC"]],
-      });
-      excerpt = chunks
-        .map((c) => c.content)
-        .join("\n")
-        .slice(0, remaining);
-    }
-
-    // A topic with neither a card nor any extracted material has nothing to
-    // contribute beyond its title.
-    if (!skill && !excerpt) continue;
-
-    sections.push(excerpt ? `${header}\n材料摘录：\n${excerpt}` : header);
-    topicIds.push(topic.id);
-  }
-
-  return { text: sections.join("\n\n"), topicIds };
-}
 
 const str = (v) => (v === undefined || v === null ? "" : String(v).trim());
 const strList = (v) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
@@ -218,7 +167,12 @@ const CHECK_SYSTEM_PROMPT =
 // it was edited from, in light of the same 学习资源库 materials the standard
 // was synthesized from, and flags changes that lack a basis in them.
 async function checkAgainstMaterials(baseContent, content) {
-  const { text } = await buildMaterialsText();
+  const { text } = await knowledgeTree.buildContext({
+    subject: REVISION_CHECK_SUBJECT,
+    anchorKinds: ["rubric"],
+    budget: MATERIAL_BUDGET,
+    redact: true,
+  });
   const userContent =
     `学习资源库材料：\n\n${text || "（学习资源库暂无材料内容）"}\n\n` +
     `修订前的标准：\n${JSON.stringify(baseContent)}\n\n` +
@@ -306,14 +260,19 @@ async function saveRevision({ content: rawContent, baseId, changeNote, cautions,
 }
 
 async function generateStandardInner(userId) {
-  const { text, topicIds } = await buildMaterialsText();
+  const { text, provenance } = await knowledgeTree.buildContext({
+    subject: STANDARD_SUBJECT,
+    anchorKinds: ["rubric"],
+    budget: MATERIAL_BUDGET,
+    redact: true,
+  });
   if (!text) {
     throw new Error("学习资源库中暂无可用于生成评分标准的材料内容。");
   }
 
   const result = await llmClient.llmChat({
     systemPrompt: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: `学习资源库材料（共 ${topicIds.length} 个主题）：\n\n${text}` }],
+    messages: [{ role: "user", content: `学习资源库材料：\n\n${text}` }],
     maxTokens: 4096,
     temperature: 0.2,
   });
@@ -327,7 +286,8 @@ async function generateStandardInner(userId) {
 
   return AiReviewStandard.create({
     content,
-    sourceTopicIds: topicIds,
+    sourceTopicIds: provenance.topicIds,
+    retrieval: provenance,
     aiModel: result.model,
     createdBy: userId || null,
   });

@@ -8,7 +8,8 @@ const Artifact = db.artifact;
 const User = db.user;
 const TemplateVersion = db.templateVersion;
 const agentLoop = require("../services/agentLoop");
-const { searchKnowledgeBase, searchKnowledgeBaseToolDef } = require("../services/knowledgeRetrieve");
+const { searchKnowledgeTree, searchKnowledgeBaseToolDef } = require("../services/knowledgeRetrieve");
+const { MANUAL_CATEGORY } = require("../constants/materialCategories");
 
 const normalizeLessonIndex = (lessonIndex) => {
   if (lessonIndex === undefined || lessonIndex === null || lessonIndex === "") return null;
@@ -163,7 +164,14 @@ exports.createAiReview = async (req, res) => {
       systemPrompt,
       messages: [{ role: "user", content: userContent }],
       tools: [searchKnowledgeBaseToolDef],
-      executors: { search_knowledge_base: (args) => searchKnowledgeBase(args.query) },
+      // Knowledge-tree retrieval (see knowledgeRetrieve.js#searchKnowledgeTree).
+      // A review is pedagogical, so 使用指南 (system usage docs) is left out,
+      // and it must not attribute anything to a named person -- no 主讲人,
+      // and person names stripped from source titles.
+      executors: {
+        search_knowledge_base: (args) =>
+          searchKnowledgeTree(args.query, { excludeCategories: [MANUAL_CATEGORY], includeTopicMeta: false, redact: true }),
+      },
       // The system prompt asks for 200-500字, but real replies sometimes run
       // past their own target once markdown formatting is counted -- a
       // margin here matters more than in the old plain-text case, since a

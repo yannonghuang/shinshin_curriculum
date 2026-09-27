@@ -5,7 +5,7 @@ const Plan = db.plan;
 const Review = db.review;
 const { QueryTypes } = db.Sequelize;
 const agentLoop = require("../services/agentLoop");
-const { searchKnowledgeBase, searchKnowledgeBaseToolDef } = require("../services/knowledgeRetrieve");
+const { searchKnowledgeTree, searchKnowledgeBaseToolDef } = require("../services/knowledgeRetrieve");
 const { getPlanDetailsToolDef, getPlanDetails } = require("../services/planContext");
 const chatCompaction = require("../services/chatCompaction");
 const llmClient = require("../services/llmClient");
@@ -213,7 +213,10 @@ const appendTurn = async (conversation, content, pageContext) => {
     messages: history,
     tools: [searchKnowledgeBaseToolDef, getPlanDetailsToolDef],
     executors: {
-      search_knowledge_base: (args) => searchKnowledgeBase(args.query),
+      // Knowledge-tree retrieval over the whole library, 使用指南 included
+      // (欣欣助手 answers "how do I use the system" questions from it), with
+      // topics' 主讲人/备注 visible so "谁讲过…" questions stay answerable.
+      search_knowledge_base: (args) => searchKnowledgeTree(args.query, { excludeCategories: [], includeTopicMeta: true }),
       get_plan_details: (args) => getPlanDetails(args),
     },
     // Higher than review's own cap -- a chat reply routinely runs long

@@ -5,6 +5,7 @@ const MaterialTopic = db.materialTopic;
 const MaterialLink = db.materialLink;
 const MaterialArtifact = db.materialArtifact;
 const llmClient = require("./llmClient");
+const knowledgeTree = require("./knowledgeTree");
 
 const CHUNK_TARGET_SIZE = 600;
 const CHUNK_OVERLAP = 100;
@@ -67,21 +68,68 @@ function splitIntoChunks(text) {
 // generated from it left dangling as the only surviving trace. Worst case
 // now is stale content lingering after a genuine intentional change to
 // something non-extractable -- far cheaper than losing real content outright.
-async function ingestSource({ sourceType, sourceId, materialTopicId, text }) {
-  const pieces = splitIntoChunks(text);
+// Page-aware packing on top of splitIntoChunks: each page's text is split
+// the same paragraph-first way, then consecutive pieces are packed up to
+// CHUNK_TARGET_SIZE across page boundaries, each chunk recording the page
+// range it spans -- short slides pack together (keeping chunk counts sane)
+// while every chunk stays citable by page. Page-less segments (page null)
+// just yield page-less chunks, identical to plain splitIntoChunks.
+function splitSegmentsIntoChunks(segments) {
+  const chunks = [];
+  let current = null;
+  const flush = () => {
+    if (current) chunks.push(current);
+    current = null;
+  };
+  for (const seg of segments || []) {
+    const page = seg.page === undefined ? null : seg.page;
+    for (const piece of splitIntoChunks(seg.text)) {
+      if (current && current.content.length + piece.length + 1 <= CHUNK_TARGET_SIZE) {
+        current.content = `${current.content}\n${piece}`;
+        if (page !== null) {
+          current.pageFrom = current.pageFrom === null ? page : current.pageFrom;
+          current.pageTo = page;
+        }
+        continue;
+      }
+      flush();
+      current = { content: piece, pageFrom: page, pageTo: page };
+    }
+  }
+  flush();
+  return chunks;
+}
+
+// `segments` ([{ page, text }], see textExtract.js#extractSegmentsFromFile)
+// when the caller has page-aware text; plain `text` otherwise. Every
+// successful (re)ingestion also rebuilds this source's knowledge-tree
+// summary node (knowledgeTree.js#summarizeSource), so the tree stays
+// current incrementally, one changed source at a time.
+async function ingestSource({ sourceType, sourceId, materialTopicId, text, segments }) {
+  const pieces = splitSegmentsIntoChunks(segments || [{ page: null, text }]);
   if (pieces.length === 0) {
     console.warn(`知识库摄取：来源 ${sourceType}#${sourceId}（主题 ${materialTopicId}）提取到的文本为空，保留原有知识条目不变。`);
     return { written: false, chunkCount: 0 };
   }
   await KnowledgeChunk.destroy({ where: { sourceType, sourceId } });
   await KnowledgeChunk.bulkCreate(
-    pieces.map((content, chunkIndex) => ({ sourceType, sourceId, materialTopicId, chunkIndex, content }))
+    pieces.map((p, chunkIndex) => ({
+      sourceType,
+      sourceId,
+      materialTopicId,
+      chunkIndex,
+      content: p.content,
+      pageFrom: p.pageFrom,
+      pageTo: p.pageTo,
+    }))
   );
+  await knowledgeTree.summarizeSource({ sourceType, sourceId, materialTopicId });
   return { written: true, chunkCount: pieces.length };
 }
 
 async function deleteSourceChunks({ sourceType, sourceId }) {
   await KnowledgeChunk.destroy({ where: { sourceType, sourceId } });
+  await knowledgeTree.deleteSourceSummary({ sourceType, sourceId });
 }
 
 // Latest "something about this topic's material changed" instant: the topic
@@ -233,4 +281,11 @@ function isGenerating(materialTopicId) {
   return generatingCounts.has(materialTopicId);
 }
 
-module.exports = { ingestSource, deleteSourceChunks, regenerateSkillCard, isGenerating, splitIntoChunks };
+module.exports = {
+  ingestSource,
+  deleteSourceChunks,
+  regenerateSkillCard,
+  isGenerating,
+  splitIntoChunks,
+  splitSegmentsIntoChunks,
+};
