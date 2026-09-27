@@ -52,8 +52,11 @@ const scoreClass =(score, weight) => {
 // background batch scoring every AI-reviewed plan against the AI 点评标准 in
 // effect (backend services/aiPlanScoring.js). The batch is incremental --
 // plans already scored on that standard with unchanged content are skipped
-// -- so revisiting the page only scores what's new or changed; 全部重新打分
-// forces every plan to be rescored.
+// -- so revisiting the page only scores what's new or changed. 更新打分
+// runs the same incremental batch on demand (e.g. after 重新生成 the
+// standard or a plan edit while this page is open); there is no forced
+// full re-score, since an unchanged plan under an unchanged standard would
+// just get the same score again.
 const AiScores = () => {
   const [plans, setPlans] = useState([]);
   const [job, setJob] = useState(null);
@@ -168,9 +171,9 @@ const AiScores = () => {
   }, []);
 
   const run = useCallback(
-    (force) => {
+    () => {
       setMessage("");
-      return AiReviewDataService.runScoring(force)
+      return AiReviewDataService.runScoring()
         .then((res) => setJob(res.data))
         .catch((e) => {
           // 422 = no standard yet, already explained by the warning below.
@@ -184,7 +187,7 @@ const AiScores = () => {
   useEffect(() => {
     if (!allowed || triggered.current) return;
     triggered.current = true;
-    run(false);
+    run();
   }, [allowed, run]);
 
   const running = !!(job && job.running);
@@ -220,13 +223,10 @@ const AiScores = () => {
         <button
           className="btn btn-outline-primary btn-sm"
           disabled={running || !standard}
-          onClick={() => {
-            if (window.confirm("将按当前生效的 AI 点评标准，对全部已有 AI 点评的课程重新打分（包括已打过分的课程）。确定继续吗？")) {
-              run(true);
-            }
-          }}
+          title="为尚未打分、按旧标准打分或内容已修改的课程打分"
+          onClick={() => run()}
         >
-          全部重新打分
+          更新打分
         </button>
       </div>
 
@@ -269,7 +269,12 @@ const AiScores = () => {
           </div>
         </div>
       )}
-      {job && !running && job.finishedAt && (
+      {job && !running && job.finishedAt && job.queued === 0 && (
+        <div className="alert alert-success small">
+          全部 {job.total} 个课程均已按当前标准（版本 #{job.standardId}）打分，且课程内容未修改，无需重新打分。
+        </div>
+      )}
+      {job && !running && job.finishedAt && job.queued > 0 && (
         <div className={`alert ${job.failed ? "alert-warning" : "alert-success"} small`}>
           最近一次打分完成于 {new Date(job.finishedAt).toLocaleString()}：新打分 {job.done} 个
           {job.skipped > 0 && `，跳过 ${job.skipped} 个（已是最新）`}

@@ -95,13 +95,12 @@ exports.getScores = async (req, res) => {
   }
 };
 
-// POST /api/ai-review/scores/run { force } -- starts a background batch
-// scoring every AI-reviewed plan against the standard in effect; plans
-// already scored on that standard with unchanged content are skipped unless
-// `force`.
+// POST /api/ai-review/scores/run -- starts a background batch scoring
+// every AI-reviewed plan that isn't already up to date (see
+// aiPlanScoring.js#startBatchInner); a no-op batch when all are.
 exports.runScoring = async (req, res) => {
   try {
-    const job = await aiPlanScoring.startBatch({ userId: req.userId, force: !!req.body.force });
+    const job = await aiPlanScoring.startBatch({ userId: req.userId });
     return res.status(202).send(job);
   } catch (err) {
     return res.status(err.status || 500).send({ message: err.message || "启动 AI 打分时发生错误。" });
