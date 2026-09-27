@@ -7,6 +7,13 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
 COPY . .
+# Build identity (passed by scripts/deploy-aliyun.sh), baked into the bundle
+# via CRA's REACT_APP_* convention -- see build-info.component.js.
+ARG BUILD_TAG=""
+ARG BUILD_COMMIT=""
+ARG BUILD_COMMIT_TIME=""
+ARG BUILD_TIME=""
+ENV REACT_APP_BUILD_TAG=$BUILD_TAG REACT_APP_BUILD_COMMIT=$BUILD_COMMIT REACT_APP_BUILD_COMMIT_TIME=$BUILD_COMMIT_TIME REACT_APP_BUILD_TIME=$BUILD_TIME
 # react-scripts 3.4.0 (webpack 4) needs the legacy OpenSSL provider on Node >=17.
 RUN NODE_OPTIONS=--openssl-legacy-provider npm run build
 

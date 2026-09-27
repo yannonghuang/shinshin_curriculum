@@ -20,6 +20,7 @@ import AdminUsersList from "./components/admin-users-list.component";
 import TemplateAdmin from "./components/template-admin.component";
 import AiReviewStandard from "./components/ai-review-standard.component";
 import AiScores from "./components/ai-scores.component";
+import BuildInfo from "./components/build-info.component";
 
 import AuthService from "./services/auth.service";
 import { skipNextUnsavedWarning } from "./utils/unsavedChangesGuard";
@@ -211,6 +212,7 @@ class App extends Component {
         </div>
 
         <CopilotPanel />
+        {AuthService.isSuper() && <BuildInfo />}
       </div>
     );
   }

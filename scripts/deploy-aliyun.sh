@@ -69,11 +69,22 @@ docker push "$MYSQL_IMAGE"
 # (confirmed by testing both with and without these flags against the real
 # registry). Harmless to disable -- these are supply-chain metadata, not
 # something the deploy or the running app needs.
+# Build identity baked into both images, shown to super users in the app's
+# build-info footer (see backend buildInfo.controller.js /
+# react-app build-info.component.js) -- the only way to tell from the UI
+# which commit is actually live, and whether frontend and backend match.
+BUILD_ARGS=(
+  --build-arg "BUILD_TAG=$IMAGE_TAG"
+  --build-arg "BUILD_COMMIT=$(git rev-parse HEAD)"
+  --build-arg "BUILD_COMMIT_TIME=$(git log -1 --format=%cI)"
+  --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+)
+
 echo "==> Building backend image"
-docker build --platform "$TARGET_PLATFORM" --provenance=false --sbom=false -t "$BACKEND_IMAGE:$IMAGE_TAG" -t "$BACKEND_IMAGE:latest" -f backend/Dockerfile backend
+docker build --platform "$TARGET_PLATFORM" --provenance=false --sbom=false "${BUILD_ARGS[@]}" -t "$BACKEND_IMAGE:$IMAGE_TAG" -t "$BACKEND_IMAGE:latest" -f backend/Dockerfile backend
 
 echo "==> Building frontend image"
-docker build --platform "$TARGET_PLATFORM" --provenance=false --sbom=false -t "$FRONTEND_IMAGE:$IMAGE_TAG" -t "$FRONTEND_IMAGE:latest" -f react-app/Dockerfile react-app
+docker build --platform "$TARGET_PLATFORM" --provenance=false --sbom=false "${BUILD_ARGS[@]}" -t "$FRONTEND_IMAGE:$IMAGE_TAG" -t "$FRONTEND_IMAGE:latest" -f react-app/Dockerfile react-app
 
 echo "==> Pushing images to ACR"
 docker push "$BACKEND_IMAGE:$IMAGE_TAG"
