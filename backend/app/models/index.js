@@ -47,6 +47,7 @@ db.materialFolder = require("./material-folder.model.js")(sequelize, Sequelize);
 db.materialArtifact = require("./material-artifact.model.js")(sequelize, Sequelize);
 db.knowledgeSkill = require("./knowledge-skill.model.js")(sequelize, Sequelize);
 db.knowledgeChunk = require("./knowledge-chunk.model.js")(sequelize, Sequelize);
+db.knowledgeSourceSummary = require("./knowledge-source-summary.model.js")(sequelize, Sequelize);
 db.chatConversation = require("./chat-conversation.model.js")(sequelize, Sequelize);
 db.chatMessage = require("./chat-message.model.js")(sequelize, Sequelize);
 db.aiReviewStandard = require("./ai-review-standard.model.js")(sequelize, Sequelize);
@@ -272,6 +273,19 @@ db.materialTopic.hasMany(db.knowledgeChunk, {
   hooks: true,
 });
 db.knowledgeChunk.belongsTo(db.materialTopic, {
+  foreignKey: "materialTopicId",
+  onDelete: "CASCADE",
+});
+
+// materialTopic -> knowledgeSourceSummary (one per source under the topic,
+// see knowledgeTree.js) -- the middle layer of the knowledge tree.
+db.materialTopic.hasMany(db.knowledgeSourceSummary, {
+  foreignKey: "materialTopicId",
+  as: "SourceSummaries",
+  onDelete: "CASCADE",
+  hooks: true,
+});
+db.knowledgeSourceSummary.belongsTo(db.materialTopic, {
   foreignKey: "materialTopicId",
   onDelete: "CASCADE",
 });

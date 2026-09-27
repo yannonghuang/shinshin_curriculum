@@ -1,4 +1,5 @@
 const db = require("../models");
+const knowledgeTree = require("./knowledgeTree");
 const { QueryTypes } = db.Sequelize;
 
 // FULLTEXT search against the two-tier KB: knowledge_skills (curated cards)
@@ -69,9 +70,74 @@ async function searchKnowledgeBase(query, { materialTopicId, limit = 5 } = {}) {
   return [...skills, ...chunks];
 }
 
+// The search_knowledge_base tool's executor for AI 点评 and 欣欣助手:
+// knowledge-tree retrieval (knowledgeTree.js#buildContext -- the model's
+// query routed over topic/source summaries, relevant material returned
+// verbatim within `budget`, the rest as summaries), topped up with the
+// best FULLTEXT chunk hits the tree didn't already include -- routing works
+// on meaning and can miss an exact term (a place name, a lecturer, a
+// specific phrase) that plain keyword search catches.
+//
+// Returns { context, sources } -- `sources` ({ title, topic, locator }) is
+// what copilot-panel.component.js's 参考资料 footer lists.
+const KEYWORD_TOPUP_LIMIT = 3;
+
+async function searchKnowledgeTree(
+  query,
+  { excludeCategories = [], includeTopicMeta = false, redact = false, budget = 8000 } = {}
+) {
+  const { text, provenance, usedChunkIds } = await knowledgeTree.buildContext({
+    subject: query,
+    excludeCategories,
+    includeTopicMeta,
+    redact,
+    budget,
+  });
+
+  const sources = provenance
+    ? [...provenance.anchors, ...provenance.verbatim, ...provenance.summarized].map((x) => ({
+        title: x.title,
+        topic: x.topic,
+        locator: x.locator || null,
+      }))
+    : [];
+
+  // Keyword top-up: chunk-tier FULLTEXT hits not already in the tree
+  // context, from topics the caller hasn't excluded.
+  const used = new Set((usedChunkIds || []).map(String));
+  const hits = (await searchKnowledgeBase(query, { limit: KEYWORD_TOPUP_LIMIT * 2 })).filter(
+    (h) => h.tier === "chunk" && !used.has(String(h.chunkId))
+  );
+  const extra = [];
+  const names = redact ? await knowledgeTree.loadPersonNames() : [];
+  for (const h of hits) {
+    if (extra.length >= KEYWORD_TOPUP_LIMIT) break;
+    const topic = await db.materialTopic.findByPk(h.materialTopicId, { attributes: ["category", "theme"] });
+    if (!topic || excludeCategories.includes(topic.category)) continue;
+    if (h.sourceType === "material_topic_meta" && !includeTopicMeta) continue;
+    const chunk = await db.knowledgeChunk.findByPk(h.chunkId, { attributes: ["pageFrom", "pageTo"] });
+    const summary = await db.knowledgeSourceSummary.findOne({
+      where: { sourceType: h.sourceType, sourceId: h.sourceId },
+      attributes: ["title"],
+    });
+    const rawTitle = summary ? summary.title : h.sourceType === "material_topic_meta" ? "主题基本信息" : "资料";
+    const title = redact ? knowledgeTree.redactNames(rawTitle, names) : rawTitle;
+    const locator = chunk ? knowledgeTree.locatorOf([chunk]) : null;
+    const topicLabel = `${topic.category} / ${topic.theme}`;
+    extra.push(`《${title}》（${topicLabel}${locator ? `，${locator}` : ""}）：\n${h.content}`);
+    sources.push({ title, topic: topicLabel, locator });
+  }
+
+  const blocks = [text, extra.length ? `【关键词匹配片段】\n\n${extra.join("\n\n")}` : ""].filter(Boolean);
+  return {
+    context: blocks.join("\n\n") || "学习资源库中未找到与该问题相关的资料。",
+    sources,
+  };
+}
+
 // OpenAI-style tool definition -- passed to agentLoop.js's `tools` array by
 // both review.controller.js and chat.controller.js, alongside an executor
-// that just calls searchKnowledgeBase(args.query). Owned here, not in
+// that calls searchKnowledgeTree(args.query, ...). Owned here, not in
 // agentLoop.js, so agentLoop.js stays fully generic and knows nothing about
 // what tools exist.
 const searchKnowledgeBaseToolDef = {
@@ -79,8 +145,10 @@ const searchKnowledgeBaseToolDef = {
   function: {
     name: "search_knowledge_base",
     description:
-      "在共享学习材料库（乡土课程相关的知识卡片与已上传材料内容）中检索与某个问题或主题相关的参考资料。" +
-      "如果当前讨论的课程设计有具体主题、年级或学校/地区信息，建议将其关键词纳入检索词中，以便优先找到与该主题或地区最相关的资料。",
+      "在共享学习资源库（乡土课程相关的讲座、课件、案例等资料）中查找与某个问题或任务相关的参考资料，" +
+      "返回相关资料的原文段落（注明出处与页码）以及其他相关资料的摘要。" +
+      "请用一句完整的话描述你要查找什么、用来做什么（例如“家乡美食主题课程的驱动问题设计案例”），" +
+      "如果当前讨论的课程设计有具体主题、年级或学校/地区信息，建议纳入描述中。",
     parameters: {
       type: "object",
       properties: {
@@ -91,4 +159,4 @@ const searchKnowledgeBaseToolDef = {
   },
 };
 
-module.exports = { searchKnowledgeBase, searchKnowledgeBaseToolDef };
+module.exports = { searchKnowledgeBase, searchKnowledgeTree, searchKnowledgeBaseToolDef };

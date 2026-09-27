@@ -57,6 +57,24 @@ class MaterialTopicDataService {
   getSkillGenerating(topicId) {
     return http.get(`/material-topics/${topicId}/skill/generating`, { headers: authHeader() });
   }
+
+  // Knowledge tree below the topic card: each source's summary + contents
+  // inventory ({ sources, rebuilding, kindLabels }).
+  getKnowledgeTree(topicId) {
+    return http.get(`/material-topics/${topicId}/knowledge-tree`, { headers: authHeader() });
+  }
+
+  // Verbatim chunks of one source, optionally just chunk range [from, to].
+  getKnowledgeChunks(topicId, { sourceType, sourceId, from, to }) {
+    return http.get(`/material-topics/${topicId}/knowledge-tree/chunks`, {
+      headers: authHeader(),
+      params: { sourceType, sourceId, from, to },
+    });
+  }
+
+  rebuildKnowledgeTree(topicId) {
+    return http.post(`/material-topics/${topicId}/knowledge-tree/rebuild`, null, { headers: authHeader() });
+  }
 }
 
 export default new MaterialTopicDataService();

@@ -298,15 +298,22 @@ const CopilotPanel = () => {
   };
 
   // Citation footer -- retrievedChunkIds is the agent loop's own
-  // toolCallLog, an array of { name, arguments, output: [...] } per tool
-  // call this turn. Only ever shown when the tool actually returned
-  // something (an empty KB match isn't worth a footer).
+  // toolCallLog, an array of { name, arguments, output } per tool call this
+  // turn. search_knowledge_base's output is { context, sources: [{ title,
+  // locator }] } (knowledge-tree retrieval, see backend
+  // knowledgeRetrieve.js#searchKnowledgeTree); messages stored before that
+  // have a plain array of keyword hits instead, still handled here. Only
+  // shown when the tool actually returned something.
   const renderCitations = (message) => {
     const log = message.retrievedChunkIds;
     if (!Array.isArray(log) || log.length === 0) return null;
     const titles = log
-      .flatMap((call) => (Array.isArray(call.output) ? call.output : []))
-      .map((hit) => hit.title || (hit.content || "").slice(0, 20))
+      .flatMap((call) => {
+        const out = call.output;
+        if (Array.isArray(out)) return out.map((hit) => hit.title || (hit.content || "").slice(0, 20));
+        if (out && Array.isArray(out.sources)) return out.sources.map((s) => `《${s.title}》${s.locator ? s.locator : ""}`);
+        return [];
+      })
       .filter(Boolean);
     if (titles.length === 0) return null;
     return (

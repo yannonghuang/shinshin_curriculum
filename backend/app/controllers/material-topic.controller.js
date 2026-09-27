@@ -10,6 +10,8 @@ const KnowledgeSkill = db.knowledgeSkill;
 const Op = db.Sequelize.Op;
 const knowledgeIngest = require("../services/knowledgeIngest");
 const { searchKnowledgeBase } = require("../services/knowledgeRetrieve");
+const knowledgeTree = require("../services/knowledgeTree");
+const knowledgeRebuild = require("../services/knowledgeRebuild");
 
 // Knowledge-base chunk text for a topic's own 基本信息 (category/theme/
 // lecturer/comment) -- indexed under sourceType 'material_topic_meta' so a
@@ -387,5 +389,109 @@ exports.forceRegenerateSkill = async (req, res) => {
     return res.send({ message: "知识卡片已重新生成。", skill: result.skill });
   } catch (err) {
     return res.status(500).send({ message: err.message || "生成知识卡片时发生错误。" });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Knowledge tree (services/knowledgeTree.js) for one topic, for 学习资源库's
+// 知识卡片 tab: the topic card is the top layer (#getSkill above); these
+// serve the two below it -- each source's summary + contents inventory, and
+// on demand, the verbatim chunks an inventory item points at.
+
+const topicIdParam = (req) => {
+  const id = Number(req.params.id);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
+
+// GET /api/material-topics/:id/knowledge-tree -- every source under the
+// topic that has knowledge chunks, with its summary node (null if not built
+// yet), each inventory item resolved to a page locator.
+exports.getKnowledgeTree = async (req, res) => {
+  try {
+    const topicId = topicIdParam(req);
+    if (!topicId) return res.status(422).send({ message: "主题 ID 无效。" });
+
+    const chunks = await db.knowledgeChunk.findAll({
+      where: { materialTopicId: topicId },
+      attributes: ["sourceType", "sourceId", "chunkIndex", "pageFrom", "pageTo", [db.Sequelize.fn("CHAR_LENGTH", db.Sequelize.col("content")), "chars"]],
+      order: [["sourceType", "ASC"], ["sourceId", "ASC"], ["chunkIndex", "ASC"]],
+      raw: true,
+    });
+    const summaries = await db.knowledgeSourceSummary.findAll({ where: { materialTopicId: topicId } });
+    const summaryByKey = new Map(summaries.map((x) => [`${x.sourceType}:${x.sourceId}`, x]));
+
+    const bySource = new Map();
+    for (const c of chunks) {
+      const key = `${c.sourceType}:${c.sourceId}`;
+      if (!bySource.has(key)) bySource.set(key, { sourceType: c.sourceType, sourceId: Number(c.sourceId), chunks: [] });
+      bySource.get(key).chunks.push(c);
+    }
+
+    const sources = [...bySource.values()].map((src) => {
+      const sum = summaryByKey.get(`${src.sourceType}:${src.sourceId}`);
+      const locate = (from, to) => knowledgeTree.locatorOf(src.chunks.filter((c) => c.chunkIndex >= from && c.chunkIndex <= to));
+      return {
+        sourceType: src.sourceType,
+        sourceId: src.sourceId,
+        title: sum ? sum.title : src.sourceType === "material_topic_meta" ? "主题基本信息" : null,
+        summary: sum ? sum.summary : null,
+        aiModel: sum ? sum.aiModel : null,
+        updatedAt: sum ? sum.updatedAt : null,
+        chunkCount: src.chunks.length,
+        charCount: src.chunks.reduce((n, c) => n + Number(c.chars), 0),
+        locator: locate(0, Number.MAX_SAFE_INTEGER),
+        contents: (sum && Array.isArray(sum.contents) ? sum.contents : []).map((it) => ({
+          ...it,
+          locator: locate(it.chunkFrom, it.chunkTo),
+        })),
+      };
+    });
+    // Files first, then links, topic meta last.
+    const order = { material_artifact: 0, material_link: 1, material_topic_meta: 2 };
+    sources.sort((a, b) => order[a.sourceType] - order[b.sourceType] || a.sourceId - b.sourceId);
+
+    return res.send({ sources, rebuilding: knowledgeRebuild.isRebuilding(topicId), kindLabels: knowledgeTree.KIND_LABELS });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "查询资料索引时发生错误。" });
+  }
+};
+
+// GET /api/material-topics/:id/knowledge-tree/chunks?sourceType=&sourceId=&from=&to=
+// -- the verbatim leaves behind one inventory item (or a whole source).
+exports.getKnowledgeChunks = async (req, res) => {
+  try {
+    const topicId = topicIdParam(req);
+    const sourceId = Number(req.query.sourceId);
+    const { sourceType } = req.query;
+    if (!topicId || !Number.isInteger(sourceId) || !["material_artifact", "material_link", "material_topic_meta"].includes(sourceType)) {
+      return res.status(422).send({ message: "参数无效。" });
+    }
+    const from = Number.isInteger(Number(req.query.from)) ? Number(req.query.from) : 0;
+    const to = Number.isInteger(Number(req.query.to)) ? Number(req.query.to) : Number.MAX_SAFE_INTEGER;
+    const chunks = await db.knowledgeChunk.findAll({
+      where: { materialTopicId: topicId, sourceType, sourceId, chunkIndex: { [Op.between]: [from, to] } },
+      attributes: ["chunkIndex", "pageFrom", "pageTo", "content"],
+      order: [["chunkIndex", "ASC"]],
+    });
+    return res.send(chunks);
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "查询资料原文时发生错误。" });
+  }
+};
+
+// POST /api/material-topics/:id/knowledge-tree/rebuild -- admin-only;
+// re-extracts and re-indexes every source under the topic in the
+// background (see knowledgeRebuild.js). Poll #getKnowledgeTree's
+// `rebuilding` flag for completion.
+exports.rebuildKnowledgeTree = async (req, res) => {
+  try {
+    const topicId = topicIdParam(req);
+    if (!topicId) return res.status(422).send({ message: "主题 ID 无效。" });
+    const topic = await MaterialTopic.findByPk(topicId);
+    if (!topic) return res.status(404).send({ message: "主题不存在。" });
+    const started = knowledgeRebuild.startTopicRebuild(topicId);
+    return res.status(202).send({ rebuilding: true, message: started ? "已开始重建资料索引。" : "资料索引正在重建中。" });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "重建资料索引时发生错误。" });
   }
 };

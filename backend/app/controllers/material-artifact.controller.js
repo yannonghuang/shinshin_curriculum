@@ -34,13 +34,17 @@ const KB_EXTRACTABLE_CATEGORIES = ["Word文档", "课件PPT"];
 // metadata-only chunk 图片/视频 already get rather than nothing at all.
 const PDF_MAX_EXTRACT_BYTES = 50 * 1024 * 1024;
 
-const artifactKnowledgeText = async (attachmentPath, type, category, description, filename) => {
-  const metaFallback = () => `${description || ""}\n${filename}`.trim();
+// Page-aware ([{ page, text }], see textExtract.js#extractSegmentsFromFile)
+// so knowledge chunks can cite pages -- exported for the knowledge-tree
+// backfill script (scripts/rebuildKnowledgeTree.js), which re-ingests
+// existing files exactly the way an upload would.
+const artifactKnowledgeSegments = async (attachmentPath, type, category, description, filename) => {
+  const metaFallback = () => [{ page: null, text: `${description || ""}\n${filename}`.trim() }];
   if (KB_EXTRACTABLE_CATEGORIES.includes(category)) {
     if (type === "pdf" && fs.statSync(attachmentPath).size > PDF_MAX_EXTRACT_BYTES) {
       return metaFallback();
     }
-    return textExtract.extractTextFromFile(attachmentPath, type);
+    return textExtract.extractSegmentsFromFile(attachmentPath, type);
   }
   return metaFallback();
 };
@@ -270,12 +274,12 @@ exports.create = async (req, res) => {
     // searchable yet.
     const ingestOne = async (created, file) => {
       try {
-        const text = await artifactKnowledgeText(created.attachmentPath, created.type, category, description, file.originalname);
+        const segments = await artifactKnowledgeSegments(created.attachmentPath, created.type, category, description, file.originalname);
         await knowledgeIngest.ingestSource({
           sourceType: "material_artifact",
           sourceId: created.id,
           materialTopicId: topicId,
-          text,
+          segments,
         });
       } catch (e) {
         console.error("附件知识库摄取失败（不影响附件本身的保存）:", e.message);
@@ -353,6 +357,10 @@ exports.bulkCreateFromZip = async (req, res) => {
 
     const extractedFiles = listFilesRecursively(extractDir);
     const pendingRows = [];
+    // Stored paths of every row actually written -- looked up again after
+    // responding so each imported file gets ingested into the knowledge
+    // base like a single upload does (see ingestImported below).
+    const importedPaths = [];
 
     const flushPendingRows = async () => {
       if (pendingRows.length === 0) return { created: 0 };
@@ -371,6 +379,7 @@ exports.bulkCreateFromZip = async (req, res) => {
           }))
         );
         created = pendingRows.length;
+        importedPaths.push(...pendingRows.map((r) => r.attachmentPath));
       } catch (e) {
         // Fall back to row-by-row to isolate bad rows without failing whole import.
         for (const row of pendingRows) {
@@ -386,6 +395,7 @@ exports.bulkCreateFromZip = async (req, res) => {
               attachmentSize: row.attachmentSize,
             });
             created += 1;
+            importedPaths.push(row.attachmentPath);
           } catch (singleErr) {
             skipped.push({ path: row.sourcePath, reason: `数据库写入失败: ${singleErr.message}` });
             try {
@@ -464,13 +474,43 @@ exports.bulkCreateFromZip = async (req, res) => {
     if (uploadedZipPath && fs.existsSync(uploadedZipPath)) fs.unlinkSync(uploadedZipPath);
     if (extractDir && fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
 
-    return res.send({
+    res.send({
       message: "批量导入完成。",
       createdCount,
       skippedCount: skipped.length,
       skipped: skipped.slice(0, BULK_SKIPPED_REPORT_LIMIT),
       skippedTruncated: skipped.length > BULK_SKIPPED_REPORT_LIMIT,
     });
+
+    // Knowledge-base ingestion for every imported file -- this path used to
+    // skip it entirely, leaving zip-imported material invisible to 欣欣助手
+    // and AI 点评. Same contract as #create's ingestOne: after responding
+    // (a large zip shouldn't hold the request open through extraction),
+    // one file at a time, best-effort per file, then one skill-card
+    // regeneration for the topic.
+    if (importedPaths.length > 0) {
+      (async () => {
+        const imported = await MaterialArtifact.findAll({
+          where: { materialTopicId: topicId, attachmentPath: { [Op.in]: importedPaths } },
+          order: [["id", "ASC"]],
+        });
+        for (const a of imported) {
+          try {
+            const segments = await artifactKnowledgeSegments(a.attachmentPath, a.type, a.category, a.description, a.attachmentName);
+            await knowledgeIngest.ingestSource({
+              sourceType: "material_artifact",
+              sourceId: a.id,
+              materialTopicId: topicId,
+              segments,
+            });
+          } catch (e) {
+            console.error(`批量导入附件知识库摄取失败（#${a.id}，不影响附件本身）:`, e.message);
+          }
+        }
+        await knowledgeIngest.regenerateSkillCard(topicId);
+      })().catch((e) => console.error("批量导入知识库摄取失败:", e.message));
+    }
+    return;
   } catch (err) {
     for (const p of createdFilePaths) {
       try {
@@ -871,12 +911,12 @@ exports.update = async (req, res) => {
     // awaited before responding.
     (async () => {
       try {
-        const text = await artifactKnowledgeText(finalPath, payload.type, payload.category, payload.description, finalName);
+        const segments = await artifactKnowledgeSegments(finalPath, payload.type, payload.category, payload.description, finalName);
         await knowledgeIngest.ingestSource({
           sourceType: "material_artifact",
           sourceId: artifact.id,
           materialTopicId: artifact.materialTopicId,
-          text,
+          segments,
         });
         await knowledgeIngest.regenerateSkillCard(artifact.materialTopicId);
       } catch (e) {
@@ -930,3 +970,4 @@ exports.delete = async (req, res) => {
 // Exposed for tests / advanced callers.
 exports.getTopicDirectory = getTopicDirectory;
 exports.getArtifactStorageDirectory = getArtifactStorageDirectory;
+exports.artifactKnowledgeSegments = artifactKnowledgeSegments;

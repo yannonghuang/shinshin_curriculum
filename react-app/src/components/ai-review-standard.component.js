@@ -63,6 +63,69 @@ const CautionsPanel = ({ cautions }) => {
   );
 };
 
+// Which 学习资源库 material an AI-generated version was built from (backend
+// knowledgeTree.js#buildContext provenance): evaluation standards found in
+// the library and quoted verbatim, other material quoted verbatim, material
+// used only as a summary, and topics used only as background.
+const RetrievalSources = ({ retrieval }) => {
+  if (!retrieval) return null;
+  const where = (x) => `《${x.title}》${x.locator ? `（${x.locator}）` : ""}`;
+  const count = retrieval.anchors.length + retrieval.verbatim.length + retrieval.summarized.length + retrieval.background.length;
+  return (
+    <details className="mb-3">
+      <summary className="small text-muted">
+        依据资料（资料中已有的评价标准 {retrieval.anchors.length} 份，共引用 {count} 项）
+      </summary>
+      <div className="small mt-2">
+        {retrieval.anchors.length > 0 && (
+          <div className="mb-2">
+            <b>资料中已有的评价标准（原文引用，作为标准骨架）</b>
+            <ul className="mb-0">
+              {retrieval.anchors.map((a, i) => (
+                <li key={i}>
+                  {where(a)}：{a.label}
+                  <span className="text-muted"> · {a.topic}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {retrieval.verbatim.length > 0 && (
+          <div className="mb-2">
+            <b>原文引用</b>
+            <ul className="mb-0">
+              {retrieval.verbatim.map((v, i) => (
+                <li key={i}>
+                  {where(v)}
+                  {v.label && `：${v.label}`}
+                  <span className="text-muted"> · {v.topic}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {retrieval.summarized.length > 0 && (
+          <div className="mb-2">
+            <b>摘要引用</b>
+            <ul className="mb-0">
+              {retrieval.summarized.map((v, i) => (
+                <li key={i}>
+                  《{v.title}》<span className="text-muted"> · {v.topic}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {retrieval.background.length > 0 && (
+          <div>
+            <b>背景主题</b>：{retrieval.background.join("、")}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+};
+
 const StandardTable = ({ content }) => (
   <>
     {content.overview && <p>{content.overview}</p>}
@@ -624,6 +687,7 @@ const AiReviewStandard = () => {
                 </div>
               </details>
             )}
+            <RetrievalSources retrieval={shown.retrieval} />
             <StandardTable content={content} />
           </div>
         )

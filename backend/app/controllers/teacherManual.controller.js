@@ -119,12 +119,12 @@ exports.publish = async (req, res) => {
     // (workflow/button/status wording) answerable by 欣欣助手.
     (async () => {
       try {
-        const text = await textExtract.extractTextFromFile(attachmentPath, "docx");
+        const segments = await textExtract.extractSegmentsFromFile(attachmentPath, "docx");
         await knowledgeIngest.ingestSource({
           sourceType: "material_artifact",
           sourceId: artifact.id,
           materialTopicId: topic.id,
-          text,
+          segments,
         });
         await knowledgeIngest.regenerateSkillCard(topic.id);
       } catch (e) {

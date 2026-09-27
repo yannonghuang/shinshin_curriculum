@@ -27,6 +27,9 @@ module.exports = function (app) {
   app.put("/api/material-topics/:id/skill", [authJwt.verifyToken, authJwt.isAdmin], topics.updateSkill);
   app.get("/api/material-topics/:id/skill/generating", [authJwt.verifyToken], topics.getSkillGenerating);
   app.post("/api/material-topics/:id/skill/regenerate", [authJwt.verifyToken, authJwt.isAdmin], topics.forceRegenerateSkill);
+  app.get("/api/material-topics/:id/knowledge-tree", [authJwt.verifyToken], topics.getKnowledgeTree);
+  app.get("/api/material-topics/:id/knowledge-tree/chunks", [authJwt.verifyToken], topics.getKnowledgeChunks);
+  app.post("/api/material-topics/:id/knowledge-tree/rebuild", [authJwt.verifyToken, authJwt.isAdmin], topics.rebuildKnowledgeTree);
 
   app.get("/api/material-topics/:topicId/links", [authJwt.verifyToken], links.findByTopic);
   app.post("/api/material-topics/:topicId/links", [authJwt.verifyToken, authJwt.isAdmin], links.create);

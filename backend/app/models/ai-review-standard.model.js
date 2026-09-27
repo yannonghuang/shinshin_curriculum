@@ -24,6 +24,13 @@ module.exports = (sequelize, Sequelize) => {
       aiModel: {
         type: Sequelize.STRING(128),
       },
+      // Which 学习资源库 material an AI-generated version was built from --
+      // knowledgeTree.js#buildContext's provenance: { anchors, verbatim,
+      // summarized, background, topicIds, ... }. NULL for human revisions
+      // and for versions generated before the knowledge tree existed.
+      retrieval: {
+        type: Sequelize.JSON,
+      },
       createdBy: {
         // FK users; NULL if that user was later deleted. For an 'ai' row
         // it's only who clicked 生成 (audit, never displayed); for a 'human'
