@@ -138,7 +138,12 @@ function startBatch(options) {
   return starting;
 }
 
-async function startBatchInner({ userId, force = false }) {
+// Always incremental: only plans with no score yet, a score from an older
+// standard version, or content edited since their last score are queued.
+// There's deliberately no "force" -- scoring runs at temperature 0, so
+// re-scoring an unchanged plan against the same standard just reproduces
+// the same result at the cost of an LLM call per plan.
+async function startBatchInner({ userId }) {
   const standard = await AiReviewStandard.findOne({ order: [["id", "DESC"]] });
   if (!standard) {
     const err = new Error("尚未制定 AI 点评标准，请先在「AI 点评标准」中生成。");
@@ -149,12 +154,11 @@ async function startBatchInner({ userId, force = false }) {
   const planIds = await findAiReviewedPlanIds();
   const plans = planIds.length ? await Plan.findAll({ where: { id: { [Op.in]: planIds } } }) : [];
   const latest = await latestScoresByPlan(planIds);
-  const queue = plans.filter((p) => force || !isUpToDate(latest.get(Number(p.id)), p, standard.id)).map((p) => p.id);
+  const queue = plans.filter((p) => !isUpToDate(latest.get(Number(p.id)), p, standard.id)).map((p) => p.id);
 
   job = {
     running: true,
     standardId: standard.id,
-    force,
     total: plans.length,
     queued: queue.length,
     skipped: plans.length - queue.length,
@@ -168,6 +172,14 @@ async function startBatchInner({ userId, force = false }) {
     finishedAt: null,
   };
   const current = job;
+  if (queue.length === 0) {
+    // Nothing to score -- finish right away so the caller gets a completed
+    // job back, not a "running" one the page would briefly show a progress
+    // bar for.
+    current.running = false;
+    current.finishedAt = new Date();
+    return getJobStatus();
+  }
 
   const worker = async () => {
     while (queue.length > 0) {

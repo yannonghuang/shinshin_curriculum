@@ -33,8 +33,8 @@ class AiReviewDataService {
   }
 
   // Starts a background AI 打分 batch -- poll getScores() while job.running.
-  runScoring(force) {
-    return http.post("/ai-review/scores/run", { force: !!force }, { headers: authHeader() });
+  runScoring() {
+    return http.post("/ai-review/scores/run", {}, { headers: authHeader() });
   }
 
   saveRevision({ content, baseId, changeNote, cautions, signature }) {
