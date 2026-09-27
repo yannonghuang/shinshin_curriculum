@@ -18,6 +18,8 @@ import MaterialsLibrary from "./components/materials-library.component";
 import CopilotPanel from "./components/copilot-panel.component";
 import AdminUsersList from "./components/admin-users-list.component";
 import TemplateAdmin from "./components/template-admin.component";
+import AiReviewStandard from "./components/ai-review-standard.component";
+import AiScores from "./components/ai-scores.component";
 
 import AuthService from "./services/auth.service";
 import { skipNextUnsavedWarning } from "./utils/unsavedChangesGuard";
@@ -124,6 +126,29 @@ class App extends Component {
                     </Link>
                   </li>
                 )}
+                {(AuthService.isExpert() || AuthService.isAdmin()) && (
+                  <li className="nav-item dropdown">
+                    <a
+                      href="#!"
+                      className="nav-link dropdown-toggle"
+                      id="aiReviewDropdown"
+                      role="button"
+                      data-toggle="dropdown"
+                      aria-haspopup="true"
+                      aria-expanded="false"
+                    >
+                      AI 点评
+                    </a>
+                    <div className="dropdown-menu" aria-labelledby="aiReviewDropdown">
+                      <Link to="/ai-review/standard" className="dropdown-item">
+                        AI 点评标准
+                      </Link>
+                      <Link to="/ai-review/scores" className="dropdown-item">
+                        AI 打分
+                      </Link>
+                    </div>
+                  </li>
+                )}
                 <li className="nav-item">
                   <Link to="/materials" className="nav-link">
                     学习资源库
@@ -178,6 +203,8 @@ class App extends Component {
             <Route exact path="/materials" component={MaterialsLibrary} />
             <Route exact path="/admin/users" component={AdminUsersList} />
             <Route exact path="/admin/templates" component={TemplateAdmin} />
+            <Route exact path="/ai-review/standard" component={AiReviewStandard} />
+            <Route exact path="/ai-review/scores" component={AiScores} />
             <Route exact path="/plans" component={PlansList} />
             <Route path="/plans/:id" component={PlanDetail} />
           </Switch>

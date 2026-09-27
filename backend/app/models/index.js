@@ -49,6 +49,8 @@ db.knowledgeSkill = require("./knowledge-skill.model.js")(sequelize, Sequelize);
 db.knowledgeChunk = require("./knowledge-chunk.model.js")(sequelize, Sequelize);
 db.chatConversation = require("./chat-conversation.model.js")(sequelize, Sequelize);
 db.chatMessage = require("./chat-message.model.js")(sequelize, Sequelize);
+db.aiReviewStandard = require("./ai-review-standard.model.js")(sequelize, Sequelize);
+db.aiPlanScore = require("./ai-plan-score.model.js")(sequelize, Sequelize);
 
 // users <-> roles (many-to-many via user_roles)
 // Explicitly pre-defined (rather than through: "user_roles" as a bare string)
@@ -294,6 +296,27 @@ db.chatConversation.hasMany(db.chatMessage, {
 db.chatMessage.belongsTo(db.chatConversation, {
   foreignKey: "conversationId",
   onDelete: "CASCADE",
+});
+
+db.aiReviewStandard.belongsTo(db.user, {
+  foreignKey: "createdBy",
+  as: "Creator",
+  onDelete: "SET NULL",
+});
+
+db.plan.hasMany(db.aiPlanScore, {
+  foreignKey: "planId",
+  as: "AiScores",
+  onDelete: "CASCADE",
+  hooks: true,
+});
+db.aiPlanScore.belongsTo(db.plan, {
+  foreignKey: "planId",
+  onDelete: "CASCADE",
+});
+db.aiPlanScore.belongsTo(db.aiReviewStandard, {
+  foreignKey: "standardId",
+  as: "Standard",
 });
 
 // Roles are exactly admin/teacher/expert/super — this app has no
