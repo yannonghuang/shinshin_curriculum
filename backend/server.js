@@ -51,6 +51,7 @@ require("./app/routes/material-artifact.routes")(app);
 require("./app/routes/chat.routes")(app);
 require("./app/routes/teacher-manual.routes")(app);
 require("./app/routes/ai-review.routes")(app);
+require("./app/routes/dashboard.routes")(app);
 require("./app/routes/build-info.routes")(app);
 
 // Note: no static frontend serving / catch-all here — the frontend is being

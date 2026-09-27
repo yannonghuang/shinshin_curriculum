@@ -648,7 +648,14 @@ const PlanDetail = (props) => {
   // of the sidebar as tall as the whole 实施 tree before a teacher's even
   // looked at it.
   const [expandedGroups, setExpandedGroups] = useState({ plan: true, execution: true, planLessons: false });
-  const [selected, setSelected] = useState({ type: "plan", key: "basic" });
+  // ?view=reviews / ?view=executionReviews opens straight onto 计划整体点评 /
+  // 实施整体点评 -- used by 数据看板's 专家点评 links.
+  const [selected, setSelected] = useState(() => {
+    const view = new URLSearchParams((props.location && props.location.search) || "").get("view");
+    if (view === "reviews") return { type: "plan", key: "reviews" };
+    if (view === "executionReviews") return { type: "executionReviews" };
+    return { type: "plan", key: "basic" };
+  });
   // Lifted up from the two 整体点评 ReviewList widgets (design/implementation)
   // rather than left as their own local state -- switching sidebar tabs
   // unmounts/remounts those widgets, and an AI review request is a single

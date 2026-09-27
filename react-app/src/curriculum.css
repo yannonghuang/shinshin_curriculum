@@ -1753,3 +1753,19 @@
   padding: 10px 12px;
   border-top: 1px solid var(--pl-line);
 }
+
+/* 数据看板's 导出字段 picker -- a panel anchored under its toggle button. */
+.pl-dashboard-export-config {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  width: 320px;
+}
+.pl-dashboard-export-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
