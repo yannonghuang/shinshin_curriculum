@@ -12,6 +12,7 @@ const knowledgeIngest = require("../services/knowledgeIngest");
 const { searchKnowledgeBase } = require("../services/knowledgeRetrieve");
 const knowledgeTree = require("../services/knowledgeTree");
 const knowledgeRebuild = require("../services/knowledgeRebuild");
+const embeddings = require("../services/embeddings");
 
 // Knowledge-base chunk text for a topic's own 基本信息 (category/theme/
 // lecturer/comment) -- indexed under sourceType 'material_topic_meta' so a
@@ -413,7 +414,15 @@ exports.getKnowledgeTree = async (req, res) => {
 
     const chunks = await db.knowledgeChunk.findAll({
       where: { materialTopicId: topicId },
-      attributes: ["sourceType", "sourceId", "chunkIndex", "pageFrom", "pageTo", [db.Sequelize.fn("CHAR_LENGTH", db.Sequelize.col("content")), "chars"]],
+      attributes: [
+        "sourceType",
+        "sourceId",
+        "chunkIndex",
+        "pageFrom",
+        "pageTo",
+        "embeddingModel",
+        [db.Sequelize.fn("CHAR_LENGTH", db.Sequelize.col("content")), "chars"],
+      ],
       order: [["sourceType", "ASC"], ["sourceId", "ASC"], ["chunkIndex", "ASC"]],
       raw: true,
     });
@@ -438,6 +447,7 @@ exports.getKnowledgeTree = async (req, res) => {
         aiModel: sum ? sum.aiModel : null,
         updatedAt: sum ? sum.updatedAt : null,
         chunkCount: src.chunks.length,
+        embeddedCount: src.chunks.filter((c) => c.embeddingModel === embeddings.EMBEDDING_SCHEME).length,
         charCount: src.chunks.reduce((n, c) => n + Number(c.chars), 0),
         locator: locate(0, Number.MAX_SAFE_INTEGER),
         contents: (sum && Array.isArray(sum.contents) ? sum.contents : []).map((it) => ({

@@ -70,7 +70,9 @@ const CautionsPanel = ({ cautions }) => {
 const RetrievalSources = ({ retrieval }) => {
   if (!retrieval) return null;
   const where = (x) => `《${x.title}》${x.locator ? `（${x.locator}）` : ""}`;
-  const count = retrieval.anchors.length + retrieval.verbatim.length + retrieval.summarized.length + retrieval.background.length;
+  const semantic = retrieval.semantic || [];
+  const count =
+    retrieval.anchors.length + retrieval.verbatim.length + semantic.length + retrieval.summarized.length + retrieval.background.length;
   return (
     <details className="mb-3">
       <summary className="small text-muted">
@@ -99,6 +101,22 @@ const RetrievalSources = ({ retrieval }) => {
                   {where(v)}
                   {v.label && `：${v.label}`}
                   <span className="text-muted"> · {v.topic}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {semantic.length > 0 && (
+          <div className="mb-2">
+            <b>语义匹配片段（原文引用）</b>
+            <ul className="mb-0">
+              {semantic.map((v, i) => (
+                <li key={i}>
+                  {where(v)}
+                  <span className="text-muted">
+                    {" "}
+                    · {v.topic} · 相似度 {v.score}
+                  </span>
                 </li>
               ))}
             </ul>

@@ -107,7 +107,7 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
       </div>
       <p className="small text-muted">
         知识库按三层组织：上方的<b>主题知识卡片</b>概括整个主题；下面是每份资料的<b>摘要与内容条目</b>；点击条目可查看对应的
-        <b>原文</b>（注明页码）。AI 点评、AI 点评标准与欣欣助手按这些摘要与条目找到相关资料，再引用其原文。
+        <b>原文</b>（注明页码）。AI 点评、AI 点评标准与欣欣助手按这些摘要与条目找到相关资料，并对每段原文做语义匹配，再引用其原文。
       </p>
 
       {rebuilding && (
@@ -133,6 +133,7 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
                   <span className="small text-muted ml-2">
                     {s.locator && `${s.locator} · `}
                     {s.charCount} 字
+                    {s.embeddedCount < s.chunkCount && ` · 语义索引 ${s.embeddedCount}/${s.chunkCount} 段`}
                   </span>
                 </div>
                 <div className="text-nowrap">
