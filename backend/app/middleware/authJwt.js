@@ -127,7 +127,8 @@ isAdmin = async (req, res, next) => {
 };
 
 // Super-only: user management (create/list/edit/delete/suspend) is reserved
-// for "super" and no longer granted to plain "admin" accounts.
+// for "super" and no longer granted to plain "admin" accounts; so is the
+// combined AI 打分加点评 batch (ai-review.routes.js).
 isSuper = async (req, res, next) => {
   try {
     if (await hasRole(req, "super")) {

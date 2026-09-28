@@ -7,6 +7,14 @@ const aiReviewStandard = require("../services/aiReviewStandard");
 const aiPlanScoring = require("../services/aiPlanScoring");
 const aiReviewStandardDoc = require("../services/aiReviewStandardDoc");
 const aiPlanReview = require("../services/aiPlanReview");
+const aiScoreAndReview = require("../services/aiScoreAndReview");
+
+// The combined AI 打分加点评 batch writes the same score/review rows as the
+// two single-purpose batches, so neither may start while it runs (it
+// checks the reverse itself, see aiScoreAndReview.js#startBatchInner).
+const combinedBusy = (res) =>
+  aiScoreAndReview.isRunning() &&
+  res.status(409).send({ message: "「AI 打分加点评」批量任务正在进行，请待其完成后再试。" });
 
 // GET /api/ai-review/standard -- the active (newest) standard, or null if
 // none has been generated yet, plus the background-generation status.
@@ -118,6 +126,7 @@ exports.getScores = async (req, res) => {
 // aiPlanScoring.js#startBatchInner); a no-op batch when all are.
 exports.runScoring = async (req, res) => {
   try {
+    if (combinedBusy(res)) return undefined;
     const job = await aiPlanScoring.startBatch({ userId: req.userId });
     return res.status(202).send(job);
   } catch (err) {
@@ -148,9 +157,38 @@ exports.getBulkCandidates = async (req, res) => {
 // with the same criteria the preview used.
 exports.runBulkReview = async (req, res) => {
   try {
+    if (combinedBusy(res)) return undefined;
     const job = await aiPlanReview.startBatch({ criteria: aiPlanReview.parseCriteria(req.body) });
     return res.status(202).send(job);
   } catch (err) {
     return res.status(err.status || 500).send({ message: err.message || "启动批量 AI 点评时发生错误。" });
+  }
+};
+
+// GET /api/ai-review/score-review -- every submitted plan flagged with
+// whether it needs an AI score and/or a whole-plan AI 点评, plus the
+// current/last AI 打分加点评 batch status (super only).
+exports.getScoreReviewCandidates = async (req, res) => {
+  try {
+    const standard = await aiReviewStandard.getLatestStandard();
+    const plans = await aiScoreAndReview.findCandidates(standard ? standard.id : null);
+    return res.send({
+      plans,
+      job: aiScoreAndReview.getJobStatus(),
+      standard: standard ? { id: standard.id, totalScore: standard.content.totalScore } : null,
+    });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "查询 AI 打分加点评课程时发生错误。" });
+  }
+};
+
+// POST /api/ai-review/score-review/run -- starts a background batch that
+// scores and/or reviews every plan still missing an up-to-date one.
+exports.runScoreReview = async (req, res) => {
+  try {
+    const job = await aiScoreAndReview.startBatch({ userId: req.userId });
+    return res.status(202).send(job);
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "启动 AI 打分加点评时发生错误。" });
   }
 };

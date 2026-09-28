@@ -199,7 +199,17 @@ async function buildWholePlanContentText(plan) {
   return text.length > MAX_TOTAL_CHARS ? `${text.slice(0, MAX_TOTAL_CHARS)}\n……（内容过长，已截断）` : text;
 }
 
-const REVIEWER_TYPE_LABELS = { ai: "AI点评", expert: "专家点评", admin: "管理员点评" };
+// Just the design (basic info + 课程设计方案 incl. 分课时设计), bounded the
+// same as buildWholePlanContentText -- for planConsistency.js, which checks
+// the design against itself and has no use for the 实施记录.
+async function buildDesignText(plan) {
+  const lines = buildBasicInfoLines(plan);
+  lines.push(...(await buildDesignLines(plan, [])));
+  const text = lines.join("\n");
+  return text.length > MAX_TOTAL_CHARS ? `${text.slice(0, MAX_TOTAL_CHARS)}\n……（内容过长，已截断）` : text;
+}
+
+const REVIEWER_TYPE_LABELS ={ ai: "AI点评", expert: "专家点评", admin: "管理员点评" };
 
 // Mirrors review-list.component.js's sectionLabel, minus the sectionLabels
 // map it resolves a heading-parsed template's auto-generated anchor keys
@@ -295,6 +305,7 @@ async function getPlanDetails({ planId }) {
 module.exports = {
   buildPlanContentText,
   buildWholePlanContentText,
+  buildDesignText,
   buildReviewHistoryText,
   getPlanDetailsToolDef,
   getPlanDetails,

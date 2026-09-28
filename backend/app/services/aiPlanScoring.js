@@ -4,6 +4,9 @@
 // own content (design + every lesson's 实施记录, via planContext.js) is the
 // only evidence; existing reviews (AI or expert) aren't fed to the scorer,
 // so a score reflects the plan itself rather than a previous opinion of it.
+// The one exception is the 目标一致性与完整性核查 (planConsistency.js) -- not
+// an opinion but a structured reading of the design itself, fed to AI 点评
+// too so both judge the plan's consistency from the same findings.
 const db = require("../models");
 const { Op } = db.Sequelize;
 const Plan = db.plan;
@@ -12,18 +15,27 @@ const AiPlanScore = db.aiPlanScore;
 const AiReviewStandard = db.aiReviewStandard;
 const llmClient = require("./llmClient");
 const planContext = require("./planContext");
+const planConsistency = require("./planConsistency");
 
 const CONCURRENCY = 2;
 
-const SYSTEM_PROMPT =
-  "你是乡土课程评价专家。请严格按照给定的「乡土课程 AI 点评评分标准」，对一份乡土课程（设计方案及各课时实施记录）逐维度打分。\n" +
-  "要求：\n" +
+// Rules 1-6 are shared with the combined 打分加点评 turn
+// (aiScoreAndReview.js), so a score produced there follows the same rules.
+const SCORING_RULES =
   "1. 只依据评分标准中的评分要点与等级描述打分，不要引入标准以外的评判依据；\n" +
   "2. 只依据课程材料中实际呈现的内容，信息缺失的部分按标准中的评分说明处理，不要臆测；\n" +
   "3. 每个维度先判定等级（level，须为该维度等级描述中的等级名称），再在该等级分数区间内给出分数（score，可含一位小数，不得超过该维度分值）；\n" +
   "4. rationale 用 1-3 句话说明打分理由，引用课程中的具体内容作为证据；\n" +
-  "5. summary 用 2-4 句话总结该课程的主要优点与最需要改进之处。\n" +
-  "dimensions 必须与评分标准的维度一一对应、顺序一致、名称一致。全文不得提及任何人名。\n" +
+  "5. summary 用 2-4 句话总结该课程的主要优点与最需要改进之处；\n" +
+  `6. 如课程材料前附有目标一致性与完整性核查：${planConsistency.PRINCIPLE}` +
+  "核查发现的未落实的总体目标、无对应的课时目标、未填写的目标或课时等问题，必须在评分标准中与学习目标、课程设计或其一致性/完整性相关的维度中体现为扣分，并在该维度的 rationale 中具体指出；" +
+  "存在此类问题时 summary 也须提及。核查结果显示一致且完整时，不因此扣分。\n" +
+  "dimensions 必须与评分标准的维度一一对应、顺序一致、名称一致。全文不得提及任何人名。\n";
+
+const SYSTEM_PROMPT =
+  "你是乡土课程评价专家。请严格按照给定的「乡土课程 AI 点评评分标准」，对一份乡土课程（设计方案及各课时实施记录）逐维度打分。\n" +
+  "要求：\n" +
+  SCORING_RULES +
   "严格以 JSON 格式回复，不要包含其他文字或代码块标记：" +
   '{"dimensions": [{"name": "...", "level": "良好", "score": 16, "rationale": "..."}], "summary": "..."}';
 
@@ -75,13 +87,17 @@ async function scorePlan(planId, standard, userId) {
   const plan = await Plan.findByPk(planId, { include: planIncludes });
   if (!plan) throw new Error("课程不存在");
 
-  const planText = await planContext.buildWholePlanContentText(plan);
+  const [planText, consistency] = await Promise.all([
+    planContext.buildWholePlanContentText(plan),
+    planConsistency.checkPlan(plan),
+  ]);
+  const consistencyText = planConsistency.reportText(consistency);
   const result = await llmClient.llmChat({
     systemPrompt: SYSTEM_PROMPT,
     messages: [
       {
         role: "user",
-        content: `评分标准（版本 #${standard.id}）：\n${JSON.stringify(standard.content)}\n\n课程材料：\n${planText}`,
+        content: `评分标准（版本 #${standard.id}）：\n${JSON.stringify(standard.content)}${consistencyText ? `\n\n${consistencyText}` : ""}\n\n课程材料：\n${planText}`,
       },
     ],
     maxTokens: 2048,
@@ -275,4 +291,13 @@ async function listScores() {
     .sort((a, b) => (b.score ? b.score.totalScore : -1) - (a.score ? a.score.totalScore : -1));
 }
 
-module.exports = { startBatch, getJobStatus, listScores };
+module.exports = {
+  startBatch,
+  getJobStatus,
+  listScores,
+  scorePlan,
+  isUpToDate,
+  latestScoresByPlan,
+  reconcile,
+  SCORING_RULES,
+};
