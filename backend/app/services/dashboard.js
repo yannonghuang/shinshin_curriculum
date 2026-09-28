@@ -135,7 +135,8 @@ async function buildRows() {
 
 const termLabel = (row) => `${row.year}年${row.season || ""}`;
 const yesNo = (v) => (v ? "是" : "否");
-const dateText = (d) => (d ? new Date(d).toLocaleString("zh-CN", { hour12: false }) : "");
+// Pinned to China time -- the server runs in UTC, but readers don't.
+const dateText = (d) => (d ? new Date(d).toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" }) : "");
 
 // Everything the Excel export can include, in column order. `defaultOn`
 // marks the set pre-selected in the export dialog (the table's own columns).
