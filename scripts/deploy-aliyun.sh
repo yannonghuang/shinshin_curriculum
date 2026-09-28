@@ -80,17 +80,38 @@ BUILD_ARGS=(
   --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 )
 
-echo "==> Building backend image"
-docker build --platform "$TARGET_PLATFORM" --provenance=false --sbom=false "${BUILD_ARGS[@]}" -t "$BACKEND_IMAGE:$IMAGE_TAG" -t "$BACKEND_IMAGE:latest" -f backend/Dockerfile backend
+# BUILDX_GHA_CACHE=true (set by the "Deploy to ECS" workflow only): build
+# and push in one buildx step backed by the GitHub Actions layer cache. A
+# fresh CI runner has no local layer cache, so a plain docker build
+# re-creates every layer -- including npm ci's node_modules, unchanged
+# between most commits -- with a new digest, and docker push then re-uploads
+# all of it across the border to ACR, whose throughput from GitHub's runners
+# swings from seconds to 15+ minutes per large layer (the cause of the
+# 12-22 min deploys). Layers restored from the cache keep their original
+# compressed blobs, so ACR reports them "already exists" and only the
+# layers that actually changed get uploaded. oci-mediatypes=false keeps the
+# Docker v2 manifest format a plain docker push produces, which is what
+# this ACR instance has always been fed. Local deploys keep the plain path:
+# the machine's own Docker cache already gives stable digests there.
+build_and_push() {
+  local name="$1" image="$2" dockerfile="$3" context="$4"
+  if [[ "${BUILDX_GHA_CACHE:-}" == "true" ]]; then
+    echo "==> Building + pushing $name image (buildx, GitHub Actions cache)"
+    docker buildx build --platform "$TARGET_PLATFORM" --provenance=false --sbom=false "${BUILD_ARGS[@]}" \
+      --cache-from "type=gha,scope=$name" --cache-to "type=gha,scope=$name,mode=max" \
+      --output "type=image,\"name=$image:$IMAGE_TAG,$image:latest\",push=true,oci-mediatypes=false" \
+      -f "$dockerfile" "$context"
+  else
+    echo "==> Building $name image"
+    docker build --platform "$TARGET_PLATFORM" --provenance=false --sbom=false "${BUILD_ARGS[@]}" -t "$image:$IMAGE_TAG" -t "$image:latest" -f "$dockerfile" "$context"
+    echo "==> Pushing $name image to ACR"
+    docker push "$image:$IMAGE_TAG"
+    docker push "$image:latest"
+  fi
+}
 
-echo "==> Building frontend image"
-docker build --platform "$TARGET_PLATFORM" --provenance=false --sbom=false "${BUILD_ARGS[@]}" -t "$FRONTEND_IMAGE:$IMAGE_TAG" -t "$FRONTEND_IMAGE:latest" -f react-app/Dockerfile react-app
-
-echo "==> Pushing images to ACR"
-docker push "$BACKEND_IMAGE:$IMAGE_TAG"
-docker push "$BACKEND_IMAGE:latest"
-docker push "$FRONTEND_IMAGE:$IMAGE_TAG"
-docker push "$FRONTEND_IMAGE:latest"
+build_and_push backend "$BACKEND_IMAGE" backend/Dockerfile backend
+build_and_push frontend "$FRONTEND_IMAGE" react-app/Dockerfile react-app
 
 echo "==> Copying compose files + schema.sql to $ECS_HOST:$ECS_DEPLOY_PATH"
 ssh -i "$SSH_KEY" "$ECS_USER@$ECS_HOST" "mkdir -p '$ECS_DEPLOY_PATH/backend'"
