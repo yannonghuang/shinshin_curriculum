@@ -1,4 +1,4 @@
-// Dashboard (admin only): one row per plan -- every plan, drafts and
+// Dashboard (admins and experts): one row per plan -- every plan, drafts and
 // suspended ones included -- with its 完成度 (planCompletion.js), newest
 // AI 打分 and expert-review summary. Both the table (GET /api/dashboard)
 // and its Excel export (POST /api/dashboard/export) build rows here, so an
@@ -24,9 +24,13 @@ const IMPLEMENTATION_SECTION_KEYS = ["IMPLEMENTATION_OVERALL", "EXECUTION_RECORD
 const round1 = (n) => Math.round(n * 10) / 10;
 const timeOf = (d) => (d ? new Date(d).getTime() : null);
 
-async function buildRows() {
+// submittedOnly: leave out drafts and suspended plans -- for an expert
+// viewer, who doesn't see those anywhere else either (see
+// plan.controller.js#findAll's restrictToSubmitted/canViewNonExcellentPlan).
+async function buildRows({ submittedOnly = false } = {}) {
   const plans = await Plan.findAll({
     attributes: { exclude: ["segmentVersionAt"] },
+    where: submittedOnly ? { status: { [Op.ne]: "draft" }, suspended: false } : undefined,
     include: [
       {
         model: db.user,
@@ -185,8 +189,8 @@ const exportFieldOptions = () => EXPORT_FIELDS.map(({ key, label, defaultOn }) =
 
 // `planIds` is the table's current filtered + sorted order; `fieldKeys`
 // the columns picked in the export dialog (unknown keys ignored).
-async function buildWorkbook({ planIds, fieldKeys, origin }) {
-  const rows = await buildRows();
+async function buildWorkbook({ planIds, fieldKeys, origin, submittedOnly }) {
+  const rows = await buildRows({ submittedOnly });
   const byId = new Map(rows.map((r) => [r.planId, r]));
   const selected = (Array.isArray(planIds) ? planIds : rows.map((r) => r.planId))
     .map((id) => byId.get(Number(id)))
