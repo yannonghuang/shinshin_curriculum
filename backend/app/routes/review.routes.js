@@ -8,11 +8,9 @@ module.exports = function (app) {
   });
 
   app.post("/api/plans/:planId/reviews", [authJwt.verifyToken, authJwt.isExpertOrAdmin], reviews.create);
-  app.post(
-    "/api/plans/:planId/reviews/ai",
-    [authJwt.verifyToken, authJwt.isTeacherOrAdmin],
-    reviews.createAiReview
-  );
+  // Owner teacher, or an admin/expert on a submitted plan -- the rule lives
+  // in review.controller.js#createAiReview, since it depends on the plan.
+  app.post("/api/plans/:planId/reviews/ai", [authJwt.verifyToken], reviews.createAiReview);
   app.post("/api/plans/:planId/reviews/seen", [authJwt.verifyToken], reviews.markSeen);
   app.get("/api/plans/:planId/reviews", reviews.findByPlan);
   app.delete("/api/reviews/:id", [authJwt.verifyToken], reviews.delete);

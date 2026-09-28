@@ -83,11 +83,20 @@ exports.createAiReview = async (req, res) => {
       return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
-    // Owner-only, no admin bypass -- matches plan.controller.js#update's
-    // content-authoring rule: requesting an AI review is part of working on
-    // one's own case, not a management action.
-    if (plan.teacherId !== req.userId) {
-      return res.status(403).send({ message: "只能为本人创建的乡土课程设计请求 AI 点评。" });
+    // The owning teacher may request one on their own plan (part of working
+    // on one's own case); an admin or expert may too, but only once the plan
+    // is submitted and not suspended -- the same plans bulk AI 点评 covers
+    // (see aiPlanReview.js#findCandidates). A draft is still the teacher's
+    // work in progress, not yet up for review.
+    const isOwner = plan.teacherId === req.userId;
+    if (!isOwner) {
+      const isReviewer = (await isAdminRequester(req.userId)) || (await isExpertRequester(req.userId));
+      if (!isReviewer) {
+        return res.status(403).send({ message: "只能为本人创建的乡土课程设计请求 AI 点评。" });
+      }
+      if (plan.status === "draft" || plan.suspended) {
+        return res.status(403).send({ message: "只能为已提交的乡土课程设计请求 AI 点评。" });
+      }
     }
 
     // scope="implementation" is 实施/整体点评's AI review -- "on both
@@ -103,7 +112,9 @@ exports.createAiReview = async (req, res) => {
     const data = await aiPlanReview.generateAiReview(plan, {
       wholePlan: isWholePlanScope,
       lessonIndex,
-      seenByTeacher: true,
+      // Only the owner asking for it themselves has "seen" it -- one an
+      // admin/expert triggered is new to the teacher and flashes for them.
+      seenByTeacher: isOwner,
     });
 
     return res.send(data);
