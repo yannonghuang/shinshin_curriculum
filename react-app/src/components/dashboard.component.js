@@ -60,11 +60,11 @@ const readStoredExportFields = () => {
   }
 };
 
-// 数据看板 (admin only): every plan in one sortable/filterable table with
+// 数据看板 (admins and experts): every plan in one sortable/filterable table with
 // its 完成度 (see backend services/planCompletion.js), newest AI 打分 and
 // expert reviews, exportable to Excel with a chosen set of columns.
 const Dashboard = () => {
-  const allowed = AuthService.isAdmin();
+  const allowed = AuthService.isAdmin() || AuthService.isExpert();
   const history = useHistory();
   const location = useLocation();
 
@@ -311,7 +311,7 @@ const Dashboard = () => {
   };
 
   if (!allowed) {
-    return <div className="alert alert-warning">数据看板仅对管理员开放。</div>;
+    return <div className="alert alert-warning">数据看板仅对管理员和专家开放。</div>;
   }
 
   const avg = (values) => (values.length ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10 : null);

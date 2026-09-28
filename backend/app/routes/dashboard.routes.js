@@ -7,8 +7,8 @@ module.exports = function (app) {
     next();
   });
 
-  // Admin only (super included, see authJwt.isAdmin).
-  const guard = [authJwt.verifyToken, authJwt.isAdmin];
+  // Admins and experts (super included, see authJwt.isExpertOrAdmin).
+  const guard = [authJwt.verifyToken, authJwt.isExpertOrAdmin];
   app.get("/api/dashboard", guard, dashboard.list);
   app.post("/api/dashboard/export", guard, dashboard.exportExcel);
 };

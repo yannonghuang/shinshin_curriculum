@@ -201,7 +201,7 @@ function matches(row, c) {
 // flagged `matched` against the criteria. Both the page's preview and the
 // batch itself select plans through here, so what's previewed is what runs.
 async function findCandidates(criteria, standardId) {
-  const rows = (await dashboard.buildRows()).filter((r) => r.submitted && !r.suspended);
+  const rows = await dashboard.buildRows({ submittedOnly: true });
   if (rows.length === 0) return [];
   const planIds = rows.map((r) => r.planId);
   const [plans, aiReviews] = await Promise.all([
