@@ -14,6 +14,29 @@ const formatElapsed = (ms) => {
   return sec >= 60 ? `${Math.floor(sec / 60)} 分 ${sec % 60} 秒` : `${sec} 秒`;
 };
 
+// Text columns sort A→Z first, numeric ones high→low (see toggleSort).
+// Unscored plans always sort last on AI 总分, whichever direction -- same
+// rule as ai-scores.component.js.
+const TEXT_SORT_KEYS = ["title", "school"];
+const compareBy = (sortKey, sortDir) => (a, b) => {
+  const dir = sortDir === "asc" ? 1 : -1;
+  if (sortKey === "title") return dir * (a.title || "").localeCompare(b.title || "", "zh");
+  if (sortKey === "school") {
+    return (
+      dir *
+      ((a.schoolName || "").localeCompare(b.schoolName || "", "zh") ||
+        (a.teacherName || "").localeCompare(b.teacherName || "", "zh"))
+    );
+  }
+  if (sortKey === "score") {
+    if (!a.aiScore && !b.aiScore) return 0;
+    if (!a.aiScore) return 1;
+    if (!b.aiScore) return -1;
+    return dir * (a.aiScore.totalScore - b.aiScore.totalScore);
+  }
+  return dir * (a.completion.overall - b.completion.overall);
+};
+
 const DEFAULT_CRITERIA = { minCompletion: "60", maxCompletion: "", minScore: "", maxScore: "", skipReviewed: true };
 
 // AI -> AI 点评 (admin only). Writes a whole-plan (实施整体点评) AI review,
@@ -30,6 +53,8 @@ const AiBulkReview = () => {
   const [loaded, setLoaded] = useState(false);
   const [message, setMessage] = useState("");
   const [showAll, setShowAll] = useState(false);
+  const [sortKey, setSortKey] = useState("completion");
+  const [sortDir, setSortDir] = useState("desc");
   const allowed = AuthService.isAdmin();
 
   const refresh = useCallback(
@@ -73,7 +98,24 @@ const AiBulkReview = () => {
   }
 
   const matched = plans.filter((p) => p.matched);
-  const visiblePlans = showAll ? plans : matched;
+  const visiblePlans = [...(showAll ? plans : matched)].sort(compareBy(sortKey, sortDir));
+
+  // Clicking the active column flips it; a new column starts in its
+  // natural direction.
+  const toggleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(TEXT_SORT_KEYS.includes(key) ? "asc" : "desc");
+    }
+  };
+  const sortableHeader = (key, label, width) => (
+    <th style={{ width, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => toggleSort(key)}>
+      {label}{" "}
+      <i className={`fas ${sortKey !== key ? "fa-sort text-muted" : sortDir === "asc" ? "fa-sort-up" : "fa-sort-down"} ml-1`} />
+    </th>
+  );
   const processed = job ? job.done + job.failed : 0;
 
   const setField = (key) => (e) => {
@@ -223,10 +265,10 @@ const AiBulkReview = () => {
           <table className="table table-bordered table-sm">
             <thead className="thead-light">
               <tr>
-                <th>课程</th>
-                <th style={{ width: "22%" }}>学校 / 教师</th>
-                <th style={{ width: "9%" }}>完成度</th>
-                <th style={{ width: "9%" }}>AI 总分</th>
+                {sortableHeader("title", "课程")}
+                {sortableHeader("school", "学校 / 教师", "22%")}
+                {sortableHeader("completion", "完成度", "9%")}
+                {sortableHeader("score", "AI 总分", "9%")}
                 <th style={{ width: "18%" }}>最近 AI 整体点评</th>
               </tr>
             </thead>
