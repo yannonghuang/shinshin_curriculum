@@ -4,7 +4,8 @@ import mammoth from "mammoth/mammoth.browser";
 
 import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
-import ReviewList from "./review-list.component";
+import ReviewList, { scopeReviews } from "./review-list.component";
+import ReviewDataService from "../services/review.service";
 import LessonFileManager from "./lesson-file-manager.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, PLAN_STATUSES, EMPTY_LESSON, currentSeason } from "../constants/plan-options";
 import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
@@ -829,6 +830,27 @@ const PlanDetail = (props) => {
   // unlike upload/move/delete which stay owner-only via canEditPlan above.
   const canDownloadPlan = canEditPlan || isAdmin;
 
+  // Whether each 整体点评 view holds a review the plan's OWNER teacher hasn't
+  // seen yet (review.model.js's teacherSeenAt) -- flashes that sidebar leaf.
+  // Only the owner's own viewing counts: an admin or expert opening the
+  // plan neither sees the flash nor clears it (the server's markSeen is a
+  // no-op for them too). Scoped with the same scopeReviews the ReviewList
+  // itself uses, so a flash always points at a review that view shows.
+  const [unseenReviews, setUnseenReviews] = useState({ design: false, implementation: false });
+  const refreshUnseenReviews = useCallback(() => {
+    if (!isOwner) return;
+    ReviewDataService.getByPlan(planId)
+      .then((resp) => {
+        const unseen = (Array.isArray(resp.data) ? resp.data : []).filter((r) => !r.teacherSeenAt);
+        const has = (aggregateScope) => scopeReviews(unseen, { aggregateScope, sectionLabels: planSectionLabels }).length > 0;
+        setUnseenReviews({ design: has("design"), implementation: has("implementation") });
+      })
+      .catch(() => {});
+  }, [isOwner, planId, planSectionLabels]);
+  useEffect(() => {
+    refreshUnseenReviews();
+  }, [refreshUnseenReviews]);
+
   // Returns to wherever the user actually came from (browser/react-router
   // POP), rather than a fixed destination -- every entry point that links
   // here (plan-card.component.js, used by both plans-list's grid and
@@ -1301,6 +1323,8 @@ const PlanDetail = (props) => {
             canTriggerAi={canEditPlan}
             aiPending={aiReviewPending.design}
             setAiPending={(v) => setAiReviewPending((prev) => ({ ...prev, design: v }))}
+            trackSeen={isOwner}
+            onSeen={refreshUnseenReviews}
             // Lets the aggregate view's 模块 column jump straight to that
             // section's own tab. "LESSON_DESIGN" rows carry their lessonIndex
             // and route to that lesson's own tab; everything else is a
@@ -1494,6 +1518,8 @@ const PlanDetail = (props) => {
             canTriggerAi={canEditPlan}
             aiPending={aiReviewPending.implementation}
             setAiPending={(v) => setAiReviewPending((prev) => ({ ...prev, implementation: v }))}
+            trackSeen={isOwner}
+            onSeen={refreshUnseenReviews}
             onSelectSection={(key, lessonIdx) =>
               key === "LESSON_DESIGN"
                 ? select("planLesson", lessonIdx)
@@ -1683,10 +1709,14 @@ const PlanDetail = (props) => {
                     <button
                       key={s.key}
                       type="button"
-                      className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === s.key ? "is-active" : ""}`}
+                      className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === s.key ? "is-active" : ""} ${
+                        unseenReviews.design ? "pl-flash-unseen" : ""
+                      }`}
+                      title={unseenReviews.design ? "有新的点评" : undefined}
                       onClick={() => select("plan", s.key)}
                     >
                       {s.label}
+                      {unseenReviews.design && <span className="pl-unseen-dot" />}
                     </button>
                   ))}
                 </div>
@@ -1761,10 +1791,14 @@ const PlanDetail = (props) => {
                       review-list.component.js's aggregateScope prop). */}
                   <button
                     type="button"
-                    className={`pl-explorer-leaf ${selected.type === "executionReviews" ? "is-active" : ""}`}
+                    className={`pl-explorer-leaf ${selected.type === "executionReviews" ? "is-active" : ""} ${
+                      unseenReviews.implementation ? "pl-flash-unseen" : ""
+                    }`}
+                    title={unseenReviews.implementation ? "有新的点评" : undefined}
                     onClick={() => select("executionReviews")}
                   >
                     实施整体点评
+                    {unseenReviews.implementation && <span className="pl-unseen-dot" />}
                   </button>
                 </div>
               )}

@@ -19,6 +19,7 @@ import CopilotPanel from "./components/copilot-panel.component";
 import AdminUsersList from "./components/admin-users-list.component";
 import TemplateAdmin from "./components/template-admin.component";
 import AiReviewStandard from "./components/ai-review-standard.component";
+import AiBulkReview from "./components/ai-bulk-review.component";
 import AiScores from "./components/ai-scores.component";
 import Dashboard from "./components/dashboard.component";
 import BuildInfo from "./components/build-info.component";
@@ -146,7 +147,7 @@ class App extends Component {
                       aria-haspopup="true"
                       aria-expanded="false"
                     >
-                      AI 点评
+                      AI
                     </a>
                     <div className="dropdown-menu" aria-labelledby="aiReviewDropdown">
                       <Link to="/ai-review/standard" className="dropdown-item">
@@ -155,6 +156,11 @@ class App extends Component {
                       <Link to="/ai-review/scores" className="dropdown-item">
                         AI 打分
                       </Link>
+                      {AuthService.isAdmin() && (
+                        <Link to="/ai-review/bulk" className="dropdown-item">
+                          AI 点评
+                        </Link>
+                      )}
                     </div>
                   </li>
                 )}
@@ -214,6 +220,7 @@ class App extends Component {
             <Route exact path="/admin/templates" component={TemplateAdmin} />
             <Route exact path="/ai-review/standard" component={AiReviewStandard} />
             <Route exact path="/ai-review/scores" component={AiScores} />
+            <Route exact path="/ai-review/bulk" component={AiBulkReview} />
             <Route exact path="/dashboard" component={Dashboard} />
             <Route exact path="/plans" component={PlansList} />
             <Route path="/plans/:id" component={PlanDetail} />

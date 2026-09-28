@@ -42,6 +42,18 @@ class AiReviewDataService {
     return http.post("/ai-review/scores/run", {}, { headers: authHeader() });
   }
 
+  // Bulk AI 点评 (admin only): { plans: [...submitted plans, each flagged
+  // `matched` against criteria], job }
+  getBulkCandidates(criteria) {
+    return http.get("/ai-review/bulk", { params: criteria, headers: authHeader() });
+  }
+
+  // Starts a background bulk AI 点评 batch over the plans matching
+  // criteria -- poll getBulkCandidates() while job.running.
+  runBulkReview(criteria) {
+    return http.post("/ai-review/bulk/run", criteria, { headers: authHeader() });
+  }
+
   saveRevision({ content, baseId, changeNote, cautions, signature }) {
     return http.post(
       "/ai-review/standard/revisions",

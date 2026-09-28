@@ -13,6 +13,7 @@ module.exports = function (app) {
     [authJwt.verifyToken, authJwt.isTeacherOrAdmin],
     reviews.createAiReview
   );
+  app.post("/api/plans/:planId/reviews/seen", [authJwt.verifyToken], reviews.markSeen);
   app.get("/api/plans/:planId/reviews", reviews.findByPlan);
   app.delete("/api/reviews/:id", [authJwt.verifyToken], reviews.delete);
 };

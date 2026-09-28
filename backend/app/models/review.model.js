@@ -67,6 +67,23 @@ module.exports = (sequelize, Sequelize) => {
       segmentVersionAt: {
         type: Sequelize.DATE,
       },
+      // The AI 点评标准 version an AI review was written against (see
+      // services/aiPlanReview.js) -- NULL for expert/admin reviews and for
+      // AI reviews from before reviews followed the standard (or written
+      // while none existed). Bulk AI 点评 treats a review on an older
+      // version as out of date.
+      standardId: {
+        type: Sequelize.BIGINT,
+      },
+      // When the plan's own teacher first saw this review in one of the two
+      // 整体点评 views (see review.controller.js#markSeen). NULL = not seen
+      // yet, which flashes that view's sidebar leaf in the teacher's
+      // plan-detail page. An AI review the teacher requested themselves is
+      // created already seen; expert reviews and the admin's bulk AI 点评
+      // start unseen.
+      teacherSeenAt: {
+        type: Sequelize.DATE,
+      },
     },
     {
       tableName: "reviews",
