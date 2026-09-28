@@ -17,11 +17,11 @@ const STEP_LABELS = { combined: "打分加点评中", score: "打分中", review
 
 // AI -> AI打分加点评 (super only). One background batch (backend
 // services/aiScoreAndReview.js) bringing every submitted plan up to date on
-// both AI 打分 and whole-plan AI 点评: a plan missing both gets a single LLM
-// turn producing the score and the review together (the token-economics
-// point of this page); one missing only one half gets just that half. The
-// 目标一致性与完整性核查 applies to both either way. The table previews
-// exactly what a run would do.
+// both AI 打分 and whole-plan AI 点评. Every plan costs a single LLM turn
+// (the token-economics point of this page) asking for just what it's
+// missing -- score and review together, or only one -- with the
+// 目标一致性与完整性核查 done in that same turn. The table previews exactly
+// what a run would do.
 const AiScoreReview = () => {
   const [plans, setPlans] = useState([]);
   const [job, setJob] = useState(null);
@@ -81,9 +81,9 @@ const AiScoreReview = () => {
     // confirm the counts before starting.
     if (
       !window.confirm(
-        `将为 ${pending.length} 个课程处理：其中 ${combinedCount} 个一次完成打分加点评，${scoreCount - combinedCount} 个仅打分，${
+        `将为 ${pending.length} 个课程处理：其中 ${combinedCount} 个同时打分加点评，${scoreCount - combinedCount} 个仅打分，${
           reviewCount - combinedCount
-        } 个仅点评（每个课程约需 1-2 分钟），确定开始吗？`
+        } 个仅点评（每个课程一次 AI 调用，约需 1-2 分钟），确定开始吗？`
       )
     )
       return;
@@ -103,8 +103,8 @@ const AiScoreReview = () => {
         </button>
       </div>
       <p className="text-muted small">
-        为所有已提交课程补齐 AI 打分与 AI 整体点评（针对当前课程内容、按当前标准）：两者都缺的课程在一次 AI
-        调用中同时完成打分与点评，节省用量且二者保持一致；只缺其一的课程仅补齐所缺的一项。打分与点评都会核查课程的
+        为所有已提交课程补齐 AI 打分与 AI 实施整体点评（针对当前课程内容、按当前标准）：每个课程只需一次 AI
+        调用，只补齐所缺的部分——两者都缺的同时完成打分与点评，二者保持一致。打分与点评都会核查课程的
         目标一致性与完整性（WHY·学习目标 与各课时教学目标是否一一对应）。
         {standard && (
           <>
@@ -146,7 +146,7 @@ const AiScoreReview = () => {
           最近一次运行完成于 {new Date(job.finishedAt).toLocaleString()}：
           {job.queued === 0
             ? "所有课程均已有最新打分与点评。"
-            : `新打分 ${job.scored} 个，新点评 ${job.reviewed} 个（其中 ${job.combined} 个一次完成）${
+            : `新打分 ${job.scored} 个，新点评 ${job.reviewed} 个（其中 ${job.combined} 个同时完成）${
                 job.failed ? `，失败 ${job.failed} 个` : ""
               }。`}
           {job.errors.map((e) => (

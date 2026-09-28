@@ -99,22 +99,22 @@ exports.createAiReview = async (req, res) => {
       }
     }
 
-    // scope="implementation" is 实施/整体点评's AI review -- "on both
-    // sections" per the comment-scoping spec, i.e. combined design + every
-    // lesson's execution content, not just one lessonIndex (see
-    // planContext.js#buildWholePlanContentText). lessonIndex is meaningless
-    // in that case and ignored.
+    // Two scopes, one per 请AI点评 button: scope="implementation" is
+    // 实施整体点评 -- design + every lesson's execution content (see
+    // planContext.js#buildWholePlanContentText); anything else is
+    // 计划整体点评, the design alone.
     const isWholePlanScope = req.body.scope === "implementation";
-    const lessonIndex = isWholePlanScope ? null : normalizeLessonIndex(req.body.lessonIndex);
 
     // Generation itself is shared with the admin's bulk AI 点评, see
     // services/aiPlanReview.js.
     const data = await aiPlanReview.generateAiReview(plan, {
       wholePlan: isWholePlanScope,
-      lessonIndex,
       // Only the owner asking for it themselves has "seen" it -- one an
       // admin/expert triggered is new to the teacher and flashes for them.
       seenByTeacher: isOwner,
+      // An interactive 请AI点评 may search 学习资源库 for reference material
+      // (bulk/batch reviews stay at one LLM call per plan).
+      knowledgeTool: true,
     });
 
     return res.send(data);
