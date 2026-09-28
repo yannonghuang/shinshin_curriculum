@@ -183,6 +183,10 @@ const ReviewList = (props) => {
   // behavior described in the file header comment. aggregateScope only
   // matters here; segment mini-widgets always pass a sectionKey.
   const isAggregateView = !sectionKey;
+  // A teacher (any viewer who can't write reviews) doesn't see the 评分
+  // column in the two 整体点评 views -- the written feedback is what's
+  // meant for them there. Segment widgets keep it.
+  const showScore = isExpertReviewer || !isAggregateView;
   // The sectionKey an aggregate's own directly-written comments/AI review
   // get tagged with (see review.model.js's sectionKey comment) -- null for
   // 设计's aggregate (unchanged from before aggregateScope existed).
@@ -436,7 +440,7 @@ const ReviewList = (props) => {
             <tr>
               <th>类型</th>
               {isAggregateView && <th>模块</th>}
-              <th>评分</th>
+              {showScore && <th>评分</th>}
               <th>内容</th>
               <th>点评人</th>
               <th>时间</th>
@@ -483,7 +487,7 @@ const ReviewList = (props) => {
                         </td>
                       );
                     })()}
-                  <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>
+                  {showScore && <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>}
                   <td style={{ whiteSpace: "pre-wrap" }}>
                     {isLong && !isExpanded ? `${review.content.slice(0, CONTENT_PREVIEW_LENGTH)}...` : review.content}
                     {isLong && (
