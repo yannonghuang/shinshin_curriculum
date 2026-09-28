@@ -829,6 +829,11 @@ const PlanDetail = (props) => {
   // account's persona -- see role.model.js) reviewing a plan they don't own,
   // unlike upload/move/delete which stay owner-only via canEditPlan above.
   const canDownloadPlan = canEditPlan || isAdmin;
+  // 请AI点评: the owner (canEditPlan), or an admin/expert once the plan is
+  // submitted and not suspended -- mirrors review.controller.js#
+  // createAiReview's server-side check.
+  const canTriggerAiReview =
+    canEditPlan || ((isAdmin || AuthService.isExpert()) && !!plan && plan.status !== "draft" && !plan.suspended);
 
   // Whether each 整体点评 view holds a review the plan's OWNER teacher hasn't
   // seen yet (review.model.js's teacherSeenAt) -- flashes that sidebar leaf.
@@ -1320,7 +1325,8 @@ const PlanDetail = (props) => {
             embedded
             planContentVersionAt={plan.contentVersionAt}
             segmentVersionAt={plan.segmentVersionAt}
-            canTriggerAi={canEditPlan}
+            canTriggerAi={canTriggerAiReview}
+            canDiscussAi={canEditPlan}
             aiPending={aiReviewPending.design}
             setAiPending={(v) => setAiReviewPending((prev) => ({ ...prev, design: v }))}
             trackSeen={isOwner}
@@ -1515,7 +1521,8 @@ const PlanDetail = (props) => {
             embedded
             planContentVersionAt={plan.contentVersionAt}
             segmentVersionAt={plan.segmentVersionAt}
-            canTriggerAi={canEditPlan}
+            canTriggerAi={canTriggerAiReview}
+            canDiscussAi={canEditPlan}
             aiPending={aiReviewPending.implementation}
             setAiPending={(v) => setAiReviewPending((prev) => ({ ...prev, implementation: v }))}
             trackSeen={isOwner}

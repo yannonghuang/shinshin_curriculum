@@ -5,9 +5,9 @@ import AuthService from "../services/auth.service";
 // Migrated from shinshin's comments-list.component.js (inline textarea-submit + list-below
 // pattern), extended with:
 //  - a reviewer-role-aware score field shown only to expert/admin reviewers,
-//  - a "请AI点评" trigger button shown only to the plan's owning teacher (canTriggerAi prop,
-//    passed down from plan-detail.component.js's canEditPlan) that calls the AI-review endpoint
-//    -- matches review.controller.js#createAiReview's owner-only check, no admin bypass,
+//  - a "请AI点评" trigger button (canTriggerAi prop, see plan-detail.component.js's
+//    canTriggerAiReview) shown to the plan's owning teacher, and to admins/experts once the plan
+//    is submitted -- matches review.controller.js#createAiReview's own check,
 //  - AI-authored rows visually tagged distinctly (.pl-tag-ai) from expert rows (.pl-tag-expert).
 //  - staleness, not threading: every review is shown newest-first in one flat table (no more
 //    grouping/splitting by the plan.contentVersionAt snapshot each was created against) -- a row
@@ -142,6 +142,7 @@ const ReviewList = (props) => {
     planContentVersionAt,
     segmentVersionAt,
     canTriggerAi,
+    canDiscussAi,
     onSelectSection,
     aiPending,
     setAiPending,
@@ -495,13 +496,14 @@ const ReviewList = (props) => {
                   <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
                   <td>
                     {/* Continuing an AI review's discussion with 欣欣助手 is
-                        reserved to the plan's owning teacher (canTriggerAi
-                        mirrors canEditPlan, see the file header comment) --
+                        reserved to the plan's owning teacher (canDiscussAi
+                        mirrors canEditPlan -- unlike canTriggerAi, which
+                        admins/experts also get on submitted plans) --
                         not shown to an expert/admin/other-teacher viewer
                         reading the same review, matching chat.controller.js's
                         own ownership check on the review-scoped conversation
                         this button opens. */}
-                    {review.reviewerType === "ai" && canTriggerAi && (
+                    {review.reviewerType === "ai" && canDiscussAi && (
                       <button
                         type="button"
                         className="btn btn-link p-0 mr-2"
