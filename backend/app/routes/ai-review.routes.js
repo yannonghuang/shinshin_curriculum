@@ -24,4 +24,9 @@ module.exports = function (app) {
   const adminGuard = [authJwt.verifyToken, authJwt.isAdmin];
   app.get("/api/ai-review/bulk", adminGuard, aiReview.getBulkCandidates);
   app.post("/api/ai-review/bulk/run", adminGuard, aiReview.runBulkReview);
+
+  // AI 打分加点评 is super only (see authJwt.isSuper).
+  const superGuard = [authJwt.verifyToken, authJwt.isSuper];
+  app.get("/api/ai-review/score-review", superGuard, aiReview.getScoreReviewCandidates);
+  app.post("/api/ai-review/score-review/run", superGuard, aiReview.runScoreReview);
 };
