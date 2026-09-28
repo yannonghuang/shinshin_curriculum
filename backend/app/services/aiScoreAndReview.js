@@ -1,145 +1,22 @@
 // AI 打分加点评 (super only): one background batch that brings every
 // submitted plan (same scope as AI 打分 and bulk AI 点评) up to date on both
-// -- a plan is queued when it lacks an up-to-date AI score (aiPlanScoring.js
-// #isUpToDate: current standard, current content) or an up-to-date
-// whole-plan AI review (aiPlanReview.js#findCandidates' reviewedCurrent).
+// -- a plan is queued when it lacks an up-to-date AI score (current
+// standard, current content) or an up-to-date whole-plan AI review
+// (aiPlanReview.js#findCandidates' reviewedCurrent).
 //
-// The point is token economics: a plan missing both gets ONE LLM turn
-// (scoreAndReviewPlan) that does the 目标一致性与完整性核查, the scoring and
-// the review together -- the plan content, the standard and the objectives
-// are sent once instead of three times (check + score + review), with no
-// knowledge-base tool rounds. A plan missing only one half falls back to
-// that half's own path (aiPlanScoring.js#scorePlan, or
-// aiPlanReview.js#generateAiReview handed the current score), rather than
-// paying for output that would just duplicate an up-to-date row.
+// Every queued plan costs exactly ONE LLM turn (aiPlanEvaluation.js)
+// asking for just what it's missing -- score and review together, or only
+// the one half -- with the 目标一致性与完整性核查 done in the same turn.
 const db = require("../models");
-const llmClient = require("./llmClient");
-const planContext = require("./planContext");
-const planConsistency = require("./planConsistency");
 const aiReviewStandard = require("./aiReviewStandard");
 const aiPlanScoring = require("./aiPlanScoring");
 const aiPlanReview = require("./aiPlanReview");
+const aiPlanEvaluation = require("./aiPlanEvaluation");
 
 const { Op } = db.Sequelize;
 const Plan = db.plan;
-const Review = db.review;
-const AiPlanScore = db.aiPlanScore;
 
 const CONCURRENCY = 2;
-
-const JSON_MARKER = "<<<JSON>>>";
-const REVIEW_MARKER = "<<<REVIEW>>>";
-
-// Built from the same rule blocks as the single-purpose prompts
-// (aiPlanScoring.js's SCORING_RULES, aiPlanReview.js's REVIEW_SECTIONS/
-// REVIEW_RULES/CONSISTENCY_REVIEW_SECTION, planConsistency.js's
-// INLINE_INSTRUCTIONS), so a combined score/review follows exactly the rules
-// a separate one would. Two delimited parts rather than one JSON object:
-// an 800字 markdown review inside a JSON string is where escaping breaks.
-function systemPrompt(consistency) {
-  const parts = [
-    "你是乡土课程评价专家。请严格依据给定的「乡土课程 AI 点评评分标准」，对一份乡土课程（设计方案及各课时实施记录）在同一次回复中完成" +
-      (consistency ? "目标一致性与完整性核查、逐维度打分和文字点评三项工作。\n" : "逐维度打分和文字点评两项工作。\n"),
-  ];
-  if (consistency) {
-    parts.push(
-      "【一、目标一致性与完整性核查】\n" +
-        (consistency.inline
-          ? `${planConsistency.INLINE_INSTRUCTIONS}\n`
-          : "课程材料前已附核查结果，直接采用，JSON 中的 consistency 省略即可。\n")
-    );
-  }
-  parts.push(`【${consistency ? "二" : "一"}、打分】要求：\n${aiPlanScoring.SCORING_RULES}`);
-  parts.push(
-    `【${consistency ? "三" : "二"}、点评】用中文，400-800字，使用如下标题分部分撰写：\n` +
-      aiPlanReview.REVIEW_SECTIONS +
-      (consistency ? aiPlanReview.CONSISTENCY_REVIEW_SECTION : "") +
-      "点评对各维度优劣的判断必须与本次打分一致。\n" +
-      aiPlanReview.REVIEW_RULES
-  );
-  parts.push(
-    "输出格式：严格按以下两段输出，不要使用代码块标记，不要有其他文字：\n" +
-      `${JSON_MARKER}\n` +
-      `{${consistency && consistency.inline ? '"consistency": {"uncovered": ["..."], "orphans": ["第1课时：..."], "otherIssues": ["..."]}, ' : ""}` +
-      '"dimensions": [{"name": "...", "level": "良好", "score": 16, "rationale": "..."}], "summary": "..."}\n' +
-      `${REVIEW_MARKER}\n` +
-      "（点评正文）"
-  );
-  return parts.join("\n");
-}
-
-function parseReply(text) {
-  const raw = text || "";
-  const at = raw.indexOf(REVIEW_MARKER);
-  if (at < 0) throw new Error("AI 回复缺少点评部分");
-  const jsonPart = raw
-    .slice(0, at)
-    .replace(JSON_MARKER, "")
-    .trim()
-    .replace(/^```(?:json)?\s*|\s*```$/g, "")
-    .trim();
-  const review = raw.slice(at + REVIEW_MARKER.length).trim();
-  if (!review) throw new Error("AI 回复的点评内容为空");
-  return { parsed: JSON.parse(jsonPart), review };
-}
-
-// One LLM turn -> one AiPlanScore + one whole-plan AI Review, both stamped
-// with the same content version and standard. Both rows are written only
-// once the whole reply parses, so a malformed reply leaves neither half.
-// Review history isn't sent: the score must reflect the plan itself, not a
-// previous opinion of it (see aiPlanScoring.js's header).
-async function scoreAndReviewPlan(planId, standard, userId) {
-  const plan = await aiPlanReview.loadPlan(planId);
-  if (!plan) throw new Error("课程不存在");
-
-  const planText = await planContext.buildWholePlanContentText(plan);
-  const consistency = planConsistency.combinedTurnInput(plan);
-  const preamble = [aiPlanReview.standardText(standard), consistency && consistency.text].filter(Boolean).join("\n\n");
-
-  const result = await llmClient.llmChat({
-    systemPrompt: systemPrompt(consistency),
-    messages: [{ role: "user", content: `${preamble}\n\n课程材料：\n${planText}` }],
-    // Score JSON (~2k) + review (~2.5k) + consistency part and findings.
-    maxTokens: 6144,
-    temperature: 0, // the score half must be reproducible, as in AI 打分
-  });
-
-  const { parsed, review } = parseReply(result.text);
-  const { dimensionScores, totalScore, summary } = aiPlanScoring.reconcile(standard.content, parsed);
-
-  return db.sequelize.transaction(async (transaction) => {
-    const score = await AiPlanScore.create(
-      {
-        planId,
-        standardId: standard.id,
-        totalScore,
-        dimensionScores,
-        summary,
-        aiModel: result.model,
-        planVersionAt: plan.contentVersionAt,
-        createdBy: userId || null,
-      },
-      { transaction }
-    );
-    const row = await Review.create(
-      {
-        planId,
-        lessonIndex: null,
-        reviewerType: "ai",
-        reviewerId: null,
-        sectionKey: aiPlanReview.WHOLE_PLAN_SECTION_KEY,
-        score: null,
-        content: review,
-        aiModel: result.model,
-        planVersionAt: plan.contentVersionAt,
-        standardId: standard.id,
-        teacherSeenAt: null,
-      },
-      { transaction }
-    );
-    return { score, review: row };
-  });
-}
 
 // Every submitted plan with whether it needs a score and/or a review --
 // what the page previews is exactly what a run queues.
@@ -260,26 +137,13 @@ async function startBatchInner({ userId }) {
     while (queue.length > 0) {
       const item = queue.shift();
       try {
-        if (item.needsScore && item.needsReview) {
-          setStep(item, "combined");
-          await scoreAndReviewPlan(item.planId, standard, userId);
-          current.combined += 1;
-          current.scored += 1;
-          current.reviewed += 1;
-        } else if (item.needsScore) {
-          setStep(item, "score");
-          await aiPlanScoring.scorePlan(item.planId, standard, userId);
-          current.scored += 1;
-        } else {
-          setStep(item, "review");
-          const plan = await aiPlanReview.loadPlan(item.planId);
-          if (!plan) throw new Error("课程不存在");
-          // Its score is up to date (or it wouldn't be review-only), so
-          // the review is handed it to agree with.
-          const score = (await aiPlanScoring.latestScoresByPlan([item.planId])).get(item.planId);
-          await aiPlanReview.generateAiReview(plan, { wholePlan: true, standard, score });
-          current.reviewed += 1;
-        }
+        setStep(item, item.needsScore && item.needsReview ? "combined" : item.needsScore ? "score" : "review");
+        const plan = await aiPlanReview.loadPlan(item.planId);
+        if (!plan) throw new Error("课程不存在");
+        await aiPlanEvaluation.evaluatePlan(plan, { score: item.needsScore, review: item.needsReview, standard, userId });
+        if (item.needsScore && item.needsReview) current.combined += 1;
+        if (item.needsScore) current.scored += 1;
+        if (item.needsReview) current.reviewed += 1;
         current.done += 1;
       } catch (e) {
         current.failed += 1;
@@ -299,4 +163,4 @@ async function startBatchInner({ userId }) {
   return getJobStatus();
 }
 
-module.exports = { findCandidates, startBatch, getJobStatus, isRunning, scoreAndReviewPlan };
+module.exports = { findCandidates, startBatch, getJobStatus, isRunning };

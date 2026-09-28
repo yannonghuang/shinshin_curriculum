@@ -1,45 +1,20 @@
 // AI 打分: scores every submitted plan (see findScorablePlanIds) against
 // the AI 点评标准 currently in effect (aiReviewStandard.js) -- the same
-// rubric for every plan, so scores are comparable across plans. The plan's
-// own content (design + every lesson's 实施记录, via planContext.js) is the
-// only evidence; existing reviews (AI or expert) aren't fed to the scorer,
-// so a score reflects the plan itself rather than a previous opinion of it.
-// The one exception is the 目标一致性与完整性核查 (planConsistency.js) -- not
-// an opinion but a structured reading of the design itself, fed to AI 点评
-// too so both judge the plan's consistency from the same findings.
+// rubric for every plan, so scores are comparable across plans. Each score
+// is a single score-only turn of aiPlanEvaluation.js (the same engine AI 点评
+// and AI打分加点评 use), which also does the 目标一致性与完整性核查 in that
+// turn; the plan's own content is the only evidence -- existing reviews
+// aren't fed to the scorer, so a score reflects the plan itself rather than
+// a previous opinion of it.
 const db = require("../models");
 const { Op } = db.Sequelize;
 const Plan = db.plan;
 const Review = db.review;
 const AiPlanScore = db.aiPlanScore;
 const AiReviewStandard = db.aiReviewStandard;
-const llmClient = require("./llmClient");
-const planContext = require("./planContext");
-const planConsistency = require("./planConsistency");
+const aiPlanEvaluation = require("./aiPlanEvaluation");
 
 const CONCURRENCY = 2;
-
-// Rules 1-6 are shared with the combined 打分加点评 turn
-// (aiScoreAndReview.js), so a score produced there follows the same rules.
-const SCORING_RULES =
-  "1. 只依据评分标准中的评分要点与等级描述打分，不要引入标准以外的评判依据；\n" +
-  "2. 只依据课程材料中实际呈现的内容，信息缺失的部分按标准中的评分说明处理，不要臆测；\n" +
-  "3. 每个维度先判定等级（level，须为该维度等级描述中的等级名称），再在该等级分数区间内给出分数（score，可含一位小数，不得超过该维度分值）；\n" +
-  "4. rationale 用 1-3 句话说明打分理由，引用课程中的具体内容作为证据；\n" +
-  "5. summary 用 2-4 句话总结该课程的主要优点与最需要改进之处；\n" +
-  `6. 如课程材料前附有目标一致性与完整性核查：${planConsistency.PRINCIPLE}` +
-  "核查发现的未落实的总体目标、无对应的课时目标、未填写的目标或课时等问题，必须在评分标准中与学习目标、课程设计或其一致性/完整性相关的维度中体现为扣分，并在该维度的 rationale 中具体指出；" +
-  "存在此类问题时 summary 也须提及。核查结果显示一致且完整时，不因此扣分。\n" +
-  "dimensions 必须与评分标准的维度一一对应、顺序一致、名称一致。全文不得提及任何人名。\n";
-
-const SYSTEM_PROMPT =
-  "你是乡土课程评价专家。请严格按照给定的「乡土课程 AI 点评评分标准」，对一份乡土课程（设计方案及各课时实施记录）逐维度打分。\n" +
-  "要求：\n" +
-  SCORING_RULES +
-  "严格以 JSON 格式回复，不要包含其他文字或代码块标记：" +
-  '{"dimensions": [{"name": "...", "level": "良好", "score": 16, "rationale": "..."}], "summary": "..."}';
-
-const round1 = (n) => Math.round(n * 10) / 10;
 
 const planIncludes = [
   { model: db.templateVersion, as: "PlanTemplateVersion" },
@@ -60,74 +35,17 @@ async function findScorablePlanIds() {
   return rows.map((r) => Number(r.id));
 }
 
-// Maps the model's per-dimension output back onto the standard's own
-// dimensions (by name, falling back to position) and clamps each score to
-// [0, weight] -- the total is always computed here, never taken from the
-// model, so it can't drift from the dimension scores.
-function reconcile(standardContent, parsed) {
-  const given = Array.isArray(parsed.dimensions) ? parsed.dimensions : [];
-  const dimensionScores = standardContent.dimensions.map((d, i) => {
-    const hit = given.find((g) => g && g.name === d.name) || given[i];
-    if (!hit) throw new Error(`缺少维度「${d.name}」的评分`);
-    const raw = Number(hit.score);
-    if (!Number.isFinite(raw)) throw new Error(`维度「${d.name}」的分数无效`);
-    return {
-      name: d.name,
-      weight: d.weight,
-      score: round1(Math.min(Math.max(raw, 0), d.weight)),
-      level: String(hit.level || "").trim(),
-      rationale: String(hit.rationale || "").trim(),
-    };
-  });
-  const totalScore = round1(dimensionScores.reduce((sum, d) => sum + d.score, 0));
-  return { dimensionScores, totalScore, summary: String(parsed.summary || "").trim() };
-}
-
 async function scorePlan(planId, standard, userId) {
   const plan = await Plan.findByPk(planId, { include: planIncludes });
   if (!plan) throw new Error("课程不存在");
-
-  const [planText, consistency] = await Promise.all([
-    planContext.buildWholePlanContentText(plan),
-    planConsistency.checkPlan(plan),
-  ]);
-  const consistencyText = planConsistency.reportText(consistency);
-  const result = await llmClient.llmChat({
-    systemPrompt: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: `评分标准（版本 #${standard.id}）：\n${JSON.stringify(standard.content)}${consistencyText ? `\n\n${consistencyText}` : ""}\n\n课程材料：\n${planText}`,
-      },
-    ],
-    maxTokens: 2048,
-    temperature: 0, // same standard + same content should give the same score
-  });
-
-  const cleaned = (result.text || "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-  const { dimensionScores, totalScore, summary } = reconcile(standard.content, JSON.parse(cleaned));
-
-  return AiPlanScore.create({
-    planId,
-    standardId: standard.id,
-    totalScore,
-    dimensionScores,
-    summary,
-    aiModel: result.model,
-    planVersionAt: plan.contentVersionAt,
-    createdBy: userId || null,
-  });
+  const { score } = await aiPlanEvaluation.evaluatePlan(plan, { score: true, standard, userId });
+  return score;
 }
 
 // A plan is up to date when its newest score used this standard version and
 // its content hasn't changed since -- rescoring it would just spend an LLM
 // call to reproduce the same result.
-function isUpToDate(latestScore, plan, standardId) {
-  if (!latestScore || Number(latestScore.standardId) !== Number(standardId)) return false;
-  const a = latestScore.planVersionAt ? new Date(latestScore.planVersionAt).getTime() : null;
-  const b = plan.contentVersionAt ? new Date(plan.contentVersionAt).getTime() : null;
-  return a === b;
-}
+const { isUpToDate } = aiPlanEvaluation;
 
 async function latestScoresByPlan(planIds) {
   if (planIds.length === 0) return new Map();
@@ -298,6 +216,4 @@ module.exports = {
   scorePlan,
   isUpToDate,
   latestScoresByPlan,
-  reconcile,
-  SCORING_RULES,
 };
