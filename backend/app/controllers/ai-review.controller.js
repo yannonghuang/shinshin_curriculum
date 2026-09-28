@@ -5,6 +5,7 @@
 // `generating` goes false.
 const aiReviewStandard = require("../services/aiReviewStandard");
 const aiPlanScoring = require("../services/aiPlanScoring");
+const aiReviewStandardDoc = require("../services/aiReviewStandardDoc");
 
 // GET /api/ai-review/standard -- the active (newest) standard, or null if
 // none has been generated yet, plus the background-generation status.
@@ -34,6 +35,22 @@ exports.getVersion = async (req, res) => {
     return res.send(standard);
   } catch (err) {
     return res.status(500).send({ message: err.message || "查询标准版本时发生错误。" });
+  }
+};
+
+// GET /api/ai-review/standard/versions/:id/export -- that version as a
+// Word document (see services/aiReviewStandardDoc.js).
+exports.exportVersion = async (req, res) => {
+  try {
+    const standard = await aiReviewStandard.getStandard(req.params.id);
+    if (!standard) return res.status(404).send({ message: "标准版本不存在。" });
+    const buffer = await aiReviewStandardDoc.generateStandardDoc(standard);
+    const fileName = encodeURIComponent(`AI点评标准_版本${standard.id}.docx`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="standard-${standard.id}.docx"; filename*=UTF-8''${fileName}`);
+    return res.send(buffer);
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "导出标准时发生错误。" });
   }
 };
 

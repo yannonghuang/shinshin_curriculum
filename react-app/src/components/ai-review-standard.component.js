@@ -411,6 +411,7 @@ const AiReviewStandard = () => {
   const [check, setCheck] = useState(null); // { cautions, signature } for the current draft
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const autoStarted = useRef(false);
   const activeIdRef = useRef(null);
@@ -567,6 +568,30 @@ const AiReviewStandard = () => {
     }
   };
 
+  // Downloads whichever version is on screen (current, or a historical one
+  // picked from 版本历史) as a Word document.
+  const exportWord = async () => {
+    setMessage("");
+    setExporting(true);
+    try {
+      const resp = await AiReviewDataService.exportVersion(shown.id);
+      const url = window.URL.createObjectURL(
+        new Blob([resp.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `AI点评标准_版本${shown.id}.docx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      setMessage("导出失败。");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const hasBlockingError = check && check.cautions.structural.some((c) => c.level === "error");
   const content = shown && shown.content;
 
@@ -581,6 +606,17 @@ const AiReviewStandard = () => {
             {versions.length > 0 && (
               <button className="btn btn-outline-secondary btn-sm mr-2" onClick={() => setShowHistory(!showHistory)}>
                 版本历史（{versions.length}）
+              </button>
+            )}
+            {shown && (
+              <button
+                className="btn btn-outline-secondary btn-sm mr-2"
+                disabled={exporting}
+                title={`将版本 #${shown.id} 导出为 Word 文档`}
+                onClick={exportWord}
+              >
+                <i className="fas fa-file-word mr-1" />
+                {exporting ? "导出中…" : "导出 Word"}
               </button>
             )}
             {shown && (

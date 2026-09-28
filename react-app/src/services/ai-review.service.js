@@ -21,6 +21,11 @@ class AiReviewDataService {
     return http.get(`/ai-review/standard/versions/${id}`, { headers: authHeader() });
   }
 
+  // That version as a Word document (.docx bytes).
+  exportVersion(id) {
+    return http.get(`/ai-review/standard/versions/${id}/export`, { headers: authHeader(), responseType: "arraybuffer" });
+  }
+
   // { content, cautions: { structural, ai }, signature } for a pending
   // override -- pass cautions+signature back to saveRevision unchanged.
   checkRevision(content, baseId) {
