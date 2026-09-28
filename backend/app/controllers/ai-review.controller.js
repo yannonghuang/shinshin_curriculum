@@ -6,6 +6,7 @@
 const aiReviewStandard = require("../services/aiReviewStandard");
 const aiPlanScoring = require("../services/aiPlanScoring");
 const aiReviewStandardDoc = require("../services/aiReviewStandardDoc");
+const aiPlanReview = require("../services/aiPlanReview");
 
 // GET /api/ai-review/standard -- the active (newest) standard, or null if
 // none has been generated yet, plus the background-generation status.
@@ -121,5 +122,35 @@ exports.runScoring = async (req, res) => {
     return res.status(202).send(job);
   } catch (err) {
     return res.status(err.status || 500).send({ message: err.message || "启动 AI 打分时发生错误。" });
+  }
+};
+
+// GET /api/ai-review/bulk?minCompletion=&maxCompletion=&minScore=&maxScore=&skipReviewed=
+// -- every submitted plan flagged `matched` against the criteria, plus the
+// current/last bulk AI 点评 batch status (admin only).
+exports.getBulkCandidates = async (req, res) => {
+  try {
+    const standard = await aiReviewStandard.getLatestStandard();
+    const plans = await aiPlanReview.findCandidates(aiPlanReview.parseCriteria(req.query), standard ? standard.id : null);
+    return res.send({
+      plans,
+      job: aiPlanReview.getJobStatus(),
+      standard: standard ? { id: standard.id, totalScore: standard.content.totalScore } : null,
+    });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "查询批量 AI 点评课程时发生错误。" });
+  }
+};
+
+// POST /api/ai-review/bulk/run { minCompletion, maxCompletion, minScore,
+// maxScore, skipReviewed } -- starts a background batch writing a whole-plan
+// AI 点评 for every matching plan; the matches are recomputed server-side
+// with the same criteria the preview used.
+exports.runBulkReview = async (req, res) => {
+  try {
+    const job = await aiPlanReview.startBatch({ criteria: aiPlanReview.parseCriteria(req.body) });
+    return res.status(202).send(job);
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "启动批量 AI 点评时发生错误。" });
   }
 };

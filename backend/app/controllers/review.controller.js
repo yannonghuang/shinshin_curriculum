@@ -1,15 +1,10 @@
-const planContext = require("../services/planContext");
+const aiPlanReview = require("../services/aiPlanReview");
 const { segmentKeyForReview } = require("../services/segmentVersion");
 
 const db = require("../models");
 const Review = db.review;
 const Plan = db.plan;
-const Artifact = db.artifact;
 const User = db.user;
-const TemplateVersion = db.templateVersion;
-const agentLoop = require("../services/agentLoop");
-const { searchKnowledgeTree, searchKnowledgeBaseToolDef } = require("../services/knowledgeRetrieve");
-const { MANUAL_CATEGORY } = require("../constants/materialCategories");
 
 const normalizeLessonIndex = (lessonIndex) => {
   if (lessonIndex === undefined || lessonIndex === null || lessonIndex === "") return null;
@@ -73,32 +68,6 @@ exports.create = async (req, res) => {
   }
 };
 
-// Fixed across every AI-review scope (single lesson, whole design, or the
-// combined design+every-lesson scope below) -- only the user content varies.
-//
-// Deliberately split into two labeled, unevenly-weighted parts rather than
-// one undifferentiated point-of-view: human专家 already own general teaching
-// methodology/best-practice review, so the AI agent's distinguishing value is
-// digging into what's specific to *this* plan's theme, grade and locality
-// (surfaced in the content below via buildBasicInfoLines' 学校/地区 line,
-// once `plan` is loaded with the Teacher->School include -- see
-// createAiReview). Generic-methodology commentary stays present but capped,
-// so it reads as a brief secondary note rather than crowding out the
-// theme/locality-specific part that only the AI agent's angle provides.
-const AI_REVIEW_SYSTEM_PROMPT =
-  "你是乡土课程教学专家，请对以下课程设计/实施记录做点评，用中文回复，200-500字，分成两部分，并使用如下标题：\n" +
-  "【主题与本地特色相关建议】（主，约占篇幅的三分之二）：结合本课程的具体主题、年级与学校/地区，给出只针对这个主题和这个地方才成立的观察——例如可利用的本地资源、这个主题特有的风险或机会、适合本地实际的案例或调整建议。避免泛泛而谈、换成任何主题都适用的内容。\n" +
-  "【通用教学方法提示】（次，1-2条要点即可）：如有明显的通用教学方法（目标达成、内容设计、可操作性等）问题再简要提及，这部分通常由人类专家把关，此处从简。\n" +
-  "如果需要参考共享学习材料库中与该课程主题或所在地区相关的资料（例如同主题的其他课程案例、专家讲解等）来支撑你的点评，可以调用 search_knowledge_base 工具查询；不需要参考资料时无需调用。";
-
-// Content-rendering itself lives in planContext.js (shared with the
-// co-pilot's own pageContext awareness, see chat.controller.js) -- this just
-// pairs it with the review-specific system prompt.
-const buildAiReviewPrompt = async (plan, lessonIndex, artifacts) => ({
-  systemPrompt: AI_REVIEW_SYSTEM_PROMPT,
-  userContent: await planContext.buildPlanContentText(plan, lessonIndex, artifacts),
-});
-
 // Trigger an AI review (POST /api/plans/:planId/reviews/ai). Runs
 // synchronously — a single DashScope call, no streaming needed for a
 // written review.
@@ -109,13 +78,7 @@ exports.createAiReview = async (req, res) => {
       return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
 
-    const plan = await Plan.findByPk(planId, {
-      include: [
-        { model: TemplateVersion, as: "PlanTemplateVersion" },
-        { model: TemplateVersion, as: "ExecutionTemplateVersion" },
-        { model: User, as: "Teacher", include: [{ model: db.school, as: "School" }] },
-      ],
-    });
+    const plan = await aiPlanReview.loadPlan(planId);
     if (!plan) {
       return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
@@ -135,62 +98,12 @@ exports.createAiReview = async (req, res) => {
     const isWholePlanScope = req.body.scope === "implementation";
     const lessonIndex = isWholePlanScope ? null : normalizeLessonIndex(req.body.lessonIndex);
 
-    const systemPrompt = AI_REVIEW_SYSTEM_PROMPT;
-    let userContent;
-    if (isWholePlanScope) {
-      userContent = await planContext.buildWholePlanContentText(plan);
-    } else {
-      let artifacts = [];
-      if (lessonIndex) {
-        artifacts = await Artifact.findAll({ where: { planId, lessonIndex } });
-      } else if (!plan.planFormData) {
-        artifacts = await Artifact.findAll({ where: { planId, lessonIndex: null } });
-      }
-      ({ userContent } = await buildAiReviewPrompt(plan, lessonIndex, artifacts));
-    }
-
-    // "Entire current state" also means the plan's full review history, not
-    // just its content -- otherwise every AI-review request writes as if
-    // from a blank slate, unaware of what a human expert (or the AI's own
-    // prior run) already said. See planContext.js#buildReviewHistoryText.
-    userContent += await planContext.buildReviewHistoryText(planId);
-
-    // Routed through the agent loop rather than a plain llmChat call so the
-    // model can decide for itself whether this plan/lesson's content
-    // warrants pulling in reference material from 共享学习材料库, instead of
-    // every review being force-fed the same retrieval regardless of
-    // relevance (see knowledgeRetrieve.js's searchKnowledgeBaseToolDef).
-    const result = await agentLoop.runAgentLoop({
-      systemPrompt,
-      messages: [{ role: "user", content: userContent }],
-      tools: [searchKnowledgeBaseToolDef],
-      // Knowledge-tree retrieval (see knowledgeRetrieve.js#searchKnowledgeTree).
-      // A review is pedagogical, so 使用指南 (system usage docs) is left out,
-      // and it must not attribute anything to a named person -- no 主讲人,
-      // and person names stripped from source titles.
-      executors: {
-        search_knowledge_base: (args) =>
-          searchKnowledgeTree(args.query, { excludeCategories: [MANUAL_CATEGORY], includeTopicMeta: false, redact: true }),
-      },
-      // The system prompt asks for 200-500字, but real replies sometimes run
-      // past their own target once markdown formatting is counted -- a
-      // margin here matters more than in the old plain-text case, since a
-      // truncated review is a *stored*, permanent artifact with no
-      // edit-and-resave path, not a live reply the user can just ask again.
-      maxTokens: 1536,
-      temperature: 0.3,
-    });
-
-    const data = await Review.create({
-      planId,
+    // Generation itself is shared with the admin's bulk AI 点评, see
+    // services/aiPlanReview.js.
+    const data = await aiPlanReview.generateAiReview(plan, {
+      wholePlan: isWholePlanScope,
       lessonIndex,
-      reviewerType: "ai",
-      reviewerId: null,
-      sectionKey: isWholePlanScope ? "IMPLEMENTATION_OVERALL" : null,
-      score: null,
-      content: result.text,
-      aiModel: result.model,
-      planVersionAt: plan.contentVersionAt,
+      seenByTeacher: true,
     });
 
     return res.send(data);
@@ -237,6 +150,37 @@ exports.findByPlan = async (req, res) => {
     return res.status(500).send({
       message: err.message || "查询点评列表时发生错误。",
     });
+  }
+};
+
+// POST /api/plans/:planId/reviews/seen { reviewIds } -- the plan's own
+// teacher has now seen these reviews in a 整体点评 view (see
+// review.model.js's teacherSeenAt). Which reviews a view shows is decided
+// by review-list.component.js's scope filter, so the page sends the ids it
+// displayed rather than this re-deriving the scope. A no-op for anyone but
+// the owning teacher -- an admin or expert opening the plan mustn't clear
+// the teacher's "new review" flash.
+exports.markSeen = async (req, res) => {
+  try {
+    const planId = Number(req.params.planId);
+    if (!Number.isInteger(planId) || planId <= 0) {
+      return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
+    }
+    const plan = await Plan.findByPk(planId, { attributes: ["id", "teacherId"] });
+    if (!plan) {
+      return res.status(404).send({ message: "乡土课程设计不存在。" });
+    }
+    const ids = (Array.isArray(req.body.reviewIds) ? req.body.reviewIds : []).map(Number).filter(Number.isInteger);
+    if (plan.teacherId !== req.userId || ids.length === 0) {
+      return res.send({ updated: 0 });
+    }
+    const [updated] = await Review.update(
+      { teacherSeenAt: new Date() },
+      { where: { id: { [db.Sequelize.Op.in]: ids }, planId, teacherSeenAt: null } }
+    );
+    return res.send({ updated });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "标记点评已读时发生错误。" });
   }
 };
 

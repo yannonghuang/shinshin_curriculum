@@ -143,6 +143,8 @@ CREATE TABLE reviews (   -- 评价乡土课程计划 + 评价乡土课程实施�
   ai_model VARCHAR(128) NULL,          -- 'qwen3.8-max' when reviewer_type='ai'
   plan_version_at DATETIME NULL,       -- snapshot of plans.content_version_at at creation -- see review.model.js
   segment_version_at DATETIME NULL,    -- snapshot of plans.segment_version_at[<this review's segment>] at creation, when resolvable -- see review.model.js
+  standard_id BIGINT NULL,             -- ai_review_standards version an AI review was written against -- see review.model.js
+  teacher_seen_at DATETIME NULL,       -- when the plan's teacher first saw it in a 整体点评 view; NULL = unseen (flashes in their sidebar) -- see review.model.js
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_reviews_plan FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,

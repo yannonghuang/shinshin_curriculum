@@ -20,6 +20,12 @@ class ReviewDataService {
     return http.post(`/plans/${planId}/reviews/ai`, data, { headers: authHeader() });
   }
 
+  // The plan's own teacher has now seen these reviews (a no-op server-side
+  // for anyone else) -- see review.controller.js#markSeen.
+  markSeen(planId, reviewIds) {
+    return http.post(`/plans/${planId}/reviews/seen`, { reviewIds }, { headers: authHeader() });
+  }
+
   delete(id) {
     return http.delete(`/reviews/${id}`, { headers: authHeader() });
   }

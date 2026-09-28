@@ -100,6 +100,37 @@ const segmentKeyForReview = (review) => {
   return sectionKey;
 };
 
+// Which of a plan's reviews a ReviewList shows -- a segment mini-widget
+// only its own section's (the lessonIndex prop, when set, already narrowed
+// the fetch server-side). An aggregate fetches every review for the plan (no
+// lessonIndex sent -- see review.service.js) and keeps: its own directly-
+// written comments/AI review (tagged with its write sectionKey, lessonIndex
+// null), plus every segment review in its scope regardless of that
+// segment's own lessonIndex -- 设计's aggregate scopes to
+// DESIGN_SEGMENT_KEYS, 实施's additionally includes EXECUTION_RECORD and
+// 计划's own AI review (sectionKey null, lessonIndex null, reviewerType "ai"
+// -- 设计's aggregate's own AI-generated review) so a reviewer looking at
+// 实施整体点评 also sees how the design itself was AI-reviewed. Exported so
+// plan-detail.component.js's unseen-review flash covers exactly the reviews
+// each 整体点评 view shows.
+export const scopeReviews = (list, { sectionKey, aggregateScope, sectionLabels }) => {
+  if (sectionKey) return list.filter((r) => r.sectionKey === sectionKey);
+  const writeSectionKey = aggregateScope === "implementation" ? "IMPLEMENTATION_OVERALL" : null;
+  return list.filter(
+    (r) =>
+      (r.sectionKey === writeSectionKey && (r.lessonIndex === null || r.lessonIndex === undefined)) ||
+      // See DESIGN_SEGMENT_KEYS' comment -- recognizes a heading-parsed
+      // template's own "S0"/"S1"/... anchor keys (via sectionLabels) in
+      // addition to the fixed literal list, so a segment review on one of
+      // those doesn't silently disappear from the aggregate view.
+      DESIGN_SEGMENT_KEYS.includes(r.sectionKey) ||
+      (sectionLabels && Object.prototype.hasOwnProperty.call(sectionLabels, r.sectionKey)) ||
+      (aggregateScope === "implementation" &&
+        (r.sectionKey === "EXECUTION_RECORD" ||
+          (r.sectionKey == null && r.reviewerType === "ai" && (r.lessonIndex === null || r.lessonIndex === undefined))))
+  );
+};
+
 const ReviewList = (props) => {
   const {
     planId,
@@ -114,6 +145,8 @@ const ReviewList = (props) => {
     onSelectSection,
     aiPending,
     setAiPending,
+    trackSeen,
+    onSeen,
   } = props;
   const [reviews, setReviews] = useState([]);
   const [text, setText] = useState("");
@@ -128,6 +161,10 @@ const ReviewList = (props) => {
   const aiLoading = aiPending !== undefined ? aiPending : localAiLoading;
   const setAiLoading = setAiPending || setLocalAiLoading;
   const [expandedIds, setExpandedIds] = useState(new Set());
+  // Reviews the plan's teacher hadn't seen before this view showed them --
+  // tagged 新 for as long as this widget stays mounted, even though they're
+  // marked seen server-side right away (see trackSeen below).
+  const [newIds, setNewIds] = useState(new Set());
 
   const toggleExpanded = (id) => {
     setExpandedIds((prev) => {
@@ -155,40 +192,26 @@ const ReviewList = (props) => {
     try {
       const resp = await ReviewDataService.getByPlan(planId, lessonIndex);
       const list = Array.isArray(resp.data) ? resp.data : resp.data.rows || resp.data.reviews || [];
-      // A segment mini-widget only ever shows its own section's reviews (the
-      // lessonIndex prop, when set, already narrowed the fetch server-side).
-      // An aggregate fetches every review for the plan (no lessonIndex sent
-      // -- see review.service.js) and keeps: its own directly-written
-      // comments/AI review (tagged writeSectionKey, lessonIndex null), plus
-      // every segment review in its scope regardless of that segment's own
-      // lessonIndex -- 设计's aggregate scopes to DESIGN_SEGMENT_KEYS, 实施's
-      // additionally includes EXECUTION_RECORD and 计划's own AI review
-      // (sectionKey null, lessonIndex null, reviewerType "ai" -- 设计's
-      // aggregate's own AI-generated review) so a reviewer looking at
-      // 实施整体点评 also sees how the design itself was AI-reviewed.
-      const scoped = sectionKey
-        ? list.filter((r) => r.sectionKey === sectionKey)
-        : list.filter(
-            (r) =>
-              (r.sectionKey === writeSectionKey && (r.lessonIndex === null || r.lessonIndex === undefined)) ||
-              // See DESIGN_SEGMENT_KEYS' comment -- recognizes a heading-
-              // parsed template's own "S0"/"S1"/... anchor keys (via
-              // sectionLabels) in addition to the fixed literal list, so a
-              // segment review on one of those doesn't silently disappear
-              // from the aggregate view.
-              DESIGN_SEGMENT_KEYS.includes(r.sectionKey) ||
-              (sectionLabels && Object.prototype.hasOwnProperty.call(sectionLabels, r.sectionKey)) ||
-              (aggregateScope === "implementation" &&
-                (r.sectionKey === "EXECUTION_RECORD" ||
-                  (r.sectionKey == null && r.reviewerType === "ai" && (r.lessonIndex === null || r.lessonIndex === undefined))))
-          );
+      // See scopeReviews above.
+      const scoped = scopeReviews(list, { sectionKey, aggregateScope, sectionLabels });
       const sorted = [...scoped].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setReviews(sorted);
+      // trackSeen: the viewer is the plan's own teacher, on a 整体点评 view --
+      // showing a review here counts as the teacher having seen it (see
+      // review.model.js's teacherSeenAt), which clears the sidebar flash in
+      // plan-detail.component.js via onSeen.
+      const unseenIds = trackSeen && !sectionKey ? sorted.filter((r) => !r.teacherSeenAt).map((r) => r.id) : [];
+      if (unseenIds.length > 0) {
+        setNewIds((prev) => new Set([...prev, ...unseenIds]));
+        ReviewDataService.markSeen(planId, unseenIds)
+          .then(() => onSeen && onSeen())
+          .catch((e) => console.log(e));
+      }
     } catch (e) {
       console.log(e);
       setMessage("加载点评列表失败。");
     }
-  }, [planId, lessonIndex, sectionKey, aggregateScope, writeSectionKey, sectionLabels]);
+  }, [planId, lessonIndex, sectionKey, aggregateScope, sectionLabels, trackSeen, onSeen]);
 
   // Also reruns whenever aiLoading flips (in either direction) -- when
   // aiPending is lifted to a parent that outlives this widget's own mount
@@ -432,7 +455,7 @@ const ReviewList = (props) => {
                 <tr key={review.id}>
                   <td>
                     {review.reviewerType === "ai" ? (
-                      <span className="pl-tag-ai" title={review.aiModel ? `模型：${review.aiModel}` : undefined}>
+                      <span className="pl-tag-ai" title={[review.aiModel && `模型：${review.aiModel}`, review.standardId && `依据 AI 点评标准 #${review.standardId}`].filter(Boolean).join(" · ") || undefined}>
                         AI点评
                       </span>
                     ) : review.reviewerType === "admin" ? (
@@ -440,6 +463,7 @@ const ReviewList = (props) => {
                     ) : (
                       <span className="pl-tag-expert">专家点评</span>
                     )}
+                    {newIds.has(review.id) && <span className="pl-tag pl-tag-new ml-1">新</span>}
                     {!isAggregateView && updatedBadge}
                   </td>
                   {isAggregateView &&

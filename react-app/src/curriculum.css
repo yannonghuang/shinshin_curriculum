@@ -1085,6 +1085,41 @@
   }
 }
 
+/* A 整体点评 sidebar leaf holding a review its owner teacher hasn't seen
+   yet (see plan-detail.component.js's unseenReviews). */
+.pl-flash-unseen {
+  animation: pl-flash-unseen-pulse 1.4s ease-in-out infinite;
+  color: var(--pl-text);
+  font-weight: 700;
+}
+
+.pl-unseen-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #dc3545;
+  vertical-align: middle;
+}
+
+.pl-tag-new {
+  background: #dc3545;
+  color: #fff;
+}
+
+@keyframes pl-flash-unseen-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.55);
+    background: rgba(220, 53, 69, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(220, 53, 69, 0);
+    background: transparent;
+  }
+}
+
 @keyframes pl-flash-manual-pulse {
   0%,
   100% {

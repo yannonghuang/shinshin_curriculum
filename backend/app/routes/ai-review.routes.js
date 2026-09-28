@@ -19,4 +19,9 @@ module.exports = function (app) {
   app.post("/api/ai-review/standard/generate", guard, aiReview.generateStandard);
   app.get("/api/ai-review/scores", guard, aiReview.getScores);
   app.post("/api/ai-review/scores/run", guard, aiReview.runScoring);
+
+  // Bulk AI 点评 is admin only (super included, see authJwt.isAdmin).
+  const adminGuard = [authJwt.verifyToken, authJwt.isAdmin];
+  app.get("/api/ai-review/bulk", adminGuard, aiReview.getBulkCandidates);
+  app.post("/api/ai-review/bulk/run", adminGuard, aiReview.runBulkReview);
 };
