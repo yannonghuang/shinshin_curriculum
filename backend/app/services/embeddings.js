@@ -24,6 +24,7 @@
 // Calibration with both: real matches 0.58-0.73, unrelated queries <= 0.52
 // (hence MIN_SCORE below).
 const db = require("../models");
+const { fetchWithRetry } = require("./llmClient");
 const { Op } = db.Sequelize;
 const KnowledgeChunk = db.knowledgeChunk;
 const KnowledgeSourceSummary = db.knowledgeSourceSummary;
@@ -58,7 +59,8 @@ async function embedTexts(texts, { instruct } = {}) {
   const out = [];
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE);
-    const resp = await fetch(`${baseUrl}/embeddings`, {
+    // Same transient-failure retry as chat calls (see llmClient.js).
+    const resp = await fetchWithRetry(`${baseUrl}/embeddings`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
@@ -69,7 +71,6 @@ async function embedTexts(texts, { instruct } = {}) {
         ...(instruct ? { instruct } : {}),
       }),
     });
-    if (!resp.ok) throw new Error(`DashScope embeddings error ${resp.status}: ${await resp.text()}`);
     const data = await resp.json();
     const sorted = [...data.data].sort((a, b) => a.index - b.index);
     out.push(...sorted.map((d) => d.embedding));

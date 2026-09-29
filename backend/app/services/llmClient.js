@@ -20,6 +20,50 @@ async function llmChat({ systemPrompt, messages, maxTokens = 1024, temperature =
   return dashscopeChat({ systemPrompt, messages, maxTokens, temperature, model: resolvedModel, tools, toolChoice });
 }
 
+// Transient failures are retried: the app runs in Hong Kong against a
+// mainland endpoint, and connections occasionally stall until Node's 10s
+// connect timeout ("fetch failed", nothing reached the model, nothing
+// billed); DashScope also rate-limits (429) and has the odd 5xx. Without a
+// retry one such hiccup failed a whole plan in a batch. Delays back off
+// (honouring Retry-After when given); a client error (4xx other than 429)
+// is never retried -- it would just fail the same way again.
+const RETRY_DELAYS_MS = [3000, 10000, 30000];
+const RETRYABLE_STATUS = (status) => status === 429 || status >= 500;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// "fetch failed" alone hides why -- the undici cause code (e.g.
+// UND_ERR_CONNECT_TIMEOUT, ECONNRESET) is what tells a stalled connection
+// from anything else.
+const networkErrorMessage = (e) => {
+  const cause = e && e.cause && (e.cause.code || e.cause.message);
+  return cause ? `${e.message} (${cause})` : e.message;
+};
+
+async function fetchWithRetry(url, init) {
+  for (let attempt = 0; ; attempt += 1) {
+    const last = attempt >= RETRY_DELAYS_MS.length;
+    let resp;
+    try {
+      resp = await fetch(url, init);
+    } catch (e) {
+      const message = networkErrorMessage(e);
+      if (last) throw new Error(`DashScope 网络错误，重试 ${attempt} 次后仍失败：${message}`);
+      console.warn(`DashScope 请求失败（${message}），${RETRY_DELAYS_MS[attempt] / 1000} 秒后重试（第 ${attempt + 1} 次）`);
+      await sleep(RETRY_DELAYS_MS[attempt]);
+      continue;
+    }
+    if (resp.ok) return resp;
+    const text = await resp.text();
+    if (last || !RETRYABLE_STATUS(resp.status)) {
+      throw new Error(`DashScope API error ${resp.status}${attempt ? `（重试 ${attempt} 次后）` : ""}: ${text}`);
+    }
+    const retryAfter = Number(resp.headers.get("retry-after"));
+    const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 60000) : RETRY_DELAYS_MS[attempt];
+    console.warn(`DashScope 返回 ${resp.status}，${delay / 1000} 秒后重试（第 ${attempt + 1} 次）`);
+    await sleep(delay);
+  }
+}
+
 async function dashscopeChat({ systemPrompt, messages, maxTokens, temperature, model, tools, toolChoice }) {
   const apiKey = process.env.DASHSCOPE_API_KEY;
   if (!apiKey) throw new Error("DASHSCOPE_API_KEY is not configured");
@@ -32,12 +76,11 @@ async function dashscopeChat({ systemPrompt, messages, maxTokens, temperature, m
     body.tools = tools;
     body.tool_choice = toolChoice || "auto";
   }
-  const resp = await fetch(`${baseUrl}/chat/completions`, {
+  const resp = await fetchWithRetry(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!resp.ok) throw new Error(`DashScope API error ${resp.status}: ${await resp.text()}`);
   const data = await resp.json();
   const message = data.choices?.[0]?.message;
   const toolCalls = message?.tool_calls;
@@ -49,4 +92,4 @@ async function dashscopeChat({ systemPrompt, messages, maxTokens, temperature, m
   }
   return { text: message.content || null, toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined, model };
 }
-module.exports = { llmChat };
+module.exports = { llmChat, fetchWithRetry };
