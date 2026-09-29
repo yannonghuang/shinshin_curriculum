@@ -20,8 +20,13 @@ const CONCURRENCY = 2;
 
 // Every submitted plan with whether it needs a score and/or a review --
 // what the page previews is exactly what a run queues.
-async function findCandidates(standardId) {
-  const rows = await aiPlanReview.findCandidates(aiPlanReview.parseCriteria({}), standardId);
+// `criteria`: bulk AI 点评's 完成度/AI 总分 filters (aiPlanReview.js#
+// parseCriteria), matched by the same code so the two pages filter alike.
+// Its skipReviewed is forced off -- here "already up to date" is decided
+// per half by needsScore/needsReview instead. A row is `matched` when it
+// passes the filters AND still needs something; only matched rows run.
+async function findCandidates(standardId, criteria) {
+  const rows = await aiPlanReview.findCandidates({ ...criteria, skipReviewed: false }, standardId);
   if (rows.length === 0) return [];
   const planIds = rows.map((r) => r.planId);
   const [plans, latest] = await Promise.all([
@@ -33,6 +38,7 @@ async function findCandidates(standardId) {
     const score = latest.get(r.planId);
     const plan = planById.get(r.planId);
     const needsScore = !standardId || !plan || !aiPlanScoring.isUpToDate(score, plan, standardId);
+    const needsReview = !r.reviewedCurrent;
     return {
       planId: r.planId,
       title: r.title,
@@ -43,10 +49,11 @@ async function findCandidates(standardId) {
       grade: r.grade,
       theme: r.theme,
       completion: r.completion,
-      aiScore: score ? { totalScore: Number(score.totalScore), createdAt: score.createdAt } : null,
+      aiScore: r.aiScore,
       lastAiReview: r.lastAiReview,
       needsScore,
-      needsReview: !r.reviewedCurrent,
+      needsReview,
+      matched: r.matched && (needsScore || needsReview),
     };
   });
 }
@@ -79,7 +86,10 @@ function startBatch(options) {
 }
 
 // The standard is fixed at batch start, as in the other two batches.
-async function startBatchInner({ userId }) {
+async function startBatchInner({ userId, criteria: rawCriteria }) {
+  // skipReviewed is AI 点评's own filter; it doesn't apply here (see
+  // findCandidates), so it isn't carried into the job either.
+  const { skipReviewed, ...criteria } = rawCriteria || {};
   // The other two batches write the same rows -- running alongside one
   // would score/review the same plans twice.
   const scoring = aiPlanScoring.getJobStatus();
@@ -93,14 +103,15 @@ async function startBatchInner({ userId }) {
     err.status = 422;
     throw err;
   }
-  const candidates = await findCandidates(standard.id);
+  const candidates = await findCandidates(standard.id, criteria);
   const queue = candidates
-    .filter((r) => r.needsScore || r.needsReview)
+    .filter((r) => r.matched)
     .map((r) => ({ planId: r.planId, title: r.title, needsScore: r.needsScore, needsReview: r.needsReview }));
 
   job = {
     running: true,
     standardId: standard.id,
+    criteria,
     total: candidates.length,
     queued: queue.length,
     scoreQueued: queue.filter((q) => q.needsScore).length,
