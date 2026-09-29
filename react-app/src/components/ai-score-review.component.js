@@ -16,8 +16,7 @@ const formatElapsed = (ms) => {
 
 const STEP_LABELS = { combined: "打分加点评中", score: "打分中", review: "点评中" };
 
-// Same sortable columns and rules as ai-bulk-review.component.js: text
-// columns sort A→Z first, numeric ones high→low (see toggleSort); unscored
+// Sortable columns: text columns sort A→Z first, numeric ones high→low (see toggleSort); unscored
 // plans always sort last on AI 总分, whichever direction.
 const TEXT_SORT_KEYS = ["title", "school"];
 const compareBy = (sortKey, sortDir) => (a, b) => {
@@ -39,11 +38,12 @@ const compareBy = (sortKey, sortDir) => (a, b) => {
   return dir * (a.completion.overall - b.completion.overall);
 };
 
-// Same filters and defaults as AI 点评 (ai-bulk-review.component.js), minus
-// its 跳过已有最新点评 -- this page already only runs what's missing.
+// 完成度/AI 总分 filters; the page already only runs what's missing.
 const DEFAULT_CRITERIA = { minCompletion: "60", maxCompletion: "", minScore: "", maxScore: "" };
 
-// AI -> AI打分加点评 (super only). One background batch (backend
+// AI -> AI打分加点评 (admin and super) -- the one batch producing AI
+// scores/reviews, sharing the plan's single current AI evaluation with
+// 请AI点评 (backend aiPlanEvaluation.js). One background batch (backend
 // services/aiScoreAndReview.js) bringing every submitted plan up to date on
 // both AI 打分 and AI 点评 -- plan scope, like every AI artifact. Every plan costs a single LLM turn
 // (the token-economics point of this page) asking for just what it's
@@ -61,7 +61,7 @@ const AiScoreReview = () => {
   const [loaded, setLoaded] = useState(false);
   const [message, setMessage] = useState("");
   const [showAll, setShowAll] = useState(false);
-  const allowed = AuthService.isSuper();
+  const allowed = AuthService.isAdmin(); // admin and super
 
   const refresh = useCallback(
     () =>
@@ -100,7 +100,7 @@ const AiScoreReview = () => {
   }, [running]);
 
   if (!allowed) {
-    return <div className="alert alert-warning">AI打分加点评仅对超级管理员开放。</div>;
+    return <div className="alert alert-warning">AI打分加点评仅对管理员开放。</div>;
   }
 
   const matched = plans.filter((p) => p.matched);

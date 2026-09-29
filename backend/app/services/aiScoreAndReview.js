@@ -1,45 +1,85 @@
-// AI 打分加点评 (super only): one background batch that brings every
-// submitted plan (same scope as AI 打分 and bulk AI 点评) up to date on both
-// -- a plan is queued when it lacks an up-to-date AI score (current
-// standard, current content) or an up-to-date plan-scope AI review
-// (aiPlanReview.js#findCandidates' reviewedCurrent).
-//
-// Every queued plan costs exactly ONE LLM turn (aiPlanEvaluation.js)
-// asking for just what it's missing -- score and review together, or only
-// the one half -- with the 目标一致性与完整性核查 done in the same turn.
+// AI 打分加点评 (admin and super): the one batch that produces AI output --
+// it brings every submitted plan matching the page's filters up to date on
+// its current AI evaluation (aiPlanEvaluation.js: the score and plan-scope
+// review for its current content under the standard in effect). What a plan
+// needs is decided by the same lookup the button (请AI点评) uses, and each
+// plan goes through ensureEvaluation -- one LLM turn producing just what's
+// missing, with the 目标一致性与完整性核查 in that turn -- so the two paths
+// share one source of truth and can't duplicate each other's work.
 const db = require("../models");
+const dashboard = require("./dashboard");
 const aiReviewStandard = require("./aiReviewStandard");
-const aiPlanScoring = require("./aiPlanScoring");
-const aiPlanReview = require("./aiPlanReview");
 const aiPlanEvaluation = require("./aiPlanEvaluation");
 
 const { Op } = db.Sequelize;
 const Plan = db.plan;
+const Review = db.review;
 
 const CONCURRENCY = 2;
 
-// Every submitted plan with whether it needs a score and/or a review --
-// what the page previews is exactly what a run queues.
-// `criteria`: bulk AI 点评's 完成度/AI 总分 filters (aiPlanReview.js#
-// parseCriteria), matched by the same code so the two pages filter alike.
-// Its skipReviewed is forced off -- here "already up to date" is decided
-// per half by needsScore/needsReview instead. A row is `matched` when it
-// passes the filters AND still needs something; only matched rows run.
-async function findCandidates(standardId, criteria) {
-  const rows = await aiPlanReview.findCandidates({ ...criteria, skipReviewed: false }, standardId);
+const timeOf = (d) => (d ? new Date(d).getTime() : null);
+
+// Blank/absent bounds mean "no limit". Completion is a 0-100 percentage,
+// the AI score 0..满分 -- out-of-range bounds are clamped by the
+// comparisons themselves, not rejected.
+function parseCriteria(raw = {}) {
+  const num = (v) => {
+    if (v === undefined || v === null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    minCompletion: num(raw.minCompletion),
+    maxCompletion: num(raw.maxCompletion),
+    minScore: num(raw.minScore),
+    maxScore: num(raw.maxScore),
+  };
+}
+
+// Any AI-score bound excludes unscored plans -- "score ≥ 60" can't be
+// judged for a plan with no score.
+function passesFilters(row, c) {
+  const pct = row.completion.overall;
+  if (c.minCompletion !== null && pct < c.minCompletion) return false;
+  if (c.maxCompletion !== null && pct > c.maxCompletion) return false;
+  if (c.minScore !== null || c.maxScore !== null) {
+    if (!row.aiScore) return false;
+    if (c.minScore !== null && row.aiScore.totalScore < c.minScore) return false;
+    if (c.maxScore !== null && row.aiScore.totalScore > c.maxScore) return false;
+  }
+  return true;
+}
+
+// Every submitted, non-suspended plan (dashboard.js#buildRows, so 完成度
+// and the newest AI score match 数据看板) with its newest AI review for
+// display, whether its current evaluation still lacks a score and/or a
+// review, and `matched`: passes the filters AND needs something. Both the
+// page's preview and the batch select plans through here, so what's
+// previewed is what runs.
+async function findCandidates(standard, criteria) {
+  const rows = await dashboard.buildRows({ submittedOnly: true });
   if (rows.length === 0) return [];
   const planIds = rows.map((r) => r.planId);
-  const [plans, latest] = await Promise.all([
+  const [plans, aiReviews] = await Promise.all([
     Plan.findAll({ where: { id: { [Op.in]: planIds } }, attributes: ["id", "contentVersionAt"] }),
-    aiPlanScoring.latestScoresByPlan(planIds),
+    Review.findAll({
+      where: { planId: { [Op.in]: planIds }, reviewerType: "ai", sectionKey: null, lessonIndex: null },
+      attributes: ["planId", "planVersionAt", "standardId", "createdAt"],
+      order: [["id", "DESC"]],
+      raw: true,
+    }),
   ]);
-  const planById = new Map(plans.map((p) => [Number(p.id), p]));
+  const current = await aiPlanEvaluation.currentEvaluations(plans, standard);
+  const versionOf = new Map(plans.map((p) => [Number(p.id), timeOf(p.contentVersionAt)]));
+  const latestReview = new Map();
+  aiReviews.forEach((r) => {
+    if (!latestReview.has(Number(r.planId))) latestReview.set(Number(r.planId), r);
+  });
+
   return rows.map((r) => {
-    const score = latest.get(r.planId);
-    const plan = planById.get(r.planId);
-    const needsScore = !standardId || !plan || !aiPlanScoring.isUpToDate(score, plan, standardId);
-    const needsReview = !r.reviewedCurrent;
-    return {
+    const review = latestReview.get(r.planId);
+    const cur = current.get(r.planId) || {};
+    const row = {
       planId: r.planId,
       title: r.title,
       teacherName: r.teacherName,
@@ -49,17 +89,25 @@ async function findCandidates(standardId, criteria) {
       grade: r.grade,
       theme: r.theme,
       completion: r.completion,
-      aiScore: r.aiScore,
-      lastAiReview: r.lastAiReview,
-      needsScore,
-      needsReview,
-      matched: r.matched && (needsScore || needsReview),
+      aiScore: r.aiScore ? { totalScore: r.aiScore.totalScore, outdatedStandard: r.aiScore.outdatedStandard } : null,
+      lastAiReview: review
+        ? {
+            createdAt: review.createdAt,
+            standardId: review.standardId,
+            contentChanged: timeOf(review.planVersionAt) !== versionOf.get(r.planId),
+            outdatedStandard: !standard || Number(review.standardId) !== Number(standard.id),
+          }
+        : null,
+      needsScore: !!standard && !cur.score,
+      needsReview: !cur.review,
     };
+    row.matched = passesFilters(row, criteria) && (row.needsScore || row.needsReview);
+    return row;
   });
 }
 
-// Process-wide batch state -- one batch at a time, polled by the page.
-// Same shape and lifecycle as aiPlanScoring.js's / aiPlanReview.js's jobs.
+// Process-wide batch state -- one batch at a time (a second trigger while
+// one runs just reports the running one), polled by the page.
 let job = null;
 let starting = null;
 
@@ -69,41 +117,22 @@ function getJobStatus() {
   return status;
 }
 
-function isRunning() {
-  return !!(job && job.running) || !!starting;
-}
-
-function conflict(message) {
-  const err = new Error(message);
-  err.status = 409;
-  return err;
-}
-
 function startBatch(options) {
   if (job && job.running) return Promise.resolve(getJobStatus());
   if (!starting) starting = startBatchInner(options).finally(() => (starting = null));
   return starting;
 }
 
-// The standard is fixed at batch start, as in the other two batches.
-async function startBatchInner({ userId, criteria: rawCriteria }) {
-  // skipReviewed is AI 点评's own filter; it doesn't apply here (see
-  // findCandidates), so it isn't carried into the job either.
-  const { skipReviewed, ...criteria } = rawCriteria || {};
-  // The other two batches write the same rows -- running alongside one
-  // would score/review the same plans twice.
-  const scoring = aiPlanScoring.getJobStatus();
-  const reviewing = aiPlanReview.getJobStatus();
-  if (scoring && scoring.running) throw conflict("「AI 打分」批量任务正在进行，请待其完成后再试。");
-  if (reviewing && reviewing.running) throw conflict("批量「AI 点评」任务正在进行，请待其完成后再试。");
-
+// The standard is fixed at batch start, so every row a batch writes is
+// under the same version even if 重新生成 lands mid-run.
+async function startBatchInner({ userId, criteria }) {
   const standard = await aiReviewStandard.getLatestStandard();
   if (!standard) {
     const err = new Error("尚未制定 AI 点评标准，请先在「AI 点评标准」中生成。");
     err.status = 422;
     throw err;
   }
-  const candidates = await findCandidates(standard.id, criteria);
+  const candidates = await findCandidates(standard, criteria);
   const queue = candidates
     .filter((r) => r.matched)
     .map((r) => ({ planId: r.planId, title: r.title, needsScore: r.needsScore, needsReview: r.needsReview }));
@@ -116,9 +145,8 @@ async function startBatchInner({ userId, criteria: rawCriteria }) {
     queued: queue.length,
     scoreQueued: queue.filter((q) => q.needsScore).length,
     reviewQueued: queue.filter((q) => q.needsReview).length,
-    // Plans that went through the one combined turn (counted in both
+    // Plans whose score and review came from one combined turn (counted in
     // scored and reviewed too).
-    combinedQueued: queue.filter((q) => q.needsScore && q.needsReview).length,
     combined: 0,
     scored: 0,
     reviewed: 0,
@@ -149,12 +177,17 @@ async function startBatchInner({ userId, criteria: rawCriteria }) {
       const item = queue.shift();
       try {
         setStep(item, item.needsScore && item.needsReview ? "combined" : item.needsScore ? "score" : "review");
-        const plan = await aiPlanReview.loadPlan(item.planId);
+        const plan = await aiPlanEvaluation.loadPlan(item.planId);
         if (!plan) throw new Error("课程不存在");
-        await aiPlanEvaluation.evaluatePlan(plan, { score: item.needsScore, review: item.needsReview, standard, userId });
-        if (item.needsScore && item.needsReview) current.combined += 1;
-        if (item.needsScore) current.scored += 1;
-        if (item.needsReview) current.reviewed += 1;
+        // ensureEvaluation re-checks under the plan's lock -- if a 请AI点评
+        // click filled in a half since the preview, it isn't redone.
+        const before = { score: item.needsScore, review: item.needsReview };
+        const result = await aiPlanEvaluation.ensureEvaluation(plan, { standard, userId, want: before });
+        if (result.generated) {
+          if (before.score && before.review) current.combined += 1;
+          if (before.score) current.scored += 1;
+          if (before.review) current.reviewed += 1;
+        }
         current.done += 1;
       } catch (e) {
         current.failed += 1;
@@ -174,4 +207,4 @@ async function startBatchInner({ userId, criteria: rawCriteria }) {
   return getJobStatus();
 }
 
-module.exports = { findCandidates, startBatch, getJobStatus, isRunning };
+module.exports = { parseCriteria, findCandidates, startBatch, getJobStatus };

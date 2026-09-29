@@ -1,21 +1,22 @@
-// AI plan evaluation: ONE LLM turn per plan for any mix of AI 打分 and AI
-// 点评 -- score only (aiPlanScoring.js), review only (aiPlanReview.js: the
-// teacher's own 请AI点评 and bulk AI 点评), or both (aiScoreAndReview.js).
+// AI plan evaluation -- the single source of truth for AI 打分 and AI 点评.
+// A plan has one current AI evaluation (a score and a review of its current
+// content under the standard in effect, see currentEvaluations), and the
+// only way to produce either is ensureEvaluation, used by both 请AI点评
+// (review.controller.js#createAiReview) and the AI打分加点评 batch
+// (aiScoreAndReview.js): it produces just what's missing, in ONE LLM turn,
+// and nothing when the evaluation is already current.
 //
 // Plan scope only: every AI artifact (the standard, 打分, 点评) is about the
 // 计划 -- the 课程设计方案 incl. 分课时设计 -- and every AI review is filed
 // under 计划整体点评 (sectionKey null). 实施 (the per-lesson 实施记录) has
-// no AI for now. The 目标一致性与完整性核查
-// (planConsistency.js) is always done inside that same turn rather than as a
-// call of its own. The point is token economics: the plan content, the
-// standard and the objectives are sent once per plan, whatever is asked of
-// it, with no knowledge-base tool rounds.
+// no AI for now. The 目标一致性与完整性核查 (planConsistency.js) is always
+// done inside that same turn rather than as a call of its own. The point is
+// token economics: the plan content, the standard and the objectives are
+// sent once per plan, whatever is asked of it.
 //
 // The one exception to "one turn": 请AI点评 (knowledgeTool, see
-// evaluatePlan) may still pull reference material from 学习资源库 over extra
-// tool rounds, as it always could -- same prompt, same check, same output,
-// just not limited to a single call. It also scores in that same turn when
-// the plan has no up-to-date score (aiPlanReview.js#generateAiReview).
+// evaluatePlan) may pull reference material from 学习资源库 over extra tool
+// rounds, as it always could -- same prompt, same check, same output.
 //
 // Every prompt is assembled from the rule blocks below, so a score or review
 // reads the same whichever combination produced it.
@@ -110,21 +111,105 @@ function scoreText(score) {
   return lines.join("\n");
 }
 
-// ---- Score freshness ----
+// ---- The single source of truth ----
+//
+// A plan has exactly one *current* AI evaluation: the score and the
+// plan-scope AI review for its current content version under the standard
+// in effect (for a review, the standard it was written against; null for a
+// fallback review on an install with no standard). Where several rows
+// qualify -- duplicates from before this was enforced -- the newest wins;
+// the rest, and every row of older content or an older standard, are
+// history. Every path that produces AI output goes through ensureEvaluation
+// below, and every reader asks currentEvaluations, so the button (请AI点评)
+// and the AI打分加点评 batch can't diverge.
 
+const Op = db.Sequelize.Op;
 const timeOf = (d) => (d ? new Date(d).getTime() : null);
 
-// A score is up to date when it used this standard version and the plan's
-// content hasn't changed since.
-function isUpToDate(latestScore, plan, standardId) {
-  if (!latestScore || Number(latestScore.standardId) !== Number(standardId)) return false;
-  return timeOf(latestScore.planVersionAt) === timeOf(plan.contentVersionAt);
+const planIncludes = [
+  { model: db.templateVersion, as: "PlanTemplateVersion" },
+  { model: db.templateVersion, as: "ExecutionTemplateVersion" },
+  { model: db.user, as: "Teacher", include: [{ model: db.school, as: "School" }] },
+];
+
+// Loads a plan with everything an evaluation turn needs.
+const loadPlan = (planId) => db.plan.findByPk(planId, { include: planIncludes });
+
+// Map planId -> { score, review } (each the row or null) for the given
+// plans (each needs `id` and `contentVersionAt`) under `standard` (null:
+// no standard yet -- then no score can be current, and only a fallback
+// review is).
+async function currentEvaluations(plans, standard) {
+  const out = new Map(plans.map((p) => [Number(p.id), { score: null, review: null }]));
+  if (plans.length === 0) return out;
+  const planIds = plans.map((p) => p.id);
+  const standardId = standard ? standard.id : null;
+  const [scores, reviews] = await Promise.all([
+    standard
+      ? AiPlanScore.findAll({ where: { planId: { [Op.in]: planIds }, standardId }, order: [["id", "DESC"]] })
+      : [],
+    Review.findAll({
+      where: { planId: { [Op.in]: planIds }, reviewerType: "ai", sectionKey: null, lessonIndex: null, standardId },
+      order: [["id", "DESC"]],
+    }),
+  ]);
+  const versionOf = new Map(plans.map((p) => [Number(p.id), timeOf(p.contentVersionAt)]));
+  const isCurrent = (row) => timeOf(row.planVersionAt) === versionOf.get(Number(row.planId));
+  scores.forEach((s) => {
+    const e = out.get(Number(s.planId));
+    if (!e.score && isCurrent(s)) e.score = s;
+  });
+  reviews.forEach((r) => {
+    const e = out.get(Number(r.planId));
+    if (!e.review && isCurrent(r)) e.review = r;
+  });
+  return out;
 }
 
-async function currentScore(plan, standard) {
-  if (!standard) return null;
-  const latest = await AiPlanScore.findOne({ where: { planId: plan.id }, order: [["id", "DESC"]] });
-  return isUpToDate(latest, plan, standard.id) ? latest : null;
+async function currentEvaluation(plan, standard) {
+  return (await currentEvaluations([plan], standard)).get(Number(plan.id));
+}
+
+// One evaluation per plan at a time, process-wide: the button and the batch
+// (or two clicks) asking for the same plan at once would otherwise each
+// produce their own copy. A waiter re-checks once the in-flight one is done
+// and finds it current.
+const inFlight = new Map();
+
+async function withPlanLock(planId, fn) {
+  const key = Number(planId);
+  while (inFlight.has(key)) {
+    try {
+      await inFlight.get(key);
+    } catch (e) {
+      // The holder's failure is the holder's to report.
+    }
+  }
+  const p = fn();
+  inFlight.set(key, p);
+  try {
+    return await p;
+  } finally {
+    if (inFlight.get(key) === p) inFlight.delete(key);
+  }
+}
+
+// Brings a plan's current evaluation up to date: produces only what's
+// missing (score and/or review, in one turn -- see evaluatePlan) and
+// nothing when both are current. Returns { score, review, generated }:
+// the current pair after the call, and whether an LLM turn ran. The score
+// is only ever produced under a standard. `want` narrows what's ensured
+// ({ score, review }, both by default); the rest of `opts` goes to
+// evaluatePlan (seenByTeacher, userId, knowledgeTool).
+async function ensureEvaluation(plan, { standard, want = { score: true, review: true }, ...opts }) {
+  return withPlanLock(plan.id, async () => {
+    const cur = await currentEvaluation(plan, standard);
+    const score = !!want.score && !!standard && !cur.score;
+    const review = !!want.review && !cur.review;
+    if (!score && !review) return { ...cur, generated: false };
+    const made = await evaluatePlan(plan, { ...opts, score, review, standard, givenScore: cur.score });
+    return { score: made.score || cur.score, review: made.review || cur.review, generated: true };
+  });
 }
 
 // ---- The turn ----
@@ -248,12 +333,14 @@ function parseReply(text, { score, review }) {
 // reply parses (a malformed reply leaves neither half).
 //
 // `plan` must be loaded with PlanTemplateVersion, ExecutionTemplateVersion
-// and Teacher->School (aiPlanReview.js#loadPlan). Options:
+// and Teacher->School (see loadPlan). Options:
 //   score        -- produce an AI 打分 (requires `standard`)
 //   review       -- produce an AI 点评
 //   standard     -- the AI 点评标准 to judge by; null only for a fallback
 //                   review on an install with no standard yet
 //   seenByTeacher, userId -- stored on the review / score rows
+//   givenScore   -- the plan's current score, for a review-only turn to
+//                   agree with (ensureEvaluation passes it)
 //   knowledgeTool -- let the review search 学习资源库 over extra tool rounds
 //                   (请AI点评); batches leave it off to stay at one call per
 //                   plan. With a score in the same turn, retrieved material
@@ -263,7 +350,7 @@ function parseReply(text, { score, review }) {
 // review shouldn't just repeat). A turn that scores sees neither.
 async function evaluatePlan(
   plan,
-  { score = false, review = false, standard, seenByTeacher = false, userId = null, knowledgeTool = false }
+  { score = false, review = false, standard, seenByTeacher = false, userId = null, knowledgeTool = false, givenScore: given = null }
 ) {
   if (!score && !review) throw new Error("evaluatePlan: nothing to do");
   const useTool = knowledgeTool && review;
@@ -274,7 +361,7 @@ async function evaluatePlan(
   const contentText = await planContext.buildPlanContentText(plan, null, artifacts);
 
   const reviewOnly = review && !score;
-  const givenScore = reviewOnly ? await currentScore(plan, standard) : null;
+  const givenScore = reviewOnly ? given : null;
   const history = reviewOnly ? await planContext.buildReviewHistoryText(plan.id) : "";
   const consistency = planConsistency.inputText(plan);
 
@@ -357,9 +444,11 @@ async function evaluatePlan(
   });
 }
 
+// Callers go through ensureEvaluation; evaluatePlan (unconditional) stays
+// internal so nothing can write around the single source of truth.
 module.exports = {
-  evaluatePlan,
-  currentScore,
-  isUpToDate,
+  ensureEvaluation,
+  currentEvaluations,
+  loadPlan,
   standardText,
 };
