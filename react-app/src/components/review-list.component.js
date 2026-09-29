@@ -266,7 +266,7 @@ const ReviewList = (props) => {
       const data = (resp && resp.data) || {};
       // The plan has one current AI evaluation (backend aiPlanEvaluation.js):
       // when its current content already has one under the standard in
-      // effect -- from an earlier click or from AI打分加点评 -- that one is
+      // effect -- from an earlier click or from AI 打分加点评 -- that one is
       // kept rather than generating another.
       setMessage(
         data.alreadyCurrent

@@ -44,7 +44,7 @@ const scoreClass =(score, weight) => {
 // AI -> AI 打分 (expert/admin only): a read-only list of every submitted
 // plan's newest AI score against the AI 点评标准. Scores are produced only
 // through the plan's single AI evaluation (backend aiPlanEvaluation.js) --
-// by 请AI点评 on the plan page or by the AI打分加点评 batch -- never here.
+// by 请AI点评 on the plan page or by the AI 打分加点评 batch -- never here.
 const AiScores = () => {
   const [plans, setPlans] = useState([]);
   const [standard, setStandard] = useState(null);
@@ -172,7 +172,7 @@ const AiScores = () => {
         <h4 className="mb-0">AI 打分</h4>
         {AuthService.isAdmin() && (
           <Link to="/ai-review/score-review" className="btn btn-outline-primary btn-sm">
-            AI打分加点评
+            AI 打分加点评
           </Link>
         )}
       </div>
@@ -183,7 +183,7 @@ const AiScores = () => {
           <Link to="/ai-review/standard" className="mx-1">
             AI 点评标准（版本 #{standard.id}）
           </Link>
-          打分，满分 {standard.content.totalScore}。打分在教师或专家「请AI点评」时，或由管理员通过「AI打分加点评」统一生成，与 AI 点评一一对应。
+          打分，满分 {standard.content.totalScore}。打分在教师或专家「请AI点评」时，或由管理员通过「AI 打分加点评」统一生成，与 AI 点评一一对应。
         </p>
       )}
       {loaded && !standard && (

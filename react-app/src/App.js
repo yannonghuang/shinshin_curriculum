@@ -158,7 +158,7 @@ class App extends Component {
                       </Link>
                       {AuthService.isAdmin() && (
                         <Link to="/ai-review/score-review" className="dropdown-item">
-                          AI打分加点评
+                          AI 打分加点评
                         </Link>
                       )}
                     </div>

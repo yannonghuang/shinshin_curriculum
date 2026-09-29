@@ -99,7 +99,7 @@ exports.generateStandard = async (req, res) => {
 };
 
 // GET /api/ai-review/scores -- every submitted plan with its newest AI
-// score (read-only: scores are produced by 请AI点评 and AI打分加点评).
+// score (read-only: scores are produced by 请AI点评 and AI 打分加点评).
 exports.getScores = async (req, res) => {
   try {
     const [plans, standard] = await Promise.all([aiPlanScoring.listScores(), aiReviewStandard.getLatestStandard()]);
