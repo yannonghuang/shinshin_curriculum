@@ -7,12 +7,14 @@
 // and AI打分加点评 use), which also does the 目标一致性与完整性核查 in the
 // same turn. Bulk AI 点评 is one LLM call per plan; a teacher's own
 // 请AI点评 (knowledgeTool) may additionally search 学习资源库 over extra
-// tool rounds, as it always could. There are two scopes, matching the two 请AI点评
-// buttons: design (计划整体点评 -- the 课程设计方案 incl. 分课时设计) and
-// execution (实施整体点评 -- design plus every lesson's 实施记录).
+// tool rounds, as it always could.
 //
-// Bulk AI 点评 (admin only): a background batch writing an execution-scope
-// AI review for every submitted plan matching the admin's criteria on
+// Plan scope only: an AI review is about the 计划 (课程设计方案 incl.
+// 分课时设计) and is filed under 计划整体点评 (sectionKey null, lessonIndex
+// null); 实施 has no AI for now.
+//
+// Bulk AI 点评 (admin only): a background batch writing a plan-scope AI
+// review for every submitted plan matching the admin's criteria on
 // 完成度 and AI 打分 -- see #findCandidates.
 const db = require("../models");
 const dashboard = require("./dashboard");
@@ -24,7 +26,6 @@ const Plan = db.plan;
 const Review = db.review;
 
 const CONCURRENCY = 2;
-const { WHOLE_PLAN_SECTION_KEY } = aiPlanEvaluation;
 
 const planIncludes = [
   { model: db.templateVersion, as: "PlanTemplateVersion" },
@@ -34,21 +35,27 @@ const planIncludes = [
 
 const loadPlan = (planId) => Plan.findByPk(planId, { include: planIncludes });
 
-// `plan` must be loaded with planIncludes. wholePlan=true is the execution
-// scope (实施整体点评), false the design scope (计划整体点评).
-// seenByTeacher: the teacher asked for this review themselves, so it isn't
+// `plan` must be loaded with planIncludes. seenByTeacher: the teacher asked for this review themselves, so it isn't
 // "new" to them (see review.model.js's teacherSeenAt). `standard` defaults
 // to the one in effect; the version used is stored on the review
 // (standardId, null for a fallback-prompt review). knowledgeTool: see
 // aiPlanEvaluation.js#evaluatePlan.
-async function generateAiReview(plan, { wholePlan, seenByTeacher, standard, knowledgeTool = false }) {
+//
+// scoreIfMissing (请AI点评): when the plan has no up-to-date AI score
+// (current standard, current content), the same turn scores it too -- the
+// score is stored for experts/admins only (AI 打分, 数据看板, the plan
+// page's AI 打分 panel) and never returned here, so the caller -- possibly
+// the owning teacher -- only ever gets the review back.
+async function generateAiReview(plan, { seenByTeacher, standard, knowledgeTool = false, scoreIfMissing = false, userId = null }) {
   const std = standard === undefined ? await aiReviewStandard.getLatestStandard() : standard;
+  const score = scoreIfMissing && !!std && !(await aiPlanEvaluation.currentScore(plan, std));
   const { review } = await aiPlanEvaluation.evaluatePlan(plan, {
+    score,
     review: true,
-    reviewScope: wholePlan ? "whole" : "design",
     standard: std,
     seenByTeacher,
     knowledgeTool,
+    userId,
   });
   return review;
 }
@@ -71,7 +78,7 @@ function parseCriteria(raw = {}) {
     maxCompletion: num(raw.maxCompletion),
     minScore: num(raw.minScore),
     maxScore: num(raw.maxScore),
-    // Default on: a plan whose current content already has a whole-plan
+    // Default on: a plan whose current content already has a plan-scope
     // AI review written against the current standard would just get a
     // second one saying much the same.
     skipReviewed: !(raw.skipReviewed === false || raw.skipReviewed === "false" || raw.skipReviewed === "0"),
@@ -96,7 +103,7 @@ function matches(row, c) {
 // Every submitted, non-suspended plan (same scope as AI 打分, see
 // aiPlanScoring.js#findScorablePlanIds) with its 完成度 and newest AI
 // score -- built from dashboard.js#buildRows so the numbers match 数据看板
-// -- plus whether it already has a whole-plan AI review that's up to date
+// -- plus whether it already has a plan-scope AI review that's up to date
 // (written on its current content, against the standard in effect),
 // flagged `matched` against the criteria. Both the page's preview and the
 // batch itself select plans through here, so what's previewed is what runs.
@@ -107,7 +114,7 @@ async function findCandidates(criteria, standardId) {
   const [plans, aiReviews] = await Promise.all([
     Plan.findAll({ where: { id: { [Op.in]: planIds } }, attributes: ["id", "contentVersionAt"], raw: true }),
     Review.findAll({
-      where: { planId: { [Op.in]: planIds }, reviewerType: "ai", sectionKey: WHOLE_PLAN_SECTION_KEY },
+      where: { planId: { [Op.in]: planIds }, reviewerType: "ai", sectionKey: null, lessonIndex: null },
       attributes: ["planId", "planVersionAt", "standardId", "createdAt"],
       order: [["id", "DESC"]],
       raw: true,
@@ -203,7 +210,7 @@ async function startBatchInner({ criteria }) {
       try {
         const plan = await loadPlan(item.planId);
         if (!plan) throw new Error("课程不存在");
-        await generateAiReview(plan, { wholePlan: true, standard });
+        await generateAiReview(plan, { standard });
         current.done += 1;
       } catch (e) {
         current.failed += 1;
@@ -230,5 +237,4 @@ module.exports = {
   findCandidates,
   startBatch,
   getJobStatus,
-  WHOLE_PLAN_SECTION_KEY,
 };

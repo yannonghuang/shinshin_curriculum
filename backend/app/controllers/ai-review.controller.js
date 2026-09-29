@@ -152,7 +152,7 @@ exports.getBulkCandidates = async (req, res) => {
 };
 
 // POST /api/ai-review/bulk/run { minCompletion, maxCompletion, minScore,
-// maxScore, skipReviewed } -- starts a background batch writing a whole-plan
+// maxScore, skipReviewed } -- starts a background batch writing a plan-scope
 // AI 点评 for every matching plan; the matches are recomputed server-side
 // with the same criteria the preview used.
 exports.runBulkReview = async (req, res) => {
@@ -167,7 +167,7 @@ exports.runBulkReview = async (req, res) => {
 
 // GET /api/ai-review/score-review?minCompletion=&maxCompletion=&minScore=&maxScore=
 // -- every submitted plan flagged with whether it needs an AI score and/or
-// a whole-plan AI 点评 and whether it's `matched` (passes the filters and
+// a plan-scope AI 点评 and whether it's `matched` (passes the filters and
 // needs something), plus the current/last AI 打分加点评 batch status
 // (super only).
 exports.getScoreReviewCandidates = async (req, res) => {

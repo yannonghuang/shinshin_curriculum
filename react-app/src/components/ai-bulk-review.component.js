@@ -39,7 +39,7 @@ const compareBy = (sortKey, sortDir) => (a, b) => {
 
 const DEFAULT_CRITERIA = { minCompletion: "60", maxCompletion: "", minScore: "", maxScore: "", skipReviewed: true };
 
-// AI -> AI 点评 (admin only). Writes a whole-plan (实施整体点评) AI review,
+// AI -> AI 点评 (admin only). Writes a plan-scope (计划整体点评) AI review,
 // judged against the AI 点评标准 in effect, for every submitted plan
 // matching the criteria on 完成度 and AI 打分, as a background batch
 // (backend services/aiPlanReview.js). Which plans match is
@@ -157,7 +157,7 @@ const AiBulkReview = () => {
         </button>
       </div>
       <p className="text-muted small">
-        为符合以下条件的已提交课程批量生成 AI 点评（实施整体点评，综合课程设计与各课时实施记录），
+        为符合以下条件的已提交课程批量生成 AI 点评（计划整体点评，针对课程设计方案及分课时设计），
         {standard ? (
           <>
             依据当前生效的
@@ -198,7 +198,7 @@ const AiBulkReview = () => {
               onChange={setField("skipReviewed")}
             />
             <label className="form-check-label" htmlFor="bulkSkipReviewed">
-              跳过已有最新 AI 整体点评的课程（针对当前课程内容、按当前标准）
+              跳过已有最新 AI 计划整体点评的课程（针对当前课程设计、按当前标准）
             </label>
           </div>
         </div>
@@ -269,7 +269,7 @@ const AiBulkReview = () => {
                 {sortableHeader("school", "学校 / 教师", "22%")}
                 {sortableHeader("completion", "完成度", "9%")}
                 {sortableHeader("score", "AI 总分", "9%")}
-                <th style={{ width: "18%" }}>最近 AI 整体点评</th>
+                <th style={{ width: "18%" }}>最近 AI 计划整体点评</th>
               </tr>
             </thead>
             <tbody>

@@ -1521,7 +1521,7 @@ const PlanDetail = (props) => {
             embedded
             planContentVersionAt={plan.contentVersionAt}
             segmentVersionAt={plan.segmentVersionAt}
-            canTriggerAi={canTriggerAiReview}
+            // No AI in 实施 for now -- AI 点评 is plan scope (计划整体点评).
             canDiscussAi={canEditPlan}
             aiPending={aiReviewPending.implementation}
             setAiPending={(v) => setAiReviewPending((prev) => ({ ...prev, implementation: v }))}
