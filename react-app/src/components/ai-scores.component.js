@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useHistory, useLocation } from "react-router-dom";
 import Select from "react-select";
 import AiReviewDataService from "../services/ai-review.service";
@@ -7,8 +7,6 @@ import PlanDataService from "../services/plan.service";
 import { PLAN_THEMES } from "../constants/plan-options";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
-
-const POLL_INTERVAL_MS = 3000;
 
 // Same as plans-hierarchy.component.js's -- the filter bar here mirrors
 // 全部乡土课程's so the two pages narrow down plans the same way.
@@ -36,11 +34,6 @@ const compareBy = (sortKey, sortDir) => (a, b) => {
 
 const errorText = (e) => (e.response && e.response.data && e.response.data.message) || e.message;
 
-const formatElapsed = (ms) => {
-  const sec = Math.max(0, Math.floor(ms / 1000));
-  return sec >= 60 ? `${Math.floor(sec / 60)} 分 ${sec % 60} 秒` : `${sec} 秒`;
-};
-
 const scoreClass =(score, weight) => {
   const ratio = weight ? score / weight : 0;
   if (ratio >= 0.85) return "text-success";
@@ -48,23 +41,16 @@ const scoreClass =(score, weight) => {
   return "text-danger";
 };
 
-// AI 点评 -> AI 打分 (expert/admin only). Opening the page triggers a
-// background batch scoring every submitted plan against the AI 点评标准 in
-// effect (backend services/aiPlanScoring.js). The batch is incremental --
-// plans already scored on that standard with unchanged content are skipped
-// -- so revisiting the page only scores what's new or changed. 更新打分
-// runs the same incremental batch on demand (e.g. after 重新生成 the
-// standard or a plan edit while this page is open); there is no forced
-// full re-score, since an unchanged plan under an unchanged standard would
-// just get the same score again.
+// AI -> AI 打分 (expert/admin only): a read-only list of every submitted
+// plan's newest AI score against the AI 点评标准. Scores are produced only
+// through the plan's single AI evaluation (backend aiPlanEvaluation.js) --
+// by 请AI点评 on the plan page or by the AI打分加点评 batch -- never here.
 const AiScores = () => {
   const [plans, setPlans] = useState([]);
-  const [job, setJob] = useState(null);
   const [standard, setStandard] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState(null);
-  const triggered = useRef(false);
   const allowed = AuthService.isExpert() || AuthService.isAdmin();
 
   // Filter + sort state, restored from / kept in sync with the URL -- same
@@ -157,7 +143,6 @@ const AiScores = () => {
     return AiReviewDataService.getScores()
       .then((res) => {
         setPlans(res.data.plans);
-        setJob(res.data.job);
         setStandard(res.data.standard);
         setLoaded(true);
       })
@@ -167,46 +152,14 @@ const AiScores = () => {
       });
   }, []);
 
-  const run = useCallback(
-    () => {
-      setMessage("");
-      return AiReviewDataService.runScoring()
-        .then((res) => setJob(res.data))
-        .catch((e) => {
-          // 422 = no standard yet, already explained by the warning below.
-          if (!(e.response && e.response.status === 422)) setMessage(errorText(e));
-        })
-        .then(refresh);
-    },
-    [refresh]
-  );
-
   useEffect(() => {
-    if (!allowed || triggered.current) return;
-    triggered.current = true;
-    run();
-  }, [allowed, run]);
-
-  const running = !!(job && job.running);
-  useEffect(() => {
-    if (!running) return undefined;
-    const timer = setInterval(refresh, POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [running, refresh]);
-
-  // Ticks the elapsed-time readout once a second while a batch runs.
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!running) return undefined;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
+    if (allowed) refresh();
+  }, [allowed, refresh]);
 
   if (!allowed) {
     return <div className="alert alert-warning">AI 点评仅对专家和管理员开放。</div>;
   }
 
-  const processed = job ? job.done + job.failed : 0;
   // Stats follow the filters, so e.g. picking a school shows that school's average.
   const scored = visiblePlans.filter((p) => p.score);
   const average = scored.length
@@ -217,14 +170,11 @@ const AiScores = () => {
     <div className="container">
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h4 className="mb-0">AI 打分</h4>
-        <button
-          className="btn btn-outline-primary btn-sm"
-          disabled={running || !standard}
-          title="为尚未打分、按旧标准打分或内容已修改的课程打分"
-          onClick={() => run()}
-        >
-          更新打分
-        </button>
+        {AuthService.isAdmin() && (
+          <Link to="/ai-review/score-review" className="btn btn-outline-primary btn-sm">
+            AI打分加点评
+          </Link>
+        )}
       </div>
 
       {standard && (
@@ -233,7 +183,7 @@ const AiScores = () => {
           <Link to="/ai-review/standard" className="mx-1">
             AI 点评标准（版本 #{standard.id}）
           </Link>
-          对全部已提交的课程打分，满分 {standard.content.totalScore}。已打过分且标准与课程内容均未变化的课程不会重复打分。
+          打分，满分 {standard.content.totalScore}。打分在教师或专家「请AI点评」时，或由管理员通过「AI打分加点评」统一生成，与 AI 点评一一对应。
         </p>
       )}
       {loaded && !standard && (
@@ -243,46 +193,6 @@ const AiScores = () => {
       )}
 
       {message && <div className="alert alert-danger">{message}</div>}
-
-      {running && (
-        <div className="alert alert-info">
-          <span className="spinner-border spinner-border-sm mr-2" role="status" />
-          正在打分：已完成 {processed} / {job.queued}
-          {job.skipped > 0 && `（${job.skipped} 个课程已是最新评分，跳过）`}
-          <span className="ml-2 text-muted">已用时 {formatElapsed(now - new Date(job.startedAt).getTime())}</span>
-          {job.inProgress && job.inProgress.length > 0 && (
-            <div className="small mt-1">
-              进行中：{job.inProgress.map((p) => `《${p.title || `课程 #${p.planId}`}》`).join("、")}
-            </div>
-          )}
-          <div className="small text-muted">AI 需要通读整个课程并逐维度打分，每个课程约需 1 分钟，请稍候。</div>
-          {/* Floor at a sliver + striped animation so a slow first plan
-              still reads as "working", not as an empty/stuck bar. */}
-          <div className="progress mt-2" style={{ height: 8 }}>
-            <div
-              className="progress-bar progress-bar-striped progress-bar-animated"
-              style={{ width: `${Math.max(job.queued ? (processed / job.queued) * 100 : 100, 5)}%` }}
-            />
-          </div>
-        </div>
-      )}
-      {job && !running && job.finishedAt && job.queued === 0 && (
-        <div className="alert alert-success small">
-          全部 {job.total} 个课程均已按当前标准（版本 #{job.standardId}）打分，且课程内容未修改，无需重新打分。
-        </div>
-      )}
-      {job && !running && job.finishedAt && job.queued > 0 && (
-        <div className={`alert ${job.failed ? "alert-warning" : "alert-success"} small`}>
-          最近一次打分完成于 {new Date(job.finishedAt).toLocaleString()}：新打分 {job.done} 个
-          {job.skipped > 0 && `，跳过 ${job.skipped} 个（已是最新）`}
-          {job.failed > 0 && `，失败 ${job.failed} 个`}。
-          {job.errors.map((e) => (
-            <div key={e.planId}>
-              《{e.title || `课程 #${e.planId}`}》：{e.message}
-            </div>
-          ))}
-        </div>
-      )}
 
       {loaded && plans.length === 0 && <p className="text-muted">暂无已提交的课程。</p>}
 

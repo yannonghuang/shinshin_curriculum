@@ -1,4 +1,5 @@
-const aiPlanReview = require("../services/aiPlanReview");
+const aiPlanEvaluation = require("../services/aiPlanEvaluation");
+const aiReviewStandard = require("../services/aiReviewStandard");
 const { segmentKeyForReview } = require("../services/segmentVersion");
 
 const db = require("../models");
@@ -72,21 +73,22 @@ exports.create = async (req, res) => {
 // synchronously — a single DashScope call, no streaming needed for a
 // written review.
 exports.createAiReview = async (req, res) => {
+  const startedAt = new Date();
   try {
     const planId = Number(req.params.planId);
     if (!Number.isInteger(planId) || planId <= 0) {
       return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
 
-    const plan = await aiPlanReview.loadPlan(planId);
+    const plan = await aiPlanEvaluation.loadPlan(planId);
     if (!plan) {
       return res.status(404).send({ message: "乡土课程设计不存在。" });
     }
 
     // The owning teacher may request one on their own plan (part of working
     // on one's own case); an admin or expert may too, but only once the plan
-    // is submitted and not suspended -- the same plans bulk AI 点评 covers
-    // (see aiPlanReview.js#findCandidates). A draft is still the teacher's
+    // is submitted and not suspended -- the same plans AI打分加点评 covers
+    // (see aiScoreAndReview.js#findCandidates). A draft is still the teacher's
     // work in progress, not yet up for review.
     const isOwner = plan.teacherId === req.userId;
     if (!isOwner) {
@@ -104,23 +106,29 @@ exports.createAiReview = async (req, res) => {
       return res.status(422).send({ message: "实施整体点评暂不提供 AI 点评。" });
     }
 
-    // Generation itself is shared with the admin's bulk AI 点评, see
-    // services/aiPlanReview.js.
-    const data = await aiPlanReview.generateAiReview(plan, {
+    // The plan's single current AI evaluation (aiPlanEvaluation.js): when
+    // its current content already has a review (and score) under the
+    // standard in effect -- whether from an earlier click or from
+    // AI打分加点评 -- that one is returned and nothing is generated; else
+    // one turn produces just what's missing. Only the review is returned --
+    // the score is for experts and admins, never teachers (the owner
+    // included).
+    const standard = await aiReviewStandard.getLatestStandard();
+    const result = await aiPlanEvaluation.ensureEvaluation(plan, {
+      standard,
       // Only the owner asking for it themselves has "seen" it -- one an
       // admin/expert triggered is new to the teacher and flashes for them.
       seenByTeacher: isOwner,
       // An interactive 请AI点评 may search 学习资源库 for reference material
-      // (bulk/batch reviews stay at one LLM call per plan).
+      // (the batch stays at one LLM call per plan).
       knowledgeTool: true,
-      // ...and scores the plan in the same turn if it has no up-to-date AI
-      // score. Only the review is returned -- the score is for experts and
-      // admins, never teachers (the owner included).
-      scoreIfMissing: true,
       userId: req.userId,
     });
 
-    return res.send(data);
+    // alreadyCurrent: nothing new was written for the review -- the page
+    // says so instead of "generated".
+    const review = result.review.get({ plain: true });
+    return res.send({ ...review, alreadyCurrent: !result.generated || review.createdAt < startedAt });
   } catch (err) {
     return res.status(500).send({
       message: err.message || "生成 AI 点评时发生错误。",
@@ -200,9 +208,14 @@ exports.markSeen = async (req, res) => {
 
 // "super" inherits every admin privilege, including deleting any review
 // regardless of authorship.
-// AI 打分 rides along on the AI review rows it belongs to -- the score for
-// the same plan content version and standard, i.e. the one produced in (or
-// current at) that review's turn -- shown in the review list's 评分 column,
+// AI 打分 rides along on the AI review rows it belongs to -- a score of the
+// same plan content version, i.e. of exactly the content that review saw:
+// preferably one under the review's own standard (the one produced in, or
+// current at, that review's turn), otherwise the newest score of that
+// content version -- a review written before any standard existed, or one
+// whose content was later scored under a newer standard, still shows how
+// that content scored. A score of a later version is never attached to an
+// earlier review. Shown in the review list's 评分 column,
 // which teachers don't see. Only experts and admins get it (teachers,
 // the owner included, never receive an AI score from any endpoint), with
 // the same plan scope as 数据看板: admins any plan, experts only submitted,
@@ -220,9 +233,8 @@ async function attachAiScores(planId, rows, userId) {
   const scores = await db.aiPlanScore.findAll({ where: { planId }, order: [["id", "DESC"]] });
   const time = (d) => (d ? new Date(d).getTime() : null);
   aiRows.forEach((r) => {
-    const s = scores.find(
-      (x) => Number(x.standardId) === Number(r.standardId) && time(x.planVersionAt) === time(r.planVersionAt)
-    );
+    const sameContent = scores.filter((x) => time(x.planVersionAt) === time(r.planVersionAt));
+    const s = sameContent.find((x) => Number(x.standardId) === Number(r.standardId)) || sameContent[0];
     if (s) {
       r.aiScore = {
         totalScore: Number(s.totalScore),

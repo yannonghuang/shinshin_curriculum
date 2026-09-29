@@ -18,15 +18,10 @@ module.exports = function (app) {
   app.post("/api/ai-review/standard/revisions", guard, aiReview.saveRevision);
   app.post("/api/ai-review/standard/generate", guard, aiReview.generateStandard);
   app.get("/api/ai-review/scores", guard, aiReview.getScores);
-  app.post("/api/ai-review/scores/run", guard, aiReview.runScoring);
 
-  // Bulk AI 点评 is admin only (super included, see authJwt.isAdmin).
+  // AI 打分加点评 -- the one batch producing AI scores/reviews -- is for
+  // admins (super included, see authJwt.isAdmin).
   const adminGuard = [authJwt.verifyToken, authJwt.isAdmin];
-  app.get("/api/ai-review/bulk", adminGuard, aiReview.getBulkCandidates);
-  app.post("/api/ai-review/bulk/run", adminGuard, aiReview.runBulkReview);
-
-  // AI 打分加点评 is super only (see authJwt.isSuper).
-  const superGuard = [authJwt.verifyToken, authJwt.isSuper];
-  app.get("/api/ai-review/score-review", superGuard, aiReview.getScoreReviewCandidates);
-  app.post("/api/ai-review/score-review/run", superGuard, aiReview.runScoreReview);
+  app.get("/api/ai-review/score-review", adminGuard, aiReview.getScoreReviewCandidates);
+  app.post("/api/ai-review/score-review/run", adminGuard, aiReview.runScoreReview);
 };

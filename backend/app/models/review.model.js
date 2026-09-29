@@ -68,10 +68,10 @@ module.exports = (sequelize, Sequelize) => {
         type: Sequelize.DATE,
       },
       // The AI 点评标准 version an AI review was written against (see
-      // services/aiPlanReview.js) -- NULL for expert/admin reviews and for
+      // services/aiPlanEvaluation.js) -- NULL for expert/admin reviews and for
       // AI reviews from before reviews followed the standard (or written
-      // while none existed). Bulk AI 点评 treats a review on an older
-      // version as out of date.
+      // while none existed). A review on an older version is history, not the
+      // plan's current AI evaluation.
       standardId: {
         type: Sequelize.BIGINT,
       },

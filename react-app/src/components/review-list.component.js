@@ -263,8 +263,16 @@ const ReviewList = (props) => {
         lessonIndex: lessonIndex !== undefined && lessonIndex !== null ? lessonIndex : undefined,
         scope: aggregateScope === "implementation" ? "implementation" : undefined,
       });
-      const model = resp && resp.data && resp.data.aiModel;
-      setMessage(`AI 点评已生成${model ? `（${model}）` : ""}。`);
+      const data = (resp && resp.data) || {};
+      // The plan has one current AI evaluation (backend aiPlanEvaluation.js):
+      // when its current content already has one under the standard in
+      // effect -- from an earlier click or from AI打分加点评 -- that one is
+      // kept rather than generating another.
+      setMessage(
+        data.alreadyCurrent
+          ? "当前课程内容已有按现行标准生成的 AI 点评（见下方列表），无需重复生成；修改课程内容后可再次请求。"
+          : `AI 点评已生成${data.aiModel ? `（${data.aiModel}）` : ""}。`
+      );
       retrieveReviews();
     } catch (e) {
       setMessage(e?.response?.data?.message || "AI 点评生成失败。");
@@ -498,6 +506,7 @@ const ReviewList = (props) => {
                               (d) => `${d.name}：${d.score}/${d.weight}${d.level ? `（${d.level}）` : ""}`
                             ),
                             review.aiScore.summary && `总评：${review.aiScore.summary}`,
+                            `依据 AI 点评标准 #${review.aiScore.standardId}`,
                           ]
                             .filter(Boolean)
                             .join("\n")}

@@ -19,7 +19,6 @@ import CopilotPanel from "./components/copilot-panel.component";
 import AdminUsersList from "./components/admin-users-list.component";
 import TemplateAdmin from "./components/template-admin.component";
 import AiReviewStandard from "./components/ai-review-standard.component";
-import AiBulkReview from "./components/ai-bulk-review.component";
 import AiScores from "./components/ai-scores.component";
 import AiScoreReview from "./components/ai-score-review.component";
 import Dashboard from "./components/dashboard.component";
@@ -158,11 +157,6 @@ class App extends Component {
                         AI 打分
                       </Link>
                       {AuthService.isAdmin() && (
-                        <Link to="/ai-review/bulk" className="dropdown-item">
-                          AI 点评
-                        </Link>
-                      )}
-                      {AuthService.isSuper() && (
                         <Link to="/ai-review/score-review" className="dropdown-item">
                           AI打分加点评
                         </Link>
@@ -226,7 +220,6 @@ class App extends Component {
             <Route exact path="/admin/templates" component={TemplateAdmin} />
             <Route exact path="/ai-review/standard" component={AiReviewStandard} />
             <Route exact path="/ai-review/scores" component={AiScores} />
-            <Route exact path="/ai-review/bulk" component={AiBulkReview} />
             <Route exact path="/ai-review/score-review" component={AiScoreReview} />
             <Route exact path="/dashboard" component={Dashboard} />
             <Route exact path="/plans" component={PlansList} />
