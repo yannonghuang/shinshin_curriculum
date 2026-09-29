@@ -45,7 +45,7 @@ const DEFAULT_CRITERIA = { minCompletion: "60", maxCompletion: "", minScore: "",
 
 // AI -> AI打分加点评 (super only). One background batch (backend
 // services/aiScoreAndReview.js) bringing every submitted plan up to date on
-// both AI 打分 and whole-plan AI 点评. Every plan costs a single LLM turn
+// both AI 打分 and AI 点评 -- plan scope, like every AI artifact. Every plan costs a single LLM turn
 // (the token-economics point of this page) asking for just what it's
 // missing -- score and review together, or only one -- with the
 // 目标一致性与完整性核查 done in that same turn. Plans can be narrowed by the
@@ -173,7 +173,7 @@ const AiScoreReview = () => {
         </button>
       </div>
       <p className="text-muted small">
-        为符合以下条件的已提交课程补齐 AI 打分与 AI 实施整体点评（针对当前课程内容、按当前标准）：每个课程只需一次 AI
+        为符合以下条件的已提交课程补齐 AI 打分与 AI 计划整体点评（针对当前课程设计、按当前标准）：每个课程只需一次 AI
         调用，只补齐所缺的部分——两者都缺的同时完成打分与点评，二者保持一致。打分与点评都会核查课程的
         目标一致性与完整性（WHY·学习目标 与各课时教学目标是否一一对应）。
         {standard && (
@@ -277,7 +277,7 @@ const AiScoreReview = () => {
                 {sortableHeader("school", "学校 / 教师", "22%")}
                 {sortableHeader("completion", "完成度", "9%")}
                 {sortableHeader("score", "AI 总分", "12%")}
-                <th style={{ width: "18%" }}>最近 AI 整体点评</th>
+                <th style={{ width: "18%" }}>最近 AI 计划整体点评</th>
               </tr>
             </thead>
             <tbody>

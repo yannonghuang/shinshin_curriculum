@@ -107,10 +107,9 @@ const segmentKeyForReview = (review) => {
 // written comments/AI review (tagged with its write sectionKey, lessonIndex
 // null), plus every segment review in its scope regardless of that
 // segment's own lessonIndex -- 设计's aggregate scopes to
-// DESIGN_SEGMENT_KEYS, 实施's additionally includes EXECUTION_RECORD and
-// 计划's own AI review (sectionKey null, lessonIndex null, reviewerType "ai"
-// -- 设计's aggregate's own AI-generated review) so a reviewer looking at
-// 实施整体点评 also sees how the design itself was AI-reviewed. Exported so
+// DESIGN_SEGMENT_KEYS, 实施's additionally includes EXECUTION_RECORD. AI
+// reviews are plan scope only (backend aiPlanEvaluation.js), so they live
+// in 计划整体点评 alone. Exported so
 // plan-detail.component.js's unseen-review flash covers exactly the reviews
 // each 整体点评 view shows.
 export const scopeReviews = (list, { sectionKey, aggregateScope, sectionLabels }) => {
@@ -125,9 +124,7 @@ export const scopeReviews = (list, { sectionKey, aggregateScope, sectionLabels }
       // those doesn't silently disappear from the aggregate view.
       DESIGN_SEGMENT_KEYS.includes(r.sectionKey) ||
       (sectionLabels && Object.prototype.hasOwnProperty.call(sectionLabels, r.sectionKey)) ||
-      (aggregateScope === "implementation" &&
-        (r.sectionKey === "EXECUTION_RECORD" ||
-          (r.sectionKey == null && r.reviewerType === "ai" && (r.lessonIndex === null || r.lessonIndex === undefined))))
+      (aggregateScope === "implementation" && r.sectionKey === "EXECUTION_RECORD")
   );
 };
 
@@ -487,7 +484,33 @@ const ReviewList = (props) => {
                         </td>
                       );
                     })()}
-                  {showScore && <td>{review.score !== null && review.score !== undefined ? review.score : "-"}</td>}
+                  {showScore && (
+                    <td>
+                      {review.aiScore ? (
+                        // AI 打分 from the same turn/content version as this AI
+                        // review -- only ever sent to experts/admins (see
+                        // review.controller.js#attachAiScores); hover for the
+                        // per-dimension breakdown.
+                        <span
+                          style={{ cursor: "help", borderBottom: "1px dotted" }}
+                          title={[
+                            ...(review.aiScore.dimensionScores || []).map(
+                              (d) => `${d.name}：${d.score}/${d.weight}${d.level ? `（${d.level}）` : ""}`
+                            ),
+                            review.aiScore.summary && `总评：${review.aiScore.summary}`,
+                          ]
+                            .filter(Boolean)
+                            .join("\n")}
+                        >
+                          {review.aiScore.totalScore}
+                        </span>
+                      ) : review.score !== null && review.score !== undefined ? (
+                        review.score
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                  )}
                   <td style={{ whiteSpace: "pre-wrap" }}>
                     {isLong && !isExpanded ? `${review.content.slice(0, CONTENT_PREVIEW_LENGTH)}...` : review.content}
                     {isLong && (

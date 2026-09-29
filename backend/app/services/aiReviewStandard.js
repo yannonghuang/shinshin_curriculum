@@ -27,13 +27,15 @@ const MATERIAL_BUDGET = 60000;
 // What the router is asked to find material for. 使用指南 (the system's own
 // usage docs) is excluded by buildContext's default -- it documents how to
 // use the app, not what makes a good 乡土课程.
-const STANDARD_SUBJECT = "为乡土课程设计方案与课时实施记录制定统一的点评评分标准（评分维度、权重、评分要点、等级描述）";
+// Plan scope only: the standard judges the 计划 (课程设计方案 incl.
+// 分课时设计), not the 实施记录 -- see aiPlanEvaluation.js.
+const STANDARD_SUBJECT = "为乡土课程设计方案（含分课时设计）制定统一的点评评分标准（评分维度、权重、评分要点、等级描述）";
 const REVISION_CHECK_SUBJECT = "审核对乡土课程点评评分标准的人工修订是否有资料依据";
 
 const SYSTEM_PROMPT =
   "你是乡土课程教学评价专家。下面是从「学习资源库」中检索出的材料：首先是资料中已有的评价/评分标准原文（如有），" +
   "然后是其他相关资料的原文或摘要。请分析、综合这些材料所体现的乡土课程理念、设计要求与优秀实践，制定一套统一的「乡土课程 AI 点评评分标准」，" +
-  "用于对所有教师提交的乡土课程设计方案与课时实施记录进行一致的点评与打分。\n" +
+  "用于对所有教师提交的乡土课程设计方案（含分课时设计）进行一致的点评与打分；标准只针对课程设计本身，不涉及课时实施记录。\n" +
   "要求：\n" +
   "1. 资料中已有针对课程设计的评估标准时，必须以它为骨架：沿用其评分维度与权重，把其等级描述细化为下面要求的四级，" +
   "只有在其他资料有明确依据时才增补或调整维度，并在 basis 中说明调整依据；其他类型的评价标准（如学生发展评价）用于充实评分要点；\n" +

@@ -1,16 +1,21 @@
 // AI plan evaluation: ONE LLM turn per plan for any mix of AI 打分 and AI
 // 点评 -- score only (aiPlanScoring.js), review only (aiPlanReview.js: the
-// teacher's own 请AI点评 on the design or the whole plan, and bulk AI 点评),
-// or both (aiScoreAndReview.js). The 目标一致性与完整性核查
+// teacher's own 请AI点评 and bulk AI 点评), or both (aiScoreAndReview.js).
+//
+// Plan scope only: every AI artifact (the standard, 打分, 点评) is about the
+// 计划 -- the 课程设计方案 incl. 分课时设计 -- and every AI review is filed
+// under 计划整体点评 (sectionKey null). 实施 (the per-lesson 实施记录) has
+// no AI for now. The 目标一致性与完整性核查
 // (planConsistency.js) is always done inside that same turn rather than as a
 // call of its own. The point is token economics: the plan content, the
 // standard and the objectives are sent once per plan, whatever is asked of
 // it, with no knowledge-base tool rounds.
 //
-// The one exception to "one turn": a teacher's own 请AI点评 (knowledgeTool,
-// see evaluatePlan) may still pull reference material from 学习资源库 over
-// extra tool rounds, as it always could -- same prompt, same check, same
-// output, just not limited to a single call.
+// The one exception to "one turn": 请AI点评 (knowledgeTool, see
+// evaluatePlan) may still pull reference material from 学习资源库 over extra
+// tool rounds, as it always could -- same prompt, same check, same output,
+// just not limited to a single call. It also scores in that same turn when
+// the plan has no up-to-date score (aiPlanReview.js#generateAiReview).
 //
 // Every prompt is assembled from the rule blocks below, so a score or review
 // reads the same whichever combination produced it.
@@ -26,7 +31,6 @@ const Review = db.review;
 const AiPlanScore = db.aiPlanScore;
 const Artifact = db.artifact;
 
-const WHOLE_PLAN_SECTION_KEY = "IMPLEMENTATION_OVERALL";
 const JSON_MARKER = "<<<JSON>>>";
 const REVIEW_MARKER = "<<<REVIEW>>>";
 
@@ -67,6 +71,11 @@ const FALLBACK_REVIEW_SECTIONS =
 const CONSISTENCY_REVIEW_SECTION =
   "【目标一致性与完整性】：依据本次核查结论，逐条指出未在任何课时落实的总体目标（建议在哪个课时补充落实）、在总体目标中找不到对应的课时目标（建议补入总体目标或调整该课时目标）、以及未填写的目标或课时，并给出具体修改建议；" +
   "目标一致且完整时，用一两句话确认即可。这部分控制在 300 字以内，不计入上面的字数要求。\n";
+
+// With a score in the same turn, retrieved material must not leak into it:
+// the score is the standard applied to the plan's own content, comparable
+// across plans only if nothing else feeds it.
+const KNOWLEDGE_TOOL_SCORE_RULE = "检索到的参考资料只能用于点评中的主题与本地特色建议，不得作为打分依据。\n";
 
 const KNOWLEDGE_TOOL_HINT =
   "如果需要参考共享学习材料库中与该课程主题或所在地区相关的资料（例如同主题的其他课程案例、专家讲解等）来支撑你的点评，可以调用 search_knowledge_base 工具查询；不需要参考资料时无需调用。\n";
@@ -113,6 +122,7 @@ function isUpToDate(latestScore, plan, standardId) {
 }
 
 async function currentScore(plan, standard) {
+  if (!standard) return null;
   const latest = await AiPlanScore.findOne({ where: { planId: plan.id }, order: [["id", "DESC"]] });
   return isUpToDate(latest, plan, standard.id) ? latest : null;
 }
@@ -155,7 +165,7 @@ function buildSystemPrompt({ score, review, std, consistency, givenScore, withHi
   const heading = (name) => `【${numerals[tasks.indexOf(name)]}、${name}】`;
 
   const parts = [
-    `你是乡土课程评价专家。${std ? "请严格依据给定的「乡土课程 AI 点评评分标准」，" : "请"}对给出的乡土课程材料在同一次回复中完成：${tasks.join("、")}。\n`,
+    `你是乡土课程评价专家。${std ? "请严格依据给定的「乡土课程 AI 点评评分标准」，" : "请"}对给出的乡土课程设计方案（含分课时设计）在同一次回复中完成：${tasks.join("、")}。\n`,
   ];
   // The findings are always written out as JSON first, even when only a
   // review is asked for: a check the model only "does in its head" was
@@ -187,6 +197,7 @@ function buildSystemPrompt({ score, review, std, consistency, givenScore, withHi
     if (withHistory) lines.push("课程材料末尾附有此前的点评记录，请参考、避免重复此前已提出的意见，并可在此基础上继续深入。\n");
     lines.push(std ? REVIEW_RULES : FALLBACK_REVIEW_RULES);
     if (knowledgeTool) lines.push(KNOWLEDGE_TOOL_HINT);
+    if (knowledgeTool && score) lines.push(KNOWLEDGE_TOOL_SCORE_RULE);
     parts.push(lines.join(""));
   }
 
@@ -238,39 +249,32 @@ function parseReply(text, { score, review }) {
 //
 // `plan` must be loaded with PlanTemplateVersion, ExecutionTemplateVersion
 // and Teacher->School (aiPlanReview.js#loadPlan). Options:
-//   score        -- produce an AI 打分 (requires `standard`, whole-plan)
+//   score        -- produce an AI 打分 (requires `standard`)
 //   review       -- produce an AI 点评
-//   reviewScope  -- "whole" (实施整体点评: design + every lesson's 实施记录,
-//                   the scope scoring always uses) or "design" (课程设计 only)
 //   standard     -- the AI 点评标准 to judge by; null only for a fallback
 //                   review on an install with no standard yet
 //   seenByTeacher, userId -- stored on the review / score rows
-//   knowledgeTool -- review only: let the model search 学习资源库 over extra
-//                   tool rounds (the teacher's own 请AI点评); batches leave
-//                   it off to stay at one call per plan
+//   knowledgeTool -- let the review search 学习资源库 over extra tool rounds
+//                   (请AI点评); batches leave it off to stay at one call per
+//                   plan. With a score in the same turn, retrieved material
+//                   is barred from the score (KNOWLEDGE_TOOL_SCORE_RULE).
 // A review-only turn is handed the plan's current score, if any, so the two
 // agree, plus the review history (not new opinions to score by, but what a
 // review shouldn't just repeat). A turn that scores sees neither.
 async function evaluatePlan(
   plan,
-  { score = false, review = false, reviewScope = "whole", standard, seenByTeacher = false, userId = null, knowledgeTool = false }
+  { score = false, review = false, standard, seenByTeacher = false, userId = null, knowledgeTool = false }
 ) {
   if (!score && !review) throw new Error("evaluatePlan: nothing to do");
-  // A scoring turn never reaches outside the plan's own content.
-  const useTool = knowledgeTool && review && !score;
+  const useTool = knowledgeTool && review;
   if (score && !standard) throw new Error("尚未制定 AI 点评标准，请先在「AI 点评标准」中生成。");
-  const wholePlan = score || reviewScope === "whole";
-
-  let contentText;
-  if (wholePlan) {
-    contentText = await planContext.buildWholePlanContentText(plan);
-  } else {
-    const artifacts = plan.planFormData ? [] : await Artifact.findAll({ where: { planId: plan.id, lessonIndex: null } });
-    contentText = await planContext.buildPlanContentText(plan, null, artifacts);
-  }
+  // The 计划 only: the online design form incl. 分课时设计, or -- for an
+  // upload-mode plan -- its uploaded design files.
+  const artifacts = plan.planFormData ? [] : await Artifact.findAll({ where: { planId: plan.id, lessonIndex: null } });
+  const contentText = await planContext.buildPlanContentText(plan, null, artifacts);
 
   const reviewOnly = review && !score;
-  const givenScore = reviewOnly && standard && wholePlan ? await currentScore(plan, standard) : null;
+  const givenScore = reviewOnly ? await currentScore(plan, standard) : null;
   const history = reviewOnly ? await planContext.buildReviewHistoryText(plan.id) : "";
   const consistency = planConsistency.inputText(plan);
 
@@ -338,7 +342,7 @@ async function evaluatePlan(
           lessonIndex: null,
           reviewerType: "ai",
           reviewerId: null,
-          sectionKey: wholePlan ? WHOLE_PLAN_SECTION_KEY : null,
+          sectionKey: null, // 计划整体点评
           score: null,
           content: parsedReply.review,
           aiModel: result.model,
@@ -355,7 +359,7 @@ async function evaluatePlan(
 
 module.exports = {
   evaluatePlan,
+  currentScore,
   isUpToDate,
   standardText,
-  WHOLE_PLAN_SECTION_KEY,
 };

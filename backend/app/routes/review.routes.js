@@ -12,6 +12,8 @@ module.exports = function (app) {
   // in review.controller.js#createAiReview, since it depends on the plan.
   app.post("/api/plans/:planId/reviews/ai", [authJwt.verifyToken], reviews.createAiReview);
   app.post("/api/plans/:planId/reviews/seen", [authJwt.verifyToken], reviews.markSeen);
-  app.get("/api/plans/:planId/reviews", reviews.findByPlan);
+  // Soft auth: anyone may list reviews; an expert/admin caller additionally
+  // gets AI 打分 on the AI review rows (see review.controller.js#attachAiScores).
+  app.get("/api/plans/:planId/reviews", [authJwt.attachUserIfPresent], reviews.findByPlan);
   app.delete("/api/reviews/:id", [authJwt.verifyToken], reviews.delete);
 };

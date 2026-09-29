@@ -1,7 +1,7 @@
 // AI 打分加点评 (super only): one background batch that brings every
 // submitted plan (same scope as AI 打分 and bulk AI 点评) up to date on both
 // -- a plan is queued when it lacks an up-to-date AI score (current
-// standard, current content) or an up-to-date whole-plan AI review
+// standard, current content) or an up-to-date plan-scope AI review
 // (aiPlanReview.js#findCandidates' reviewedCurrent).
 //
 // Every queued plan costs exactly ONE LLM turn (aiPlanEvaluation.js)

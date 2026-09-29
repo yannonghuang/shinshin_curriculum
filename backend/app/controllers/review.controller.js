@@ -99,22 +99,25 @@ exports.createAiReview = async (req, res) => {
       }
     }
 
-    // Two scopes, one per 请AI点评 button: scope="implementation" is
-    // 实施整体点评 -- design + every lesson's execution content (see
-    // planContext.js#buildWholePlanContentText); anything else is
-    // 计划整体点评, the design alone.
-    const isWholePlanScope = req.body.scope === "implementation";
+    // AI 点评 is plan scope only (计划整体点评) -- 实施 has no AI for now.
+    if (req.body.scope === "implementation") {
+      return res.status(422).send({ message: "实施整体点评暂不提供 AI 点评。" });
+    }
 
     // Generation itself is shared with the admin's bulk AI 点评, see
     // services/aiPlanReview.js.
     const data = await aiPlanReview.generateAiReview(plan, {
-      wholePlan: isWholePlanScope,
       // Only the owner asking for it themselves has "seen" it -- one an
       // admin/expert triggered is new to the teacher and flashes for them.
       seenByTeacher: isOwner,
       // An interactive 请AI点评 may search 学习资源库 for reference material
       // (bulk/batch reviews stay at one LLM call per plan).
       knowledgeTool: true,
+      // ...and scores the plan in the same turn if it has no up-to-date AI
+      // score. Only the review is returned -- the score is for experts and
+      // admins, never teachers (the owner included).
+      scoreIfMissing: true,
+      userId: req.userId,
     });
 
     return res.send(data);
@@ -150,13 +153,13 @@ exports.findByPlan = async (req, res) => {
       }
     }
 
-    const data = await Review.findAll({
+    const rows = await Review.findAll({
       where,
       include: [{ model: User, as: "Reviewer", attributes: ["id", "username", "chineseName"], required: false }],
       order: [["id", "DESC"]],
     });
 
-    return res.send(data);
+    return res.send(await attachAiScores(planId, rows, req.userId));
   } catch (err) {
     return res.status(500).send({
       message: err.message || "查询点评列表时发生错误。",
@@ -197,6 +200,41 @@ exports.markSeen = async (req, res) => {
 
 // "super" inherits every admin privilege, including deleting any review
 // regardless of authorship.
+// AI 打分 rides along on the AI review rows it belongs to -- the score for
+// the same plan content version and standard, i.e. the one produced in (or
+// current at) that review's turn -- shown in the review list's 评分 column,
+// which teachers don't see. Only experts and admins get it (teachers,
+// the owner included, never receive an AI score from any endpoint), with
+// the same plan scope as 数据看板: admins any plan, experts only submitted,
+// non-suspended ones.
+async function attachAiScores(planId, rows, userId) {
+  const plain = rows.map((r) => r.get({ plain: true }));
+  const aiRows = plain.filter((r) => r.reviewerType === "ai" && r.lessonIndex === null);
+  if (!userId || aiRows.length === 0) return plain;
+  const isAdmin = await isAdminRequester(userId);
+  if (!isAdmin) {
+    if (!(await isExpertRequester(userId))) return plain;
+    const plan = await Plan.findByPk(planId, { attributes: ["status", "suspended"] });
+    if (!plan || plan.status === "draft" || plan.suspended) return plain;
+  }
+  const scores = await db.aiPlanScore.findAll({ where: { planId }, order: [["id", "DESC"]] });
+  const time = (d) => (d ? new Date(d).getTime() : null);
+  aiRows.forEach((r) => {
+    const s = scores.find(
+      (x) => Number(x.standardId) === Number(r.standardId) && time(x.planVersionAt) === time(r.planVersionAt)
+    );
+    if (s) {
+      r.aiScore = {
+        totalScore: Number(s.totalScore),
+        dimensionScores: s.dimensionScores,
+        summary: s.summary,
+        standardId: s.standardId,
+      };
+    }
+  });
+  return plain;
+}
+
 const isAdminRequester = async (userId) => {
   const user = await User.findByPk(userId);
   if (!user) return false;
