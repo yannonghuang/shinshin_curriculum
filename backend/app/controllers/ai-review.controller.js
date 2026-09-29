@@ -165,13 +165,15 @@ exports.runBulkReview = async (req, res) => {
   }
 };
 
-// GET /api/ai-review/score-review -- every submitted plan flagged with
-// whether it needs an AI score and/or a whole-plan AI 点评, plus the
-// current/last AI 打分加点评 batch status (super only).
+// GET /api/ai-review/score-review?minCompletion=&maxCompletion=&minScore=&maxScore=
+// -- every submitted plan flagged with whether it needs an AI score and/or
+// a whole-plan AI 点评 and whether it's `matched` (passes the filters and
+// needs something), plus the current/last AI 打分加点评 batch status
+// (super only).
 exports.getScoreReviewCandidates = async (req, res) => {
   try {
     const standard = await aiReviewStandard.getLatestStandard();
-    const plans = await aiScoreAndReview.findCandidates(standard ? standard.id : null);
+    const plans = await aiScoreAndReview.findCandidates(standard ? standard.id : null, aiPlanReview.parseCriteria(req.query));
     return res.send({
       plans,
       job: aiScoreAndReview.getJobStatus(),
@@ -182,11 +184,13 @@ exports.getScoreReviewCandidates = async (req, res) => {
   }
 };
 
-// POST /api/ai-review/score-review/run -- starts a background batch that
-// scores and/or reviews every plan still missing an up-to-date one.
+// POST /api/ai-review/score-review/run { minCompletion, maxCompletion,
+// minScore, maxScore } -- starts a background batch that scores and/or
+// reviews every matching plan still missing an up-to-date one; the matches
+// are recomputed server-side with the same filters the preview used.
 exports.runScoreReview = async (req, res) => {
   try {
-    const job = await aiScoreAndReview.startBatch({ userId: req.userId });
+    const job = await aiScoreAndReview.startBatch({ userId: req.userId, criteria: aiPlanReview.parseCriteria(req.body) });
     return res.status(202).send(job);
   } catch (err) {
     return res.status(err.status || 500).send({ message: err.message || "启动 AI 打分加点评时发生错误。" });

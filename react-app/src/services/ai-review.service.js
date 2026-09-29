@@ -55,15 +55,15 @@ class AiReviewDataService {
   }
 
   // AI 打分加点评 (super only): { plans: [...submitted plans, each flagged
-  // needsScore/needsReview], job, standard }
-  getScoreReviewCandidates() {
-    return http.get("/ai-review/score-review", { headers: authHeader() });
+  // needsScore/needsReview/matched against criteria], job, standard }
+  getScoreReviewCandidates(criteria) {
+    return http.get("/ai-review/score-review", { params: criteria, headers: authHeader() });
   }
 
-  // Starts a background AI 打分加点评 batch -- poll
-  // getScoreReviewCandidates() while job.running.
-  runScoreReview() {
-    return http.post("/ai-review/score-review/run", {}, { headers: authHeader() });
+  // Starts a background AI 打分加点评 batch over the plans matching
+  // criteria -- poll getScoreReviewCandidates() while job.running.
+  runScoreReview(criteria) {
+    return http.post("/ai-review/score-review/run", criteria, { headers: authHeader() });
   }
 
   saveRevision({ content, baseId, changeNote, cautions, signature }) {
