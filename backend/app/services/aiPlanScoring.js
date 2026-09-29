@@ -1,7 +1,7 @@
 // AI 打分 (read-only list): every submitted plan with its newest AI score
 // against the AI 点评标准 -- the same rubric for every plan, so scores are
 // comparable across plans. Scores are produced only through
-// aiPlanEvaluation.js#ensureEvaluation (请AI点评 and AI打分加点评); the
+// aiPlanEvaluation.js#ensureEvaluation (请AI点评 and AI 打分加点评); the
 // newest score of a plan is its current one while its content and the
 // standard are unchanged, older rows are history.
 const db = require("../models");

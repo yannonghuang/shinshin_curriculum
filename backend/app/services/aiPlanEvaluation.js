@@ -2,7 +2,7 @@
 // A plan has one current AI evaluation (a score and a review of its current
 // content under the standard in effect, see currentEvaluations), and the
 // only way to produce either is ensureEvaluation, used by both 请AI点评
-// (review.controller.js#createAiReview) and the AI打分加点评 batch
+// (review.controller.js#createAiReview) and the AI 打分加点评 batch
 // (aiScoreAndReview.js): it produces just what's missing, in ONE LLM turn,
 // and nothing when the evaluation is already current.
 //
@@ -121,7 +121,7 @@ function scoreText(score) {
 // the rest, and every row of older content or an older standard, are
 // history. Every path that produces AI output goes through ensureEvaluation
 // below, and every reader asks currentEvaluations, so the button (请AI点评)
-// and the AI打分加点评 batch can't diverge.
+// and the AI 打分加点评 batch can't diverge.
 
 const Op = db.Sequelize.Op;
 const timeOf = (d) => (d ? new Date(d).getTime() : null);

@@ -87,7 +87,7 @@ exports.createAiReview = async (req, res) => {
 
     // The owning teacher may request one on their own plan (part of working
     // on one's own case); an admin or expert may too, but only once the plan
-    // is submitted and not suspended -- the same plans AI打分加点评 covers
+    // is submitted and not suspended -- the same plans AI 打分加点评 covers
     // (see aiScoreAndReview.js#findCandidates). A draft is still the teacher's
     // work in progress, not yet up for review.
     const isOwner = plan.teacherId === req.userId;
@@ -109,7 +109,7 @@ exports.createAiReview = async (req, res) => {
     // The plan's single current AI evaluation (aiPlanEvaluation.js): when
     // its current content already has a review (and score) under the
     // standard in effect -- whether from an earlier click or from
-    // AI打分加点评 -- that one is returned and nothing is generated; else
+    // AI 打分加点评 -- that one is returned and nothing is generated; else
     // one turn produces just what's missing. Only the review is returned --
     // the score is for experts and admins, never teachers (the owner
     // included).

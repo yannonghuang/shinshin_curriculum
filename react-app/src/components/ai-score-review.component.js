@@ -41,7 +41,7 @@ const compareBy = (sortKey, sortDir) => (a, b) => {
 // 完成度/AI 总分 filters; the page already only runs what's missing.
 const DEFAULT_CRITERIA = { minCompletion: "60", maxCompletion: "", minScore: "", maxScore: "" };
 
-// AI -> AI打分加点评 (admin and super) -- the one batch producing AI
+// AI -> AI 打分加点评 (admin and super) -- the one batch producing AI
 // scores/reviews, sharing the plan's single current AI evaluation with
 // 请AI点评 (backend aiPlanEvaluation.js). One background batch (backend
 // services/aiScoreAndReview.js) bringing every submitted plan up to date on
@@ -100,7 +100,7 @@ const AiScoreReview = () => {
   }, [running]);
 
   if (!allowed) {
-    return <div className="alert alert-warning">AI打分加点评仅对管理员开放。</div>;
+    return <div className="alert alert-warning">AI 打分加点评仅对管理员开放。</div>;
   }
 
   const matched = plans.filter((p) => p.matched);
@@ -167,7 +167,7 @@ const AiScoreReview = () => {
   return (
     <div className="container">
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <h4 className="mb-0">AI打分加点评</h4>
+        <h4 className="mb-0">AI 打分加点评</h4>
         <button className="btn btn-primary btn-sm" disabled={running || !standard || matched.length === 0} onClick={run}>
           开始（{matched.length} 个课程）
         </button>
