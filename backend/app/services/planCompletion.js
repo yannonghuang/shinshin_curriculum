@@ -7,9 +7,16 @@
 //                       with an answer (an upload-mode plan with no online
 //                       form counts as complete once a design file exists)
 //   分课时设计   20%  -- per 课时, share of the template's per-lesson fields
-//                       answered, averaged over 预计课时
+//                       answered, weighted over 预计课时 (see below)
 //   课时实施     30%  -- per 课时, share of the pinned lesson_execution
-//                       template's fields answered, averaged over 预计课时
+//                       template's fields answered, weighted over 预计课时
+//
+// The generic sections (基本信息 + 课程设计) carry half the total. Within
+// each per-lesson part, lessons weigh linearly less the later they come:
+// with n 课时, 课时1 weighs n, 课时2 n-1, ... 课时n 1 (normalized) -- e.g.
+// 4 课时: 40%/30%/20%/10% of that part. The nearer lessons are the ones a
+// teacher works on first, so a plan whose first lessons are filled in
+// counts as further along than one with only its last lessons done.
 //
 // Field-based rather than character-count-based so a long answer in one box
 // can't make up for ten empty ones, and schema-driven (whichever template
@@ -67,11 +74,14 @@ const lessonCountOf = (plan) => {
   return plan.plannedLessonCount || lessons.length || 0;
 };
 
-const averageOverLessons = (count, ratioForLesson) => {
+// Linearly decaying lesson weights, see the header: 课时i weighs
+// (count - i + 1) / (1 + 2 + ... + count).
+const weightedOverLessons = (count, ratioForLesson) => {
   if (count <= 0) return 0;
+  const total = (count * (count + 1)) / 2;
   let sum = 0;
-  for (let i = 1; i <= count; i += 1) sum += ratioForLesson(i);
-  return sum / count;
+  for (let i = 1; i <= count; i += 1) sum += ((count - i + 1) / total) * ratioForLesson(i);
+  return sum;
 };
 
 // `plan` is a plain plan row; `planSchema`/`executionSchema` are the pinned
@@ -97,12 +107,12 @@ function computeCompletion(plan, { planSchema, executionSchema, hasDesignArtifac
   // No per-lesson template -> the freeform 标题/内容 pair dynamicDocGenerator
   // falls back to.
   const lessonKeys = lessonSchema ? Array.from(collectFieldKeys(lessonSchema)) : ["title", "content"];
-  const lessonDesign = averageOverLessons(lessonCount, (i) =>
+  const lessonDesign = weightedOverLessons(lessonCount, (i) =>
     fillRatioForKeys(lessonKeys, lessons.find((l) => Number(l.index) === i))
   );
 
   const records = Array.isArray(plan.executionFormData) ? plan.executionFormData : [];
-  const execution = averageOverLessons(lessonCount, (i) =>
+  const execution = weightedOverLessons(lessonCount, (i) =>
     fillRatioForSchema(executionSchema, records.find((r) => Number(r.index) === i) || {})
   );
 

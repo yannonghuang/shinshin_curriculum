@@ -17,11 +17,10 @@ module.exports = function (app) {
   app.post("/api/ai-review/standard/check", guard, aiReview.checkRevision);
   app.post("/api/ai-review/standard/revisions", guard, aiReview.saveRevision);
   app.post("/api/ai-review/standard/generate", guard, aiReview.generateStandard);
-  app.get("/api/ai-review/scores", guard, aiReview.getScores);
 
-  // AI 打分加点评 -- the one batch producing AI scores/reviews -- is for
-  // admins (super included, see authJwt.isAdmin).
+  // AI 打分加点评: experts read it, admins (super included, see
+  // authJwt.isAdmin) can also run the batch.
+  app.get("/api/ai-review/score-review", guard, aiReview.getScoreReview);
   const adminGuard = [authJwt.verifyToken, authJwt.isAdmin];
-  app.get("/api/ai-review/score-review", adminGuard, aiReview.getScoreReviewCandidates);
   app.post("/api/ai-review/score-review/run", adminGuard, aiReview.runScoreReview);
 };

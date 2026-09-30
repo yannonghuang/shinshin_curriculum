@@ -1,8 +1,8 @@
 module.exports = (sequelize, Sequelize) => {
   // One AI 打分 result: a plan scored against one specific AI 点评标准
-  // version (see services/aiPlanScoring.js). Append-only -- rescoring adds a
-  // row, the newest per plan is the one shown -- so every score stays
-  // traceable to the exact standard and plan content it was produced from.
+  // version (see services/aiPlanEvaluation.js). A new score replaces the
+  // plan's previous one, so a plan carries only its current score, traceable
+  // to the exact standard and plan content it was produced from.
   const AiPlanScore = sequelize.define(
     "aiPlanScore",
     {

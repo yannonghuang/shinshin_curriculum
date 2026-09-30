@@ -4,7 +4,6 @@
 // #generateStandard only kicks it off, and the page polls #getStandard until
 // `generating` goes false.
 const aiReviewStandard = require("../services/aiReviewStandard");
-const aiPlanScoring = require("../services/aiPlanScoring");
 const aiReviewStandardDoc = require("../services/aiReviewStandardDoc");
 const aiScoreAndReview = require("../services/aiScoreAndReview");
 
@@ -98,43 +97,33 @@ exports.generateStandard = async (req, res) => {
   }
 };
 
-// GET /api/ai-review/scores -- every submitted plan with its newest AI
-// score (read-only: scores are produced by 请AI点评 and AI 打分加点评).
-exports.getScores = async (req, res) => {
-  try {
-    const [plans, standard] = await Promise.all([aiPlanScoring.listScores(), aiReviewStandard.getLatestStandard()]);
-    return res.send({ plans, standard: standard ? { id: standard.id, content: standard.content } : null });
-  } catch (err) {
-    return res.status(500).send({ message: err.message || "查询 AI 打分结果时发生错误。" });
-  }
-};
-
-// GET /api/ai-review/score-review?minCompletion=&maxCompletion=&minScore=&maxScore=
-// -- every submitted plan flagged with whether its current AI evaluation
-// still needs a score and/or a review and whether it's `matched` (passes
-// the filters and needs something), plus the current/last AI 打分加点评
-// batch status (admin and super).
-exports.getScoreReviewCandidates = async (req, res) => {
+// GET /api/ai-review/score-review -- every submitted plan with its current
+// AI score and review and what its evaluation still needs, plus the
+// current/last AI 打分加点评 batch status. Experts and admins (read-only
+// for experts: running is admin only, see the routes).
+exports.getScoreReview = async (req, res) => {
   try {
     const standard = await aiReviewStandard.getLatestStandard();
-    const plans = await aiScoreAndReview.findCandidates(standard, aiScoreAndReview.parseCriteria(req.query));
+    const plans = await aiScoreAndReview.listPlans(standard);
     return res.send({
       plans,
       job: aiScoreAndReview.getJobStatus(),
       standard: standard ? { id: standard.id, totalScore: standard.content.totalScore } : null,
     });
   } catch (err) {
-    return res.status(500).send({ message: err.message || "查询 AI 打分加点评课程时发生错误。" });
+    return res.status(500).send({ message: err.message || "查询 AI 打分加点评时发生错误。" });
   }
 };
 
-// POST /api/ai-review/score-review/run { minCompletion, maxCompletion,
-// minScore, maxScore } -- starts the background batch bringing every
-// matching plan's AI evaluation up to date; the matches are recomputed
-// server-side with the same filters the preview used.
+// POST /api/ai-review/score-review/run { planIds } -- starts the background
+// batch over the plans the page shows; of those, only the ones whose
+// evaluation still needs a score or review are processed (recomputed
+// server-side).
 exports.runScoreReview = async (req, res) => {
   try {
-    const job = await aiScoreAndReview.startBatch({ userId: req.userId, criteria: aiScoreAndReview.parseCriteria(req.body) });
+    const planIds = Array.isArray(req.body.planIds) ? req.body.planIds.map(Number).filter(Number.isInteger) : [];
+    if (planIds.length === 0) return res.status(422).send({ message: "没有要处理的课程。" });
+    const job = await aiScoreAndReview.startBatch({ userId: req.userId, planIds });
     return res.status(202).send(job);
   } catch (err) {
     return res.status(err.status || 500).send({ message: err.message || "启动 AI 打分加点评时发生错误。" });
