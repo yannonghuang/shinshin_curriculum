@@ -59,11 +59,25 @@ async function listScores() {
     raw: true,
   });
   const aiReviewedIds = new Set(reviewRows.filter((r) => r.reviewerType === "ai").map((r) => Number(r.planId)));
+  // Each plan's newest plan-scope AI review -- the other half of the same
+  // evaluation as its score (aiPlanEvaluation.js), shown alongside the
+  // score's per-dimension rationale.
+  const aiReviews = await Review.findAll({
+    attributes: ["id", "planId", "content", "standardId", "planVersionAt", "createdAt"],
+    where: { planId: { [Op.in]: planIds }, reviewerType: "ai", sectionKey: null, lessonIndex: null },
+    order: [["id", "DESC"]],
+  });
+  const latestReview = new Map();
+  aiReviews.forEach((r) => {
+    if (!latestReview.has(Number(r.planId))) latestReview.set(Number(r.planId), r);
+  });
+  const time = (d) => (d ? new Date(d).getTime() : null);
   const expertReviewedIds = new Set(reviewRows.filter((r) => r.reviewerType === "expert").map((r) => Number(r.planId)));
 
   return plans
     .map((p) => {
       const s = latest.get(Number(p.id));
+      const rv = latestReview.get(Number(p.id));
       return {
         planId: p.id,
         title: p.title,
@@ -89,6 +103,15 @@ async function listScores() {
               contentChanged:
                 (s.planVersionAt ? new Date(s.planVersionAt).getTime() : null) !==
                 (p.contentVersionAt ? new Date(p.contentVersionAt).getTime() : null),
+            }
+          : null,
+        review: rv
+          ? {
+              id: rv.id,
+              standardId: rv.standardId,
+              content: rv.content,
+              createdAt: rv.createdAt,
+              contentChanged: time(rv.planVersionAt) !== time(p.contentVersionAt),
             }
           : null,
       };

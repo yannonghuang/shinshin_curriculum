@@ -51,6 +51,10 @@ const AiScores = () => {
   const [loaded, setLoaded] = useState(false);
   const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState(null);
+  // Which half of the expanded plan's evaluation is shown: its score's
+  // per-dimension rationale, or its AI 点评 -- the two come from the same
+  // turn (backend aiPlanEvaluation.js), so they're read side by side here.
+  const [expandedTab, setExpandedTab] = useState("score");
   const allowed = AuthService.isExpert() || AuthService.isAdmin();
 
   // Filter + sort state, restored from / kept in sync with the URL -- same
@@ -267,7 +271,7 @@ const AiScores = () => {
           <p className="small mb-2">
             {visiblePlans.length === plans.length ? `共 ${plans.length} 个课程` : `筛选出 ${visiblePlans.length} / ${plans.length} 个课程`}
             ，已打分 {scored.length} 个
-            {average !== null && `，平均分 ${average}`}。点击行查看各维度打分理由。
+            {average !== null && `，平均分 ${average}`}。点击行查看各维度打分理由与 AI 点评。
           </p>
           <table className="table table-bordered table-sm table-hover">
             <thead className="thead-light">
@@ -280,7 +284,7 @@ const AiScores = () => {
                   总分 <i className={`fas ${sortIcon("score")} ml-1`} />
                 </th>
                 <th style={{ width: "28%" }}>各维度得分</th>
-                <th style={{ width: "14%" }}>打分时间</th>
+                <th style={{ width: "14%" }}>打分 / 点评时间</th>
               </tr>
             </thead>
             <tbody>
@@ -293,10 +297,17 @@ const AiScores = () => {
               )}
               {visiblePlans.map((p) => {
                 const s = p.score;
+                const rv = p.review;
                 const isOpen = expanded === p.planId;
+                const openable = !!(s || rv);
+                const toggle = () => {
+                  if (!openable) return;
+                  setExpanded(isOpen ? null : p.planId);
+                  setExpandedTab(s ? "score" : "review");
+                };
                 return (
                   <React.Fragment key={p.planId}>
-                    <tr style={{ cursor: s ? "pointer" : "default" }} onClick={() => s && setExpanded(isOpen ? null : p.planId)}>
+                    <tr style={{ cursor: openable ? "pointer" : "default" }} onClick={toggle}>
                       <td>
                         <Link to={`/plans/${p.planId}`} onClick={(e) => e.stopPropagation()}>
                           {p.title}
@@ -333,25 +344,60 @@ const AiScores = () => {
                             <span className="badge badge-secondary">课程内容已修改</span>
                           </div>
                         )}
+                        <div className="text-muted mt-1">
+                          点评：{rv ? new Date(rv.createdAt).toLocaleString() : "无"}
+                        </div>
                       </td>
                     </tr>
                     {isOpen && (
                       <tr>
                         <td colSpan={5} className="bg-light small">
-                          {s.summary && <p className="mb-2">{s.summary}</p>}
-                          {s.dimensionScores.map((d) => (
-                            <div key={d.name} className="mb-1">
-                              <b>
-                                {d.name}（{d.score}/{d.weight}
-                                {d.level && `，${d.level}`}）
-                              </b>
-                              ：{d.rationale}
-                            </div>
-                          ))}
-                          <div className="text-muted mt-2">
-                            标准版本 #{s.standardId}
-                            {s.aiModel && ` · ${s.aiModel}`}
-                          </div>
+                          <ul className="nav nav-tabs mb-2">
+                            {[
+                              ["score", "打分理由", !!s],
+                              ["review", "AI 点评", !!rv],
+                            ].map(([key, label, available]) => (
+                              <li className="nav-item" key={key}>
+                                <button
+                                  type="button"
+                                  className={`nav-link btn btn-link btn-sm ${expandedTab === key ? "active" : ""}`}
+                                  disabled={!available}
+                                  onClick={() => setExpandedTab(key)}
+                                >
+                                  {label}
+                                  {!available && "（无）"}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                          {expandedTab === "score" && s && (
+                            <>
+                              {s.summary && <p className="mb-2">{s.summary}</p>}
+                              {s.dimensionScores.map((d) => (
+                                <div key={d.name} className="mb-1">
+                                  <b>
+                                    {d.name}（{d.score}/{d.weight}
+                                    {d.level && `，${d.level}`}）
+                                  </b>
+                                  ：{d.rationale}
+                                </div>
+                              ))}
+                              <div className="text-muted mt-2">
+                                标准版本 #{s.standardId}
+                                {s.aiModel && ` · ${s.aiModel}`}
+                              </div>
+                            </>
+                          )}
+                          {expandedTab === "review" && rv && (
+                            <>
+                              <div style={{ whiteSpace: "pre-wrap" }}>{rv.content}</div>
+                              <div className="text-muted mt-2">
+                                {rv.standardId ? `标准版本 #${rv.standardId}` : "未依据标准"}
+                                {` · ${new Date(rv.createdAt).toLocaleString()}`}
+                                {rv.contentChanged && " · 课程内容已在点评后修改"}
+                              </div>
+                            </>
+                          )}
                         </td>
                       </tr>
                     )}
