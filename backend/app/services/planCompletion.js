@@ -1,33 +1,32 @@
-// 完成度: how much of a plan the teacher has actually filled in, as a
-// weighted average of four parts (each 0..1):
+// 完成度: how much of the 计划 (plan) the teacher has filled in -- plan
+// scope only, like every AI artifact; the per-lesson 实施记录 is left out.
+// A weighted average of three parts (each 0..1):
 //
 //   基本信息     10%  -- title (renamed from the "未命名课程设计" placeholder),
 //                       theme, grade, season, 预计课时, 学生人数, 执教人
 //   课程设计     40%  -- share of the pinned plan_design template's fields
 //                       with an answer (an upload-mode plan with no online
 //                       form counts as complete once a design file exists)
-//   分课时设计   20%  -- per 课时, share of the template's per-lesson fields
+//   分课时设计   50%  -- per 课时, share of the template's per-lesson fields
 //                       answered, weighted over 预计课时 (see below)
-//   课时实施     30%  -- per 课时, share of the pinned lesson_execution
-//                       template's fields answered, weighted over 预计课时
 //
 // The generic sections (基本信息 + 课程设计) carry half the total. Within
-// each per-lesson part, lessons weigh linearly less the later they come:
-// with n 课时, 课时1 weighs n, 课时2 n-1, ... 课时n 1 (normalized) -- e.g.
-// 4 课时: 40%/30%/20%/10% of that part. The nearer lessons are the ones a
-// teacher works on first, so a plan whose first lessons are filled in
-// counts as further along than one with only its last lessons done.
+// 分课时设计, lessons weigh linearly less the later they come: with n 课时,
+// 课时1 weighs n, 课时2 n-1, ... 课时n 1 (normalized) -- e.g. 4 课时:
+// 40%/30%/20%/10% of that part. The nearer lessons are the ones a teacher
+// works on first, so a plan whose first lessons are filled in counts as
+// further along than one with only its last lessons done.
 //
 // Field-based rather than character-count-based so a long answer in one box
 // can't make up for ten empty ones, and schema-driven (whichever template
 // version the plan is pinned to) so it follows template changes without a
-// code change. A plan with no 预计课时 and no lessons scores 0 on both
-// per-lesson parts -- planning zero lessons isn't a finished plan.
+// code change. A plan with no 预计课时 and no lessons scores 0 on
+// 分课时设计 -- planning zero lessons isn't a finished plan.
 // Placeholder title plans-list.component.js#createEmptyPlan creates every
 // new plan with -- not yet a real title.
 const EMPTY_TITLE = "未命名课程设计";
 
-const WEIGHTS = { basic: 0.1, design: 0.4, lessonDesign: 0.2, execution: 0.3 };
+const WEIGHTS = { basic: 0.1, design: 0.4, lessonDesign: 0.5 };
 
 const isFilled = (value) => {
   if (value === null || value === undefined) return false;
@@ -84,10 +83,10 @@ const weightedOverLessons = (count, ratioForLesson) => {
   return sum;
 };
 
-// `plan` is a plain plan row; `planSchema`/`executionSchema` are the pinned
-// template versions' schemaJson (or null); `hasDesignArtifact` covers the
+// `plan` is a plain plan row; `planSchema` is the pinned plan_design
+// template version's schemaJson (or null); `hasDesignArtifact` covers the
 // upload-mode case.
-function computeCompletion(plan, { planSchema, executionSchema, hasDesignArtifact }) {
+function computeCompletion(plan, { planSchema, hasDesignArtifact }) {
   const basicValues = [
     plan.title && plan.title.trim() !== EMPTY_TITLE ? plan.title : null,
     plan.theme,
@@ -111,12 +110,7 @@ function computeCompletion(plan, { planSchema, executionSchema, hasDesignArtifac
     fillRatioForKeys(lessonKeys, lessons.find((l) => Number(l.index) === i))
   );
 
-  const records = Array.isArray(plan.executionFormData) ? plan.executionFormData : [];
-  const execution = weightedOverLessons(lessonCount, (i) =>
-    fillRatioForSchema(executionSchema, records.find((r) => Number(r.index) === i) || {})
-  );
-
-  const parts = { basic, design, lessonDesign, execution };
+  const parts = { basic, design, lessonDesign };
   const overall = Object.keys(WEIGHTS).reduce((sum, k) => sum + WEIGHTS[k] * parts[k], 0);
   const pct = (n) => Math.round(n * 100);
   return {
@@ -124,7 +118,6 @@ function computeCompletion(plan, { planSchema, executionSchema, hasDesignArtifac
     basic: pct(basic),
     design: pct(design),
     lessonDesign: pct(lessonDesign),
-    execution: pct(execution),
     lessonCount,
   };
 }

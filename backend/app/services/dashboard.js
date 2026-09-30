@@ -49,7 +49,6 @@ async function buildRows({ submittedOnly = false } = {}) {
   const versionIds = new Set();
   plans.forEach((p) => {
     if (p.planTemplateVersionId) versionIds.add(p.planTemplateVersionId);
-    if (p.executionTemplateVersionId) versionIds.add(p.executionTemplateVersionId);
   });
   const [versions, designArtifacts, scoreRows, reviewRows, standard] = await Promise.all([
     db.templateVersion.findAll({ where: { id: { [Op.in]: Array.from(versionIds) } }, attributes: ["id", "schemaJson"] }),
@@ -107,7 +106,6 @@ async function buildRows({ submittedOnly = false } = {}) {
       updatedAt: p.contentVersionAt,
       completion: computeCompletion(p, {
         planSchema: schemaById.get(Number(p.planTemplateVersionId)) || null,
-        executionSchema: schemaById.get(Number(p.executionTemplateVersionId)) || null,
         hasDesignArtifact: hasDesignArtifact.has(id),
       }),
       aiScore: s
@@ -159,7 +157,6 @@ const EXPORT_FIELDS = [
   { key: "completionBasic", label: "基本信息(%)", width: 10, value: (r) => r.completion.basic },
   { key: "completionDesign", label: "课程设计(%)", width: 10, value: (r) => r.completion.design },
   { key: "completionLessonDesign", label: "分课时设计(%)", width: 12, value: (r) => r.completion.lessonDesign },
-  { key: "completionExecution", label: "课时实施(%)", width: 10, value: (r) => r.completion.execution },
   { key: "lessonCount", label: "课时数", width: 8, value: (r) => r.completion.lessonCount },
   { key: "aiScore", label: "AI 总分", width: 8, defaultOn: true, value: (r) => (r.aiScore ? r.aiScore.totalScore : "") },
   {
