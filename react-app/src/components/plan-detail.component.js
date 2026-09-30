@@ -855,6 +855,19 @@ const PlanDetail = (props) => {
   useEffect(() => {
     refreshUnseenReviews();
   }, [refreshUnseenReviews]);
+  // A review can arrive while the teacher has this page open (an expert's
+  // comment, a batch's AI 点评) -- re-check whenever they come back to the
+  // tab, so the flash doesn't wait for a reload.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshUnseenReviews();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refreshUnseenReviews]);
+  // The flash must stay visible however the nav is folded: a collapsed
+  // 计划/实施 folder, or the whole nav hidden, carries its leaf's signal.
+  const unseenAny = unseenReviews.design || unseenReviews.implementation;
 
   // Returns to wherever the user actually came from (browser/react-router
   // POP), rather than a fixed destination -- every entry point that links
@@ -1605,11 +1618,12 @@ const PlanDetail = (props) => {
             (not just shrunk) and this handle is the only remaining trace of it. */}
         <button
           type="button"
-          className="pl-explorer-hide-toggle"
+          className={`pl-explorer-hide-toggle ${navCollapsed && unseenAny ? "pl-flash-unseen" : ""}`}
           onClick={() => setNavCollapsed((prev) => !prev)}
-          title={navCollapsed ? "显示导航" : "隐藏导航"}
+          title={navCollapsed ? (unseenAny ? "显示导航（有新的点评）" : "显示导航") : "隐藏导航"}
         >
           <i className={`fas fa-${navCollapsed ? "angle-double-right" : "angle-double-left"}`}></i>
+          {navCollapsed && unseenAny && <span className="pl-unseen-dot" />}
         </button>
 
         {!navCollapsed && (
@@ -1617,7 +1631,8 @@ const PlanDetail = (props) => {
             <div className="pl-explorer-group">
               <button
                 type="button"
-                className="pl-explorer-folder"
+                className={`pl-explorer-folder ${!expandedGroups.plan && unseenReviews.design ? "pl-flash-unseen" : ""}`}
+                title={!expandedGroups.plan && unseenReviews.design ? "计划整体点评有新的点评" : undefined}
                 onClick={() => {
                   toggleGroup("plan");
                   // 计划 itself has no content of its own -- unlike the other
@@ -1630,6 +1645,7 @@ const PlanDetail = (props) => {
               >
                 <i className={`fas fa-chevron-${expandedGroups.plan ? "down" : "right"} pl-explorer-chevron`}></i>
                 <i className="fas fa-folder-open pl-folder-icon mr-1"></i> 计划
+                {!expandedGroups.plan && unseenReviews.design && <span className="pl-unseen-dot" />}
               </button>
               {expandedGroups.plan && (
                 <div className="pl-explorer-children">
@@ -1733,7 +1749,8 @@ const PlanDetail = (props) => {
             <div className="pl-explorer-group">
               <button
                 type="button"
-                className="pl-explorer-folder"
+                className={`pl-explorer-folder ${!expandedGroups.execution && unseenReviews.implementation ? "pl-flash-unseen" : ""}`}
+                title={!expandedGroups.execution && unseenReviews.implementation ? "实施整体点评有新的点评" : undefined}
                 onClick={() => {
                   toggleGroup("execution");
                   select("none");
@@ -1741,6 +1758,7 @@ const PlanDetail = (props) => {
               >
                 <i className={`fas fa-chevron-${expandedGroups.execution ? "down" : "right"} pl-explorer-chevron`}></i>
                 <i className="fas fa-folder-open pl-folder-icon mr-1"></i> 实施
+                {!expandedGroups.execution && unseenReviews.implementation && <span className="pl-unseen-dot" />}
               </button>
               {expandedGroups.execution && (
                 <div className="pl-explorer-children">

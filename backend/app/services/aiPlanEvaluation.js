@@ -212,6 +212,46 @@ async function ensureEvaluation(plan, { standard, want = { score: true, review: 
   });
 }
 
+// ---- Replacing the previous evaluation ----
+//
+// A new score or review *replaces* the plan's previous one(s): they're
+// deleted in the same transaction the new row is written in, so a plan
+// never carries more than its current AI score and AI review. The one
+// exception is an old AI review with a 欣欣助手 discussion (a chat
+// conversation scoped "review:<id>" with messages) -- the teacher may have
+// read and discussed it, so it's kept, as history, rather than pulling the
+// thread out from under them (same rule as the
+// 20261002000000-ai-evaluation-dedup migration).
+
+async function pruneOldScores(planId, keepId, transaction) {
+  await AiPlanScore.destroy({ where: { planId, id: { [Op.ne]: keepId } }, transaction });
+}
+
+async function pruneOldReviews(planId, keepId, transaction) {
+  const old = await Review.findAll({
+    where: { planId, reviewerType: "ai", sectionKey: null, lessonIndex: null, id: { [Op.ne]: keepId } },
+    attributes: ["id"],
+    transaction,
+  });
+  if (old.length === 0) return;
+  const keys = old.map((r) => `review:${r.id}`);
+  const discussed = await db.chatConversation.findAll({
+    where: { scopeKey: { [Op.in]: keys } },
+    include: [{ model: db.chatMessage, as: "Messages", attributes: ["id"], required: true }],
+    attributes: ["scopeKey"],
+    transaction,
+  });
+  const keepKeys = new Set(discussed.map((c) => c.scopeKey));
+  const deleteIds = old.map((r) => r.id).filter((id) => !keepKeys.has(`review:${id}`));
+  if (deleteIds.length === 0) return;
+  await Review.destroy({ where: { id: { [Op.in]: deleteIds } }, transaction });
+  // Their (message-less) conversations would otherwise point at nothing.
+  await db.chatConversation.destroy({
+    where: { scopeKey: { [Op.in]: deleteIds.map((id) => `review:${id}`) } },
+    transaction,
+  });
+}
+
 // ---- The turn ----
 
 const round1 = (n) => Math.round(n * 10) / 10;
@@ -421,6 +461,7 @@ async function evaluatePlan(
         },
         { transaction }
       );
+      await pruneOldScores(plan.id, out.score.id, transaction);
     }
     if (review) {
       out.review = await Review.create(
@@ -439,6 +480,7 @@ async function evaluatePlan(
         },
         { transaction }
       );
+      await pruneOldReviews(plan.id, out.review.id, transaction);
     }
     return out;
   });
