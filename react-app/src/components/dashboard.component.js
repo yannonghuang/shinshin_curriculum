@@ -30,6 +30,8 @@ const parseBound = (text) => (text === "" || text === null || Number.isNaN(Numbe
 
 const sortValue = {
   school: (r) => r.schoolName || "",
+  // 已提交 before 草稿 on the natural (high→low) direction.
+  submitted: (r) => (r.submitted ? 1 : 0),
   completion: (r) => r.completion.overall,
   aiScore: (r) => (r.aiScore ? r.aiScore.totalScore : null),
 };
@@ -218,8 +220,9 @@ const Dashboard = () => {
     sortDir,
   ]);
 
-  // First click sorts in the column's natural direction (学校 A→Z, 完成度 and
-  // AI 分数 high→low); clicking the active column again flips it.
+  // First click sorts in the column's natural direction (学校 A→Z; 是否提交
+  // 已提交 first; 完成度 and AI 分数 high→low); clicking the active column
+  // again flips it.
   const toggleSort = (key) => {
     if (sortKey === key) {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -527,12 +530,13 @@ const Dashboard = () => {
       {loaded && (
         <p className="small mb-2">
           {visibleRows.length === rows.length ? `共 ${rows.length} 个课程` : `筛选出 ${visibleRows.length} / ${rows.length} 个课程`}
+          {`，已提交 ${visibleRows.filter((r) => r.submitted).length} 个`}
           {avgCompletion !== null && `，平均完成度 ${avgCompletion}%`}
           {`，已打分 ${scoredRows.length} 个`}
           {avgScore !== null && `，AI 平均分 ${avgScore}`}。
-          <span className="text-muted ml-2" title="基本信息 10% + 课程设计 40% + 分课时设计 20% + 课时实施 30%，各部分按模板字段的填写比例计算；分课时设计与课时实施中，越靠前的课时权重越高（线性递减）">
+          <span className="text-muted ml-2" title="只计计划部分（不含课时实施记录）：基本信息 10% + 课程设计 40% + 分课时设计 50%，各部分按模板字段的填写比例计算；分课时设计中，越靠前的课时权重越高（线性递减）">
             <i className="fas fa-info-circle mr-1" />
-            完成度 = 基本信息 10% + 课程设计 40% + 分课时设计 20% + 课时实施 30%（按模板字段填写比例，靠前课时权重更高）
+            完成度（计划）= 基本信息 10% + 课程设计 40% + 分课时设计 50%（按模板字段填写比例，靠前课时权重更高）
           </span>
         </p>
       )}
@@ -543,7 +547,7 @@ const Dashboard = () => {
             <th style={{ width: "9%" }}>教师</th>
             {sortableTh("school", "学校", { width: "18%" })}
             <th>课程</th>
-            <th style={{ width: "7%" }}>是否提交</th>
+            {sortableTh("submitted", "是否提交", { width: "7%" })}
             {sortableTh("completion", "完成度", { width: "14%" })}
             {sortableTh("aiScore", "AI 分数", { width: "10%" })}
             <th style={{ width: "13%" }}>专家点评</th>
@@ -586,7 +590,7 @@ const Dashboard = () => {
                   </td>
                   <td
                     className="small"
-                    title={`基本信息 ${c.basic}% · 课程设计 ${c.design}% · 分课时设计 ${c.lessonDesign}% · 课时实施 ${c.execution}%（${c.lessonCount} 课时）`}
+                    title={`基本信息 ${c.basic}% · 课程设计 ${c.design}% · 分课时设计 ${c.lessonDesign}%（${c.lessonCount} 课时）`}
                   >
                     <div className="d-flex align-items-center">
                       <div className="progress flex-grow-1 mr-2" style={{ height: 8 }}>
