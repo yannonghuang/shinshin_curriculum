@@ -103,28 +103,30 @@ const segmentKeyForReview = (review) => {
 // Which of a plan's reviews a ReviewList shows -- a segment mini-widget
 // only its own section's (the lessonIndex prop, when set, already narrowed
 // the fetch server-side). An aggregate fetches every review for the plan (no
-// lessonIndex sent -- see review.service.js) and keeps: its own directly-
-// written comments/AI review (tagged with its write sectionKey, lessonIndex
-// null), plus every segment review in its scope regardless of that
-// segment's own lessonIndex -- 设计's aggregate scopes to
-// DESIGN_SEGMENT_KEYS, 实施's additionally includes EXECUTION_RECORD. AI
-// reviews are plan scope only (backend aiPlanEvaluation.js), so they live
-// in 计划整体点评 alone. Exported so
+// lessonIndex sent -- see review.service.js) and keeps its own scope only:
+// its directly-written comments/AI review (tagged with its write
+// sectionKey, lessonIndex null) plus the segment reviews of its own section
+// -- 计划整体点评 the design segments (DESIGN_SEGMENT_KEYS), 实施整体点评 the
+// 实施记录 ones (EXECUTION_RECORD). A review appears in exactly one of the
+// two, never repeated in the other. AI reviews are plan scope only (backend
+// aiPlanEvaluation.js), so they live in 计划整体点评. Exported so
 // plan-detail.component.js's unseen-review flash covers exactly the reviews
 // each 整体点评 view shows.
 export const scopeReviews = (list, { sectionKey, aggregateScope, sectionLabels }) => {
   if (sectionKey) return list.filter((r) => r.sectionKey === sectionKey);
-  const writeSectionKey = aggregateScope === "implementation" ? "IMPLEMENTATION_OVERALL" : null;
+  const isImplementation = aggregateScope === "implementation";
+  const writeSectionKey = isImplementation ? "IMPLEMENTATION_OVERALL" : null;
+  // See DESIGN_SEGMENT_KEYS' comment -- recognizes a heading-parsed
+  // template's own "S0"/"S1"/... anchor keys (via sectionLabels) in addition
+  // to the fixed literal list, so a segment review on one of those doesn't
+  // silently disappear from the aggregate view.
+  const isDesignSegment = (r) =>
+    DESIGN_SEGMENT_KEYS.includes(r.sectionKey) ||
+    (!!sectionLabels && Object.prototype.hasOwnProperty.call(sectionLabels, r.sectionKey));
   return list.filter(
     (r) =>
       (r.sectionKey === writeSectionKey && (r.lessonIndex === null || r.lessonIndex === undefined)) ||
-      // See DESIGN_SEGMENT_KEYS' comment -- recognizes a heading-parsed
-      // template's own "S0"/"S1"/... anchor keys (via sectionLabels) in
-      // addition to the fixed literal list, so a segment review on one of
-      // those doesn't silently disappear from the aggregate view.
-      DESIGN_SEGMENT_KEYS.includes(r.sectionKey) ||
-      (sectionLabels && Object.prototype.hasOwnProperty.call(sectionLabels, r.sectionKey)) ||
-      (aggregateScope === "implementation" && r.sectionKey === "EXECUTION_RECORD")
+      (isImplementation ? r.sectionKey === "EXECUTION_RECORD" : isDesignSegment(r))
   );
 };
 
