@@ -32,21 +32,17 @@ class AiReviewDataService {
     return http.post("/ai-review/standard/check", { content, baseId }, { headers: authHeader() });
   }
 
-  // { plans: [...AI-reviewed plans with newest score], job, standard }
-  getScores() {
-    return http.get("/ai-review/scores", { headers: authHeader() });
+  // AI 打分加点评 (experts read, admins run): { plans: [...submitted plans
+  // with their current AI score/review and needsScore/needsReview], job,
+  // standard }
+  getScoreReview() {
+    return http.get("/ai-review/score-review", { headers: authHeader() });
   }
 
-  // AI 打分加点评 (super only): { plans: [...submitted plans, each flagged
-  // needsScore/needsReview/matched against criteria], job, standard }
-  getScoreReviewCandidates(criteria) {
-    return http.get("/ai-review/score-review", { params: criteria, headers: authHeader() });
-  }
-
-  // Starts a background AI 打分加点评 batch over the plans matching
-  // criteria -- poll getScoreReviewCandidates() while job.running.
-  runScoreReview(criteria) {
-    return http.post("/ai-review/score-review/run", criteria, { headers: authHeader() });
+  // Starts the background AI 打分加点评 batch over `planIds` (the plans the
+  // page shows) -- poll getScoreReview() while job.running.
+  runScoreReview(planIds) {
+    return http.post("/ai-review/score-review/run", { planIds }, { headers: authHeader() });
   }
 
   saveRevision({ content, baseId, changeNote, cautions, signature }) {

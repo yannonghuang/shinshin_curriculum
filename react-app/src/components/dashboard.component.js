@@ -35,7 +35,7 @@ const sortValue = {
 };
 
 // Unscored plans always sort last, whichever direction AI 分数 is sorted in
-// (same rule as ai-scores.component.js).
+// (same rule as ai-score-review.component.js).
 const compareBy = (sortKey, sortDir) => (a, b) => {
   const dir = sortDir === "asc" ? 1 : -1;
   const va = sortValue[sortKey](a);
@@ -530,9 +530,9 @@ const Dashboard = () => {
           {avgCompletion !== null && `，平均完成度 ${avgCompletion}%`}
           {`，已打分 ${scoredRows.length} 个`}
           {avgScore !== null && `，AI 平均分 ${avgScore}`}。
-          <span className="text-muted ml-2" title="基本信息 10% + 课程设计 40% + 分课时设计 20% + 课时实施 30%，各部分按模板字段的填写比例计算">
+          <span className="text-muted ml-2" title="基本信息 10% + 课程设计 40% + 分课时设计 20% + 课时实施 30%，各部分按模板字段的填写比例计算；分课时设计与课时实施中，越靠前的课时权重越高（线性递减）">
             <i className="fas fa-info-circle mr-1" />
-            完成度 = 基本信息 10% + 课程设计 40% + 分课时设计 20% + 课时实施 30%（按模板字段填写比例）
+            完成度 = 基本信息 10% + 课程设计 40% + 分课时设计 20% + 课时实施 30%（按模板字段填写比例，靠前课时权重更高）
           </span>
         </p>
       )}
@@ -654,7 +654,7 @@ const Dashboard = () => {
                       ))}
                       <div className="text-muted mt-2">
                         标准版本 #{s.standardId} · 打分时间 {new Date(s.createdAt).toLocaleString()} ·{" "}
-                        <Link to="/ai-review/scores">AI 打分</Link>
+                        <Link to="/ai-review/score-review">AI 打分加点评</Link>
                       </div>
                     </td>
                   </tr>
