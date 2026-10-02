@@ -201,19 +201,11 @@ async function run() {
     await page.waitForTimeout(300);
     await shoot(page.locator(".pl-card").first(), "review-panel");
 
-    console.log("==> plan-detail: 实施记录 (保存草稿/提交待点评 按钮)");
+    console.log("==> plan-detail: 支撑材料 (文件管理器)");
     // "实施" (unlike a 课时N subgroup) also starts expanded, same as "计划" --
     // 课时 1 is already a visible leaf, no group click needed first.
     await page.getByText("课时 1", { exact: true }).first().click();
     await page.waitForTimeout(200);
-    await page.getByText("实施记录", { exact: true }).first().click();
-    await page.waitForTimeout(300);
-    // The page's single 保存草稿/提交待点评 pair lives in the sticky hero
-    // header (not per section), so shoot that header with a 实施记录 form open
-    // below it.
-    await shoot(page.locator(".pl-hero").first(), "save-submit-buttons");
-
-    console.log("==> plan-detail: 支撑材料 (文件管理器)");
     await page.getByText("支撑材料", { exact: true }).first().click();
     await page.waitForTimeout(300);
     await shoot(page.locator(".pl-card").first(), "lesson-file-manager");
@@ -224,6 +216,26 @@ async function run() {
     await page.getByText("手动迁移内容", { exact: true }).first().click();
     await page.waitForTimeout(300);
     await shoot(page.locator(".pl-card").first(), "manual-migration-panel");
+
+    console.log("==> plan-detail #2: 实施记录 (保存草稿/提交待点评 按钮)");
+    // Shot on this plan, not REVIEW_PLAN_TITLE's: it's still 草稿 on dev, and
+    // 提交待点评 only renders for a draft -- REVIEW_PLAN_TITLE's is 已提交, so
+    // the screenshot would show 保存草稿 alone. 分课时设计 starts collapsed,
+    // so the first "课时 1" leaf is 实施's.
+    await page.getByText("课时 1", { exact: true }).first().click();
+    await page.waitForTimeout(200);
+    await page.getByText("实施记录", { exact: true }).first().click();
+    await page.waitForTimeout(300);
+    // The page's single 保存草稿/提交待点评 pair lives in the sticky header
+    // (not per section) -- clip from that header down through the top of the
+    // 实施记录 form open below it, so the screenshot shows one pair sitting
+    // above the section it saves.
+    {
+      const headerBox = await page.locator(".pl-sticky-header").first().boundingBox();
+      await shoot(page, "save-submit-buttons", {
+        clip: { x: headerBox.x, y: headerBox.y, width: headerBox.width, height: headerBox.height + 260 },
+      });
+    }
 
     console.log("==> 欣欣助手 面板 (打开状态)");
     await page.locator(".copilot-toggle").click();
