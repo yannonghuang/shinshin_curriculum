@@ -43,7 +43,7 @@ const mergeFormData = (data, schema) => {
   // already keeps it; the multi-section branch below builds `merged` from
   // scratch and would otherwise silently drop it on the very next "保存草稿",
   // since planFormData is always saved wholesale from this state -- see
-  // saveFormData).
+  // saveAll).
   const manualMigration = Array.isArray(data && data._manualMigration) ? data._manualMigration : undefined;
   if (sections.length > 1) {
     const merged = { lessons };
@@ -157,28 +157,21 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
   );
 };
 
-// 保存草稿/提交待点评, rendered both above and below a section's own fields
-// (see the three call sites below) -- a long section (WHY ·学习目标 routinely
-// runs to several full-height textareas, see plan-detail.component.js's own
-// rows="4" bump) previously left these reachable only by scrolling all the
-// way down, even though "save what I've typed so far" is exactly the kind of
-// action someone wants close at hand while still partway through a long
-// form. Both copies act on the exact same section state (planDirty/
-// executionDirty etc. are the section's, not this component's own), so
-// there's nothing to keep in sync -- either button just saves/submits
-// whatever's currently in the form.
-// showSubmit is false once the plan has left "draft" (submitted/reviewed) --
-// 提交待点评 doesn't apply anymore at that point (there's nothing left to
-// submit into review), so it's dropped entirely rather than left showing
-// disabled, same as every other case-content action in this file that's
-// owner/draft-gated by omission, not a greyed-out control.
-const SaveSubmitButtons = ({ onSaveDraft, saveDisabled, onSubmit, submitDisabled, showSubmit = true, position = "bottom" }) => (
-  <div className={`d-flex ${position === "top" ? "mb-3" : "mt-2"}`}>
-    <button className="btn btn-primary mr-2" type="button" onClick={onSaveDraft} disabled={saveDisabled}>
+// The page's single 保存草稿/提交待点评 pair, rendered once in the sticky
+// header (see .pl-sticky-header) rather than above and below every section
+// -- it saves everything dirty across all sections at once (see saveAll),
+// so it stays reachable however far down a long section the teacher has
+// scrolled. showSubmit is false once the plan has left "draft" (submitted/
+// reviewed) -- 提交待点评 doesn't apply anymore at that point, so it's dropped
+// entirely rather than left showing disabled, same as every other
+// case-content action in this file that's owner/draft-gated by omission.
+const SaveSubmitButtons = ({ onSaveDraft, saveDisabled, onSubmit, submitDisabled, showSubmit = true }) => (
+  <div className="d-flex">
+    <button className="btn btn-light mr-2" type="button" onClick={onSaveDraft} disabled={saveDisabled}>
       保存草稿
     </button>
     {showSubmit && (
-      <button className="btn btn-primary" type="button" onClick={onSubmit} disabled={submitDisabled}>
+      <button className="btn btn-light" type="button" onClick={onSubmit} disabled={submitDisabled}>
         提交待点评
       </button>
     )}
@@ -542,7 +535,7 @@ const PLAN_SECTIONS = [
   { key: "reviews", label: "计划整体点评" },
 ];
 
-// 基本信息 form -> PlanDataService.update payload. Shared by saveMeta and the
+// 基本信息 form -> PlanDataService.update payload. Shared by saveAll and the
 // session-timeout auto-save, so both send the same fields.
 const metaFormPayload = (metaForm) => ({
   title: metaForm.title,
@@ -624,10 +617,10 @@ const PlanDetail = (props) => {
   // shape as formData.lessons (see onLessonFieldChange), just plan-level
   // execution-record data instead of design content.
   const [executionFormData, setExecutionFormData] = useState([]);
-  // Dirty tracking for the 保存草稿/提交待点评 button pairs -- planDirty
-  // covers formData (WHY/WHAT/HOW + 分课时设计, both saved via
-  // saveFormData), executionDirty covers executionFormData (every 课时's
-  // 实施记录, saved together in one array via saveExecutionRecord). 提交待
+  // Dirty tracking for the page-wide 保存草稿/提交待点评 pair (see saveAll)
+  // -- planDirty covers formData (WHY/WHAT/HOW + 分课时设计),
+  // executionDirty covers executionFormData (every 课时's 实施记录, sent
+  // together as one array); only the dirty ones go into the save. 提交待
   // 点评 needs no dirty tracking of its own: it's gated purely by
   // `plan.status === "draft"` (permanently disabled the moment a plan is
   // ever submitted -- status only ever moves away from "draft", never
@@ -639,8 +632,8 @@ const PlanDetail = (props) => {
   const [planDirty, setPlanDirty] = useState(false);
   const [executionDirty, setExecutionDirty] = useState(false);
   // Same idea as planDirty/executionDirty above, scoped to metaForm (基本信息)
-  // instead -- its own 保存草稿 button (saveMeta) needed the same
-  // disabled-until-edited/re-disabled-after-save behavior as the other panes.
+  // instead, so an untouched 基本信息 isn't resent (and re-validated) on
+  // every save.
   const [metaDirty, setMetaDirty] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(false);
   // planLessons (分课时设计, nested under 计划) starts collapsed, unlike plan/
@@ -665,6 +658,20 @@ const PlanDetail = (props) => {
   // whole page, means "AI点评生成中..." survives clicking away and back
   // (see review-list.component.js's aiPending/setAiPending props).
   const [aiReviewPending, setAiReviewPending] = useState({ design: false, implementation: false });
+
+  // Height of the sticky header (see .pl-sticky-header) -- the nav tree's
+  // own sticky `top` sits just below it instead of sliding underneath.
+  // Measured rather than fixed, since a long 标题 wraps onto more lines.
+  const [stickyHeaderHeight, setStickyHeaderHeight] = useState(0);
+  const stickyHeaderObserver = useRef(null);
+  const stickyHeaderRef = useCallback((node) => {
+    if (stickyHeaderObserver.current) stickyHeaderObserver.current.disconnect();
+    stickyHeaderObserver.current = null;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setStickyHeaderHeight(node.offsetHeight));
+    observer.observe(node);
+    stickyHeaderObserver.current = observer;
+  }, []);
 
   const toggleGroup = (name) => setExpandedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
   const select = (type, key) => setSelected({ type, key });
@@ -903,15 +910,29 @@ const PlanDetail = (props) => {
     setMetaDirty(true);
   };
 
-  const saveMeta = async (e) => {
-    e.preventDefault();
+  // Backs the page's single 保存草稿/提交待点评 pair: everything dirty
+  // (基本信息, formData, executionFormData) goes out in ONE update request,
+  // so the save is all-or-nothing server-side (plan.controller.js#update
+  // runs in a transaction) -- no half-saved state where, say, an invalid
+  // 标题 rejects 基本信息 while the lesson content went through. Clean parts
+  // are left out of the payload, same as before, so segmentVersionAt only
+  // ever moves for what actually changed.
+  const saveAll = async (submitStatus) => {
+    const payload = {};
+    if (metaDirty) Object.assign(payload, metaFormPayload(metaForm));
+    if (planDirty) payload.planFormData = formData;
+    if (executionDirty) payload.executionFormData = executionFormData;
+    if (submitStatus) payload.status = submitStatus;
+    if (Object.keys(payload).length === 0) return;
     try {
-      await PlanDataService.update(planId, metaFormPayload(metaForm));
+      await PlanDataService.update(planId, payload);
       setMetaDirty(false);
-      setMessage("课程设计信息已更新。");
+      setPlanDirty(false);
+      setExecutionDirty(false);
+      setMessage(submitStatus === "submitted" ? "课程设计已提交待点评。" : "已保存。");
       retrievePlan();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "更新失败。");
+      setMessage(err?.response?.data?.message || "保存失败。");
     }
   };
 
@@ -956,38 +977,6 @@ const PlanDetail = (props) => {
         : [...prev, { index: lessonIndex, [field]: value }]
     );
     setExecutionDirty(true);
-  };
-
-  // Same 保存草稿/提交待点评 split as saveFormData above -- 提交待点评 bumps
-  // the plan's own `status` (there's no separate per-课时 status field; a
-  // 课时's 实施记录 form just gets the same submit action every other
-  // section already has, reusing the same plan-level 待点评 queue).
-  const saveExecutionRecord = async (submitStatus) => {
-    try {
-      await PlanDataService.update(planId, {
-        executionFormData,
-        status: submitStatus || undefined,
-      });
-      setExecutionDirty(false);
-      setMessage(submitStatus === "submitted" ? "实施记录已提交。" : "实施记录已保存。");
-      retrievePlan();
-    } catch (err) {
-      setMessage(err?.response?.data?.message || "保存失败。");
-    }
-  };
-
-  const saveFormData = async (submitStatus) => {
-    try {
-      await PlanDataService.update(planId, {
-        planFormData: formData,
-        status: submitStatus || undefined,
-      });
-      setPlanDirty(false);
-      setMessage(submitStatus === "submitted" ? "课程设计方案已提交。" : "课程设计方案已保存。");
-      retrievePlan();
-    } catch (err) {
-      setMessage(err?.response?.data?.message || "保存失败。");
-    }
   };
 
   // Clears the migration leftovers at formData._manualMigration (see
@@ -1125,7 +1114,14 @@ const PlanDetail = (props) => {
               </span>
             )}
           </div>
-          <form onSubmit={saveMeta}>
+          {/* No button of its own -- saved by the page-wide 保存草稿 in the
+              sticky header (see saveAll); Enter in a field does the same. */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveAll();
+            }}
+          >
             <div className="form-group">
               <label>标题</label>
               {/* textarea (not a single-line input) so a long 标题 (project
@@ -1224,11 +1220,6 @@ const PlanDetail = (props) => {
                 />
               </div>
             </div>
-            {canEditPlan && (
-              <button className="btn btn-primary" type="submit" disabled={!metaDirty}>
-                保存草稿
-              </button>
-            )}
           </form>
         </div>
       );
@@ -1248,16 +1239,6 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card pl-why-what-how">
           <h6>{section.label}</h6>
-          {canEditPlan && (
-            <SaveSubmitButtons
-              position="top"
-              onSaveDraft={() => saveFormData()}
-              saveDisabled={!planDirty}
-              onSubmit={() => saveFormData("submitted")}
-              submitDisabled={!planNotEmpty}
-              showSubmit={plan.status === "draft"}
-            />
-          )}
           <DynamicSectionFields
             fields={directFields(section)}
             subsections={section.subsections}
@@ -1265,15 +1246,6 @@ const PlanDetail = (props) => {
             canEdit={canEditPlan}
             onFieldChange={(field, value) => onFormFieldChange(section.key, field, value)}
           />
-          {canEditPlan && (
-            <SaveSubmitButtons
-              onSaveDraft={() => saveFormData()}
-              saveDisabled={!planDirty}
-              onSubmit={() => saveFormData("submitted")}
-              submitDisabled={!planNotEmpty}
-              showSubmit={plan.status === "draft"}
-            />
-          )}
           <hr />
           <ReviewList
             planId={planId}
@@ -1374,16 +1346,6 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card pl-why-what-how">
           <h6>分课时设计 · 课时 {n}</h6>
-          {canEditPlan && (
-            <SaveSubmitButtons
-              position="top"
-              onSaveDraft={() => saveFormData()}
-              saveDisabled={!planDirty}
-              onSubmit={() => saveFormData("submitted")}
-              submitDisabled={!planNotEmpty}
-              showSubmit={plan.status === "draft"}
-            />
-          )}
           {lessonSchema ? (
             // Schema-driven: a reusable per-课时 field template extracted
             // from the source template itself (see templateParser.js#
@@ -1421,15 +1383,6 @@ const PlanDetail = (props) => {
               </div>
             </>
           )}
-          {canEditPlan && (
-            <SaveSubmitButtons
-              onSaveDraft={() => saveFormData()}
-              saveDisabled={!planDirty}
-              onSubmit={() => saveFormData("submitted")}
-              submitDisabled={!planNotEmpty}
-              showSubmit={plan.status === "draft"}
-            />
-          )}
           <hr />
           <ReviewList
             planId={planId}
@@ -1455,16 +1408,6 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card pl-why-what-how">
           <h6>实施记录 · 课时 {n}</h6>
-          {canEditPlan && (
-            <SaveSubmitButtons
-              position="top"
-              onSaveDraft={() => saveExecutionRecord()}
-              saveDisabled={!executionDirty}
-              onSubmit={() => saveExecutionRecord("submitted")}
-              submitDisabled={!executionNotEmpty}
-              showSubmit={plan.status === "draft"}
-            />
-          )}
           <DynamicSectionFields
             fields={directFields(section)}
             subsections={section.subsections}
@@ -1472,15 +1415,6 @@ const PlanDetail = (props) => {
             canEdit={canEditPlan}
             onFieldChange={(field, value) => onExecutionFieldChange(n, field, value)}
           />
-          {canEditPlan && (
-            <SaveSubmitButtons
-              onSaveDraft={() => saveExecutionRecord()}
-              saveDisabled={!executionDirty}
-              onSubmit={() => saveExecutionRecord("submitted")}
-              submitDisabled={!executionNotEmpty}
-              showSubmit={plan.status === "draft"}
-            />
-          )}
           <hr />
           <ReviewList
             planId={planId}
@@ -1593,22 +1527,46 @@ const PlanDetail = (props) => {
           still on this route -- actual tab close/refresh is the
           beforeunload listener set up above instead. */}
       <Prompt when={planDirty || executionDirty || metaDirty} message="有未保存的内容，确定要离开吗？" />
-      <div className="pl-hero">
-        <div className="mb-2">
-          <button type="button" className="btn btn-primary" onClick={goBack}>
-            返回
-          </button>
+      {/* Sticky so 返回 and the page's single 保存草稿/提交待点评 pair stay in
+          view however far down a long section the teacher has scrolled --
+          that pair saves every section at once (see saveAll), replacing the
+          per-section top/bottom copies. The status message lives here too,
+          so a save's result is visible without scrolling back up. */}
+      <div className="pl-sticky-header" ref={stickyHeaderRef}>
+        <div className="pl-hero">
+          <div className="d-flex justify-content-between align-items-center flex-wrap mb-2">
+            <button type="button" className="btn btn-primary" onClick={goBack}>
+              返回
+            </button>
+            {canEditPlan && (
+              <SaveSubmitButtons
+                onSaveDraft={() => saveAll()}
+                saveDisabled={!planDirty && !executionDirty && !metaDirty}
+                onSubmit={() => saveAll("submitted")}
+                submitDisabled={!planNotEmpty && !executionNotEmpty}
+                showSubmit={plan.status === "draft"}
+              />
+            )}
+          </div>
+          <h4 className="pl-title">
+            {plan.title}
+            {plan.suspended && <span className="pl-tag pl-tag-warn ml-2">已停用</span>}
+          </h4>
+          <p className="pl-subtitle">
+            {plan.theme || "-"} · {plan.grade || "-"} · {plan.year} · 状态：{PLAN_STATUS_LABELS[plan.status] || plan.status}
+            {plan.isExcellentCase ? " · 优秀案例" : ""}
+          </p>
+          {plan.suspended && !isAdmin && (
+            <div className="alert alert-warning py-2 mb-0">该课程设计已被管理员停用，如需修改请联系管理员。</div>
+          )}
         </div>
-        <h4 className="pl-title">
-          {plan.title}
-          {plan.suspended && <span className="pl-tag pl-tag-warn ml-2">已停用</span>}
-        </h4>
-        <p className="pl-subtitle">
-          {plan.theme || "-"} · {plan.grade || "-"} · {plan.year} · 状态：{PLAN_STATUS_LABELS[plan.status] || plan.status}
-          {plan.isExcellentCase ? " · 优秀案例" : ""}
-        </p>
-        {plan.suspended && !isAdmin && (
-          <div className="alert alert-warning py-2 mb-0">该课程设计已被管理员停用，如需修改请联系管理员。</div>
+        {message && (
+          <div className="alert alert-info py-2 mt-2 mb-0 d-flex justify-content-between align-items-center">
+            <span>{message}</span>
+            <button type="button" className="close" aria-label="关闭" onClick={() => setMessage("")}>
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -1627,7 +1585,7 @@ const PlanDetail = (props) => {
         </button>
 
         {!navCollapsed && (
-          <div className="pl-explorer-nav">
+          <div className="pl-explorer-nav" style={stickyHeaderHeight ? { top: stickyHeaderHeight + 12 } : undefined}>
             <div className="pl-explorer-group">
               <button
                 type="button"
@@ -1842,7 +1800,6 @@ const PlanDetail = (props) => {
         )}
 
         <div className="pl-explorer-content">
-          {message && <div className="alert alert-info py-2">{message}</div>}
           {renderContent()}
         </div>
       </div>

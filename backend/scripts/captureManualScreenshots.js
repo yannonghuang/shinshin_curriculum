@@ -208,20 +208,10 @@ async function run() {
     await page.waitForTimeout(200);
     await page.getByText("实施记录", { exact: true }).first().click();
     await page.waitForTimeout(300);
-    // The full 实施记录 form is long (every field down to 观察和反思, plus its
-    // own 点评 block) -- clip to just the card's own title through the first
-    // (position="top") 保存草稿/提交待点评 row instead of the whole
-    // .pl-card, which is what this screenshot is actually illustrating.
-    {
-      const cardBox = await page.locator(".pl-card").first().boundingBox();
-      const buttonBox = await page
-        .locator(".d-flex", { has: page.getByText("保存草稿", { exact: true }) })
-        .first()
-        .boundingBox();
-      await shoot(page, "save-submit-buttons", {
-        clip: { x: cardBox.x, y: cardBox.y, width: cardBox.width, height: buttonBox.y + buttonBox.height - cardBox.y + 16 },
-      });
-    }
+    // The page's single 保存草稿/提交待点评 pair lives in the sticky hero
+    // header (not per section), so shoot that header with a 实施记录 form open
+    // below it.
+    await shoot(page.locator(".pl-hero").first(), "save-submit-buttons");
 
     console.log("==> plan-detail: 支撑材料 (文件管理器)");
     await page.getByText("支撑材料", { exact: true }).first().click();

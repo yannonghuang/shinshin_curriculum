@@ -33,6 +33,24 @@
   box-shadow: 0 10px 26px rgba(25, 87, 63, 0.2);
 }
 
+/* plan-detail.component.js: hero + page-wide 保存草稿/提交待点评 stay pinned
+   while the section below scrolls. The background strip (and the padding
+   standing in for .pl-hero's own margin) keeps scrolled content from
+   showing through the gaps around the hero. */
+.pl-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--pl-bg);
+  margin: -16px -16px 0;
+  padding: 16px 16px 14px;
+  border-radius: 14px 14px 0 0;
+}
+
+.pl-sticky-header .pl-hero {
+  margin-bottom: 0;
+}
+
 .pl-title {
   margin: 0;
   font-size: 24px;
