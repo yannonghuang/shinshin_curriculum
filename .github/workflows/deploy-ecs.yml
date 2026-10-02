@@ -23,6 +23,15 @@ on:
         required: false
         default: "3"
 
+# One deploy at a time. A newer run waits for the in-progress one rather
+# than cancelling it -- killing a deploy mid-SSH (between image pull and
+# container restart) could leave the server half-updated. While one runs,
+# GitHub keeps only the newest queued run and cancels older queued ones, so
+# back-to-back merges still end in a single deploy of the latest main.
+concurrency:
+  group: deploy-ecs
+  cancel-in-progress: false
+
 jobs:
   deploy:
     # Pinned rather than ubuntu-latest, which migrates to Ubuntu 26 from
