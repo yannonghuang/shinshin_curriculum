@@ -469,7 +469,8 @@ const getPagingData = (data, page, limit) => {
 // sortBy=name orders by chineseName (the visible "姓名" column); sortBy=school
 // orders by the joined School's name (not the raw numeric code, which
 // wouldn't group same-named schools or read as alphabetical to an admin).
-// sortBy=lastLogin/totalLoginTime order by those columns directly. Anything
+// sortBy=lastLogin/totalLoginTime order by those columns directly;
+// sortBy=createdAt (注册时间) breaks same-timestamp ties by id. Anything
 // else (including unset) keeps the original newest-first order. MySQL sorts
 // NULLs first in ASC / last in DESC, which is an acceptable default here (no
 // explicit NULLS LAST handling) since admin/expert rows have no
@@ -481,6 +482,7 @@ const buildUsersOrder = (sortBy, sortOrder) => {
   if (sortBy === "school") return [[{ model: db.school, as: "School" }, "name", direction]];
   if (sortBy === "lastLogin") return [["lastLogin", direction]];
   if (sortBy === "totalLoginTime") return [["totalLoginTime", direction]];
+  if (sortBy === "createdAt") return [["createdAt", direction], ["id", direction]];
   return [["id", "DESC"]];
 };
 
