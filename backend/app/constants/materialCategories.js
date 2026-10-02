@@ -8,10 +8,17 @@
 // just like any other 学习资源库 topic.
 const MANUAL_CATEGORY = "使用指南";
 
+// The auto-generated manual's own topic under MANUAL_CATEGORY --
+// teacherManual.controller.js#publish finds it by this exact category+theme
+// pair, so neither may be renamed once created (see material-topic.
+// controller.js's isLockedManualTopic guards), and no other topic may take
+// the same pair.
+const MANUAL_THEME = "教师手册";
+
 // The category 教师手册 used to be filed under, before it moved here --
 // kept only so teacherManual.controller.js#publish can migrate that one
 // pre-existing topic in place on its next publish instead of leaving it
 // orphaned under a now-unused category.
 const LEGACY_MANUAL_CATEGORY = "手册";
 
-module.exports = { MANUAL_CATEGORY, LEGACY_MANUAL_CATEGORY };
+module.exports = { MANUAL_CATEGORY, MANUAL_THEME, LEGACY_MANUAL_CATEGORY };

@@ -24,9 +24,8 @@ const { generateTeacherManualBuffer } = require("../services/teacherManualGenera
 const { getArtifactStorageDirectory } = require("./material-artifact.controller");
 const knowledgeIngest = require("../services/knowledgeIngest");
 const textExtract = require("../services/textExtract");
-const { MANUAL_CATEGORY, LEGACY_MANUAL_CATEGORY } = require("../constants/materialCategories");
+const { MANUAL_CATEGORY, MANUAL_THEME, LEGACY_MANUAL_CATEGORY } = require("../constants/materialCategories");
 
-const MANUAL_THEME = "教师手册";
 // Renamed from this on 2026-09 ("在线" was misleading -- the download-only
 // path exists too, see #download above) -- kept only so #publish can rename
 // that one existing topic in place on its next run instead of orphaning it.
