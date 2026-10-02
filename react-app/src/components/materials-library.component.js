@@ -28,6 +28,10 @@ import "../curriculum.css";
 const MANUAL_CATEGORY = "使用指南";
 const MANUAL_THEME = "教师手册";
 const isManualTopic = (topic) => !!topic && topic.category === MANUAL_CATEGORY && topic.theme === MANUAL_THEME;
+// Neither the 使用指南 folder nor the manual topic itself can be renamed --
+// publish finds the manual by that exact pair (enforced server-side in
+// material-topic.controller.js too), so their 重命名 pencils are hidden.
+// Delete stays: the next 生成并发布 recreates both.
 
 // 学习资源库 -- a Category -> Theme(主题/Event) tree, laid out like
 // plan-detail.component.js's own explorer (left nav tree, right content
@@ -1118,17 +1122,19 @@ const MaterialsLibrary = () => {
                   )}
                   {isAdmin && renamingCategory !== category && busyCategory !== category && (
                     <span className="pl-explorer-row-actions">
-                      <button
-                        type="button"
-                        className="pl-explorer-row-action"
-                        title="重命名"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startRenameCategory(category);
-                        }}
-                      >
-                        <i className="fas fa-pencil-alt"></i>
-                      </button>
+                      {category !== MANUAL_CATEGORY && (
+                        <button
+                          type="button"
+                          className="pl-explorer-row-action"
+                          title="重命名"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startRenameCategory(category);
+                          }}
+                        >
+                          <i className="fas fa-pencil-alt"></i>
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="pl-explorer-row-action"
@@ -1207,17 +1213,19 @@ const MaterialsLibrary = () => {
                         )}
                         {isAdmin && renamingTopicId !== topic.id && busyTopicId !== topic.id && (
                           <span className="pl-explorer-row-actions">
-                            <button
-                              type="button"
-                              className="pl-explorer-row-action"
-                              title="重命名"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                startRenameTopic(topic);
-                              }}
-                            >
-                              <i className="fas fa-pencil-alt"></i>
-                            </button>
+                            {!isManualTopic(topic) && (
+                              <button
+                                type="button"
+                                className="pl-explorer-row-action"
+                                title="重命名"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  startRenameTopic(topic);
+                                }}
+                              >
+                                <i className="fas fa-pencil-alt"></i>
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="pl-explorer-row-action"

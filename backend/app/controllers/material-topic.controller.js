@@ -13,6 +13,7 @@ const { searchKnowledgeBase } = require("../services/knowledgeRetrieve");
 const knowledgeTree = require("../services/knowledgeTree");
 const knowledgeRebuild = require("../services/knowledgeRebuild");
 const embeddings = require("../services/embeddings");
+const { MANUAL_CATEGORY, MANUAL_THEME } = require("../constants/materialCategories");
 
 // Knowledge-base chunk text for a topic's own 基本信息 (category/theme/
 // lecturer/comment) -- indexed under sourceType 'material_topic_meta' so a
@@ -24,6 +25,15 @@ const topicMetaText = (topic) =>
 const mustConfirm = (value) => value === true || value === "true" || value === "1";
 
 const normalizeText = (value) => (typeof value === "string" ? value.trim() : "");
+
+// The auto-generated 教师手册 topic and its 使用指南 folder can't be renamed
+// once created -- teacherManual.controller.js#publish (and the 学习资源库
+// page's read-only manual viewer) find it by this exact category+theme pair,
+// so a rename would orphan it and the next publish would silently create a
+// duplicate. Deleting stays allowed: the next publish just recreates it.
+const isLockedManualTopic = (category, theme) => category === MANUAL_CATEGORY && theme === MANUAL_THEME;
+const MANUAL_LOCKED_MESSAGE = `「${MANUAL_CATEGORY} / ${MANUAL_THEME}」由系统自动维护，不能重命名。`;
+const MANUAL_RESERVED_MESSAGE = `「${MANUAL_CATEGORY} / ${MANUAL_THEME}」为系统保留名称，请使用其他主题名称。`;
 
 // GET /api/material-topics -- one call returns every Theme's 基本信息 so the
 // frontend can build the whole Category -> Theme nav tree client-side
@@ -63,6 +73,9 @@ exports.create = async (req, res) => {
     }
     if (!theme) {
       return res.status(422).send({ message: "主题名称不能为空。" });
+    }
+    if (isLockedManualTopic(category, theme)) {
+      return res.status(422).send({ message: MANUAL_RESERVED_MESSAGE });
     }
 
     const data = await MaterialTopic.create({
@@ -108,6 +121,14 @@ exports.update = async (req, res) => {
         return res.status(422).send({ message: "主题名称不能为空。" });
       }
       payload.theme = theme;
+    }
+    const wasManual = isLockedManualTopic(data.category, data.theme);
+    const willBeManual = isLockedManualTopic(payload.category ?? data.category, payload.theme ?? data.theme);
+    if (wasManual && !willBeManual) {
+      return res.status(422).send({ message: MANUAL_LOCKED_MESSAGE });
+    }
+    if (!wasManual && willBeManual) {
+      return res.status(422).send({ message: MANUAL_RESERVED_MESSAGE });
     }
     if (req.body.lecturer !== undefined) payload.lecturer = req.body.lecturer || null;
     if (req.body.comment !== undefined) payload.comment = req.body.comment || null;
@@ -202,6 +223,9 @@ exports.renameCategory = async (req, res) => {
     }
     if (from === to) {
       return res.send({ message: "分类名称未变化。", affected: 0 });
+    }
+    if (from === MANUAL_CATEGORY) {
+      return res.status(422).send({ message: `分类「${MANUAL_CATEGORY}」由系统自动维护，不能重命名。` });
     }
 
     const [affected] = await MaterialTopic.update({ category: to }, { where: { category: from } });
