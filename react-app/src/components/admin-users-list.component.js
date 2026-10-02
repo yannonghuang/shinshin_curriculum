@@ -73,8 +73,8 @@ const AdminUsersList = () => {
   const [schoolPlans, setSchoolPlans] = useState([]);
   const [schoolPlansLoading, setSchoolPlansLoading] = useState(false);
   const [schoolPlansMessage, setSchoolPlansMessage] = useState("");
-  // sortBy: "" (default, newest-first) | "name" | "school" | "lastLogin" |
-  // "totalLoginTime"; only one column sorts at a time, matching a typical
+  // sortBy: "" (default, newest-first) | "name" | "school" | "createdAt" |
+  // "lastLogin" | "totalLoginTime"; only one column sorts at a time, matching a typical
   // clickable-column-header table.
   const [sortBy, setSortBy] = useState("");
   const [sortOrder, setSortOrder] = useState("asc");
@@ -355,7 +355,9 @@ const AdminUsersList = () => {
             </th>
             <th>邮箱已验证</th>
             <th>状态</th>
-            <th>注册时间</th>
+            <th role="button" onClick={() => onSortClick("createdAt")}>
+              注册时间{sortIndicator("createdAt")}
+            </th>
             <th role="button" onClick={() => onSortClick("lastLogin")}>
               上次登录时间{sortIndicator("lastLogin")}
             </th>
