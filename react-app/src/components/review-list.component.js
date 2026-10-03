@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import ReviewDataService from "../services/review.service";
 import AuthService from "../services/auth.service";
-import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
-import { registerSessionExpiryHandler, writeLocalDraft, takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
+import { takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
+import { getPendingReviewEdit, setPendingReviewEdit, clearPendingReviewEdit, reviewPayload } from "../utils/pendingReviewEdits";
 
 // Migrated from shinshin's comments-list.component.js (inline textarea-submit + list-below
 // pattern), extended with:
@@ -51,9 +51,9 @@ import { registerSessionExpiryHandler, writeLocalDraft, takeLocalDraft, isDraftS
 // plan: an expert/admin can 保存点评 instead of 提交点评, keeping a draft only they can see --
 // one per spot (this widget's own write sectionKey + lessonIndex), loaded back into the form
 // whenever they return, and listed with a 已保存·未提交 tag until submitted. Unsaved form edits
-// are guarded like a plan's: a beforeunload prompt, and a session-timeout auto-save to that
-// draft (see utils/sessionExpiryGuard.js), with a local stash restored on the next visit when
-// even that couldn't reach the server.
+// live in utils/pendingReviewEdits.js, so they survive switching sidebar sections, and are
+// guarded like a plan's: PlanDetail's leave prompts, and a session-timeout auto-save to that
+// draft, with a local stash restored on the next visit when even that couldn't reach the server.
 // Content beyond this length starts collapsed (a truncated preview + a
 // 展开/收起 toggle) -- an AI review in particular can run to several
 // paragraphs, which used to blow up every row's height in a list that's
@@ -140,6 +140,16 @@ export const scopeReviews = (list, { sectionKey, aggregateScope, sectionLabels }
   );
 };
 
+// The spot a form writes to (review.controller.js#create keys a saved
+// draft on it) -- also its key in utils/pendingReviewEdits.js and the
+// localStorage stash, hence the user id.
+const writeSectionKeyFor = (sectionKey, aggregateScope) =>
+  sectionKey || (aggregateScope === "implementation" ? "IMPLEMENTATION_OVERALL" : null);
+const lessonIndexFor = (lessonIndex) =>
+  lessonIndex !== undefined && lessonIndex !== null && lessonIndex !== "" ? Number(lessonIndex) : null;
+const spotKey = ({ planId, sectionKey, aggregateScope, lessonIndex }, userId) =>
+  `reviewDraft:${planId}:${writeSectionKeyFor(sectionKey, aggregateScope) || "OVERALL"}:${lessonIndexFor(lessonIndex) ?? ""}:${userId}`;
+
 const ReviewList = (props) => {
   const {
     planId,
@@ -159,8 +169,14 @@ const ReviewList = (props) => {
     onSeen,
   } = props;
   const [reviews, setReviews] = useState([]);
-  const [text, setText] = useState("");
-  const [score, setScore] = useState("");
+  // Starts from this spot's unsaved edits, if any -- e.g. typed before
+  // switching to another sidebar section and back.
+  const [initialEdit] = useState(() => {
+    const user = AuthService.getCurrentUser();
+    return (user && getPendingReviewEdit(spotKey(props, user.id))) || { text: "", score: "" };
+  });
+  const [text, setText] = useState(initialEdit.text);
+  const [score, setScore] = useState(initialEdit.score);
   const [message, setMessage] = useState("");
   // aiPending/setAiPending are optional: when the caller lifts this into
   // state of its own (see plan-detail.component.js's two aggregate widgets),
@@ -205,10 +221,8 @@ const ReviewList = (props) => {
   // get tagged with (see review.model.js's sectionKey comment) -- null for
   // 设计's aggregate (unchanged from before aggregateScope existed).
   const writeSectionKey = aggregateScope === "implementation" ? "IMPLEMENTATION_OVERALL" : null;
-  // The spot this widget's form writes to -- what review.controller.js#create
-  // keys a saved draft on.
-  const ownSectionKey = sectionKey || writeSectionKey;
-  const ownLessonIndex = lessonIndex !== undefined && lessonIndex !== null && lessonIndex !== "" ? Number(lessonIndex) : null;
+  const ownSectionKey = writeSectionKeyFor(sectionKey, aggregateScope);
+  const ownLessonIndex = lessonIndexFor(lessonIndex);
   const userId = currentUser && currentUser.id;
   const isOwnDraft = useCallback(
     (r) =>
@@ -219,11 +233,11 @@ const ReviewList = (props) => {
       (r.lessonIndex === null || r.lessonIndex === undefined ? null : Number(r.lessonIndex)) === ownLessonIndex,
     [userId, ownSectionKey, ownLessonIndex]
   );
-  const localDraftKey = `reviewDraft:${planId}:${ownSectionKey || "OVERALL"}:${ownLessonIndex ?? ""}:${userId}`;
+  const localDraftKey = spotKey(props, userId);
   const isDirty = text !== baseline.text || score !== baseline.score;
 
-  // Latest form state for callbacks that mustn't be re-created per keystroke
-  // (retrieveReviews, the session-expiry handler).
+  // Latest form state for retrieveReviews, which mustn't be re-created per
+  // keystroke.
   const formRef = useRef({});
   formRef.current = { text, score, isDirty };
   const restoredRef = useRef(false);
@@ -293,23 +307,6 @@ const ReviewList = (props) => {
     retrieveReviews();
   }, [retrieveReviews, aiLoading]);
 
-  const reviewPayload = (form, status) => {
-    const data = {
-      content: form.text,
-      lessonIndex: lessonIndex !== undefined && lessonIndex !== null ? lessonIndex : undefined,
-    };
-    if (isExpertReviewer) {
-      // sectionKey is a fixed prop, never reviewer-chosen. A segment mini-widget
-      // tags with its own sectionKey; an aggregate tags with writeSectionKey
-      // (null for 设计, "IMPLEMENTATION_OVERALL" for 实施) so its own comments
-      // stay distinguishable from the segment reviews it also displays.
-      if (ownSectionKey) data.sectionKey = ownSectionKey;
-      if (form.score !== "") data.score = Number(form.score);
-      data.status = status;
-    }
-    return data;
-  };
-
   // status "saved" (保存点评) keeps the form as the requester's draft;
   // "submitted" (提交点评) publishes it, replacing that draft server-side.
   const persist = async (status) => {
@@ -318,7 +315,14 @@ const ReviewList = (props) => {
       return;
     }
     try {
-      await ReviewDataService.create(planId, reviewPayload({ text, score }, status));
+      // sectionKey is a fixed prop, never reviewer-chosen. A segment mini-widget
+      // tags with its own sectionKey; an aggregate tags with writeSectionKey
+      // (null for 设计, "IMPLEMENTATION_OVERALL" for 实施) so its own comments
+      // stay distinguishable from the segment reviews it also displays.
+      const data = isExpertReviewer
+        ? reviewPayload({ sectionKey: ownSectionKey, lessonIndex: ownLessonIndex, text, score }, status)
+        : { content: text, lessonIndex: ownLessonIndex ?? undefined };
+      await ReviewDataService.create(planId, data);
       if (status === "saved") {
         setBaseline({ text, score });
         setMessage("点评已保存（尚未提交，仅自己可见）。");
@@ -338,52 +342,6 @@ const ReviewList = (props) => {
     e.preventDefault();
     persist("submitted");
   };
-
-  // Same unsaved-edits guards as a teacher's plan editor (see
-  // plan-detail.component.js): beforeunload for tab close/refresh...
-  useEffect(() => {
-    if (!isExpertReviewer || !isDirty) return undefined;
-    const handleBeforeUnload = (e) => {
-      if (consumeSkipUnsavedWarning()) return;
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [isExpertReviewer, isDirty]);
-
-  // ...and a session-timeout auto-save to the draft (see
-  // utils/sessionExpiryGuard.js), with a local stash for when the token is
-  // already dead. Never auto-submits: an expert's review only goes public
-  // when they say so.
-  useEffect(() => {
-    if (!isExpertReviewer || !planId || !userId) return undefined;
-    const unsaved = () => {
-      const f = formRef.current;
-      return f.isDirty && f.text.trim() ? { text: f.text, score: f.score } : null;
-    };
-    return registerSessionExpiryHandler({
-      hasUnsaved: () => !!unsaved(),
-      stash: () => {
-        const form = unsaved();
-        if (form) writeLocalDraft(localDraftKey, form);
-      },
-      save: async () => {
-        const form = unsaved();
-        if (!form) return;
-        try {
-          await ReviewDataService.create(planId, reviewPayload(form, "saved"));
-          takeLocalDraft(localDraftKey);
-          formRef.current.isDirty = false;
-          setBaseline(form);
-        } catch (e) {
-          console.log(e);
-        }
-      },
-    });
-    // reviewPayload only reads props folded into localDraftKey/planId.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isExpertReviewer, planId, userId, localDraftKey]);
 
   const triggerAiReview = async () => {
     setAiLoading(true);
@@ -410,6 +368,17 @@ const ReviewList = (props) => {
       setAiLoading(false);
     }
   };
+
+  // Mirror the form's unsaved edits into utils/pendingReviewEdits.js (see
+  // there), which outlives this widget's mount.
+  useEffect(() => {
+    if (!isExpertReviewer || !planId || !userId) return;
+    if (isDirty) {
+      setPendingReviewEdit(localDraftKey, { planId, sectionKey: ownSectionKey, lessonIndex: ownLessonIndex, text, score });
+    } else {
+      clearPendingReviewEdit(localDraftKey);
+    }
+  }, [isExpertReviewer, planId, userId, localDraftKey, ownSectionKey, ownLessonIndex, isDirty, text, score]);
 
   // Mirrors review.controller.js#delete's two server-side rules: must be the
   // review's own author (or admin) AND the review must still belong to the
@@ -711,4 +680,10 @@ const ReviewList = (props) => {
   );
 };
 
-export default ReviewList;
+// Keyed by spot: plan-detail renders the same <ReviewList> element for
+// sibling sections (WHY -> WHAT, 课时1 -> 课时2), and without a key React
+// would keep one instance across them -- carrying one section's typed
+// text into the next section's form.
+const ReviewListBySpot = (props) => <ReviewList key={spotKey(props, "")} {...props} />;
+
+export default ReviewListBySpot;

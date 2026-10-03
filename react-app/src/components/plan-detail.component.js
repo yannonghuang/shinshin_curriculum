@@ -10,6 +10,7 @@ import LessonFileManager from "./lesson-file-manager.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, PLAN_STATUSES, EMPTY_LESSON, currentSeason } from "../constants/plan-options";
 import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
 import { registerSessionExpiryHandler, writeLocalDraft, takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
+import { hasPendingReviewEdits, discardPendingReviewEdits, subscribePendingReviewEdits } from "../utils/pendingReviewEdits";
 import "../curriculum.css";
 
 // True if an answers object (shaped like planFormData/one executionFormData
@@ -741,13 +742,27 @@ const PlanDetail = (props) => {
     return () => window.removeEventListener("copilot:data-changed", onCopilotChange);
   }, [planId, plan, planDirty, executionDirty, metaDirty, retrievePlan, props.history]);
 
+  // Unsaved edits in an expert's review forms (utils/pendingReviewEdits.js),
+  // including ones in a section that isn't on screen -- guarded by the same
+  // beforeunload/<Prompt> as the plan's own edits. Leaving the page after
+  // that prompt discards them, just like the plan's own.
+  const [reviewEditsPending, setReviewEditsPending] = useState(() => hasPendingReviewEdits(planId));
+  useEffect(() => {
+    setReviewEditsPending(hasPendingReviewEdits(planId));
+    const unsubscribe = subscribePendingReviewEdits(() => setReviewEditsPending(hasPendingReviewEdits(planId)));
+    return () => {
+      unsubscribe();
+      discardPendingReviewEdits(planId);
+    };
+  }, [planId]);
+
   // Covers actual tab close/refresh/typed-URL navigation -- the in-app
   // <Prompt> below (same planDirty/executionDirty/metaDirty condition) covers
   // react-router navigation (返回, browser back/forward) instead, since
   // beforeunload doesn't fire for client-side route changes.
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (!planDirty && !executionDirty && !metaDirty) return;
+      if (!planDirty && !executionDirty && !metaDirty && !reviewEditsPending) return;
       // Set by e.g. App.js's logOut right before a reload it already got
       // explicit confirmation for via its own push-triggered <Prompt> --
       // this component isn't guaranteed to have unmounted (and torn down
@@ -759,7 +774,7 @@ const PlanDetail = (props) => {
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [planDirty, executionDirty, metaDirty]);
+  }, [planDirty, executionDirty, metaDirty, reviewEditsPending]);
 
   const currentUser = AuthService.getCurrentUser();
   const isOwner = !!(plan && currentUser && String(plan.teacherId) === String(currentUser.id));
@@ -1528,7 +1543,10 @@ const PlanDetail = (props) => {
           see its own comment) and any other browser back/forward while
           still on this route -- actual tab close/refresh is the
           beforeunload listener set up above instead. */}
-      <Prompt when={planDirty || executionDirty || metaDirty} message="有未保存的内容，确定要离开吗？" />
+      {/* .some() rather than another `||`: one more branch in this (very
+          large) component's body overflows eslint-plugin-react-hooks' code
+          path count into false "hook called conditionally" errors. */}
+      <Prompt when={[planDirty, executionDirty, metaDirty, reviewEditsPending].some(Boolean)} message="有未保存的内容，确定要离开吗？" />
       {/* Sticky so 返回 and the page's single 保存草稿/提交待点评 pair stay in
           view however far down a long section the teacher has scrolled --
           that pair saves every section at once (see saveAll), replacing the
