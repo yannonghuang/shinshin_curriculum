@@ -237,12 +237,12 @@ async function run() {
       });
     }
 
-    console.log("==> 欣欣助手 面板 (打开状态)");
+    console.log("==> 欣欣小助手 面板 (打开状态)");
     await page.locator(".copilot-toggle").click();
     await page.waitForTimeout(500);
     await shoot(page.locator(".copilot-panel"), "copilot-panel");
 
-    console.log("==> 欣欣助手 代办操作：「待确认」卡片 (提交待点评 -> 取消，不改动任何数据)");
+    console.log("==> 欣欣小助手 代办操作：「待确认」卡片 (提交待点评 -> 取消，不改动任何数据)");
     // A real request on this still-草稿 plan: submit_plan is confirm-tier, so
     // the reply carries a pending 确认执行/取消 card instead of acting --
     // captured, then 取消'd, so the plan itself stays exactly as it was. A
@@ -250,7 +250,7 @@ async function run() {
     // The reply is a live LLM round-trip, hence the long wait.
     await page.locator(".copilot-panel").getByRole("button", { name: "新对话" }).click();
     await page.waitForTimeout(500);
-    await page.locator(".copilot-input-row input").fill("请把这份课程设计提交待点评。");
+    await page.locator(".copilot-input-row textarea").fill("请把这份课程设计提交待点评。");
     await page.locator(".copilot-input-row button[type=submit]").click();
     const actionCard = page.locator(".copilot-action", { has: page.getByRole("button", { name: "确认执行" }) }).first();
     await actionCard.waitFor({ timeout: 180000 });
@@ -259,7 +259,7 @@ async function run() {
     await actionCard.getByRole("button", { name: "取消" }).click();
     await page.waitForTimeout(1000);
 
-    console.log("==> 欣欣助手 附件：选择文件 + 粘贴截图");
+    console.log("==> 欣欣小助手 附件：选择文件 + 粘贴截图");
     // Real material on both counts: the project's own spec .docx from the
     // repo root, picked through the 📎 file input, and a screenshot of the
     // real plan page currently open, pasted into the input the way a teacher
@@ -272,18 +272,18 @@ async function run() {
     await page
       .locator(".copilot-panel input[type=file]")
       .setInputFiles(path.join(REPO_ROOT, "乡土课程项目实施与案例分享系统（AI智能体）Spec.docx"));
-    await page.locator(".copilot-input-row input[type=text]").evaluate((el, b64) => {
+    await page.locator(".copilot-input-row textarea").evaluate((el, b64) => {
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const dt = new DataTransfer();
       dt.items.add(new File([bytes], "image.png", { type: "image/png" }));
       el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
     }, pastedScreenshot);
     await page.waitForFunction(() => document.querySelectorAll(".copilot-chip-ready").length === 2, null, { timeout: 180000 });
-    await page.locator(".copilot-input-row input[type=text]").fill("请结合附件文档，说明截图中这份课程设计还缺哪些内容。");
+    await page.locator(".copilot-input-row textarea").fill("请结合附件文档，说明截图中这份课程设计还缺哪些内容。");
     await page.waitForTimeout(300);
     await shoot(page.locator(".copilot-panel"), "copilot-attachments");
 
-    console.log("==> 欣欣助手 导出：选择部分消息");
+    console.log("==> 欣欣小助手 导出：选择部分消息");
     // Sends the turn above for real (a live LLM round-trip, hence the long
     // wait), then opens 导出 in 选择部分消息 mode with the reply unticked --
     // captured and 取消'd; nothing is downloaded.

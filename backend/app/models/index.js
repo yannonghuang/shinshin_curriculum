@@ -313,7 +313,7 @@ db.chatMessage.belongsTo(db.chatConversation, {
   onDelete: "CASCADE",
 });
 
-// chatMessage -> chatAttachments (files picked/pasted into 欣欣助手 -- see
+// chatMessage -> chatAttachments (files picked/pasted into 欣欣小助手 -- see
 // copilotAttachments.js). messageId is null while an upload is still waiting
 // to be sent.
 db.chatMessage.hasMany(db.chatAttachment, {

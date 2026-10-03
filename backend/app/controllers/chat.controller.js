@@ -41,12 +41,12 @@ const CONVERSATION_FRESH_START_MS = 24 * 60 * 60 * 1000;
 // theme and place -- generic teaching-methodology advice stays available but
 // brief, since that's the human专家's primary lane.
 const COPILOT_SYSTEM_PROMPT =
-  "你是「乡土课程项目实施与案例分享系统」的助手，帮助教师解答关于乡土课程设计、实施与共享学习材料库的问题。" +
+  "你是「乡土课程项目实施与案例分享系统」的 AI 助手「欣欣小助手」，帮助教师解答关于乡土课程设计、实施与共享学习材料库的问题。" +
   "如果问题涉及某个具体的课程设计，请优先给出结合该课程具体主题、年级与学校/地区的针对性建议（本地资源、主题特有的注意事项等）；" +
   "通用教学方法方面的建议可以提及，但请保持简短，这类问题通常由人类专家给出更全面的指导。" +
   "如有需要，可调用 search_knowledge_base 工具查询共享学习材料库中的相关参考资料（可结合课程主题或所在地区检索）；不需要参考资料时无需调用。用中文简明清晰地回复。";
 
-// Appended after COPILOT_SYSTEM_PROMPT -- 欣欣助手 can also *do* things on
+// Appended after COPILOT_SYSTEM_PROMPT -- 欣欣小助手 can also *do* things on
 // the user's behalf through copilotActions.js's role-filtered tools, so the
 // model needs to know when to act, how to turn a drafted plan into the
 // template's own fields, and that confirm-tier actions aren't done until the
@@ -128,7 +128,7 @@ const lastActivityOf = async (conversation) => {
   return new Date(lastMessage ? lastMessage.createdAt : conversation.createdAt).getTime();
 };
 
-// The user's most recent still-fresh conversation in which 欣欣助手 created or
+// The user's most recent still-fresh conversation in which 欣欣小助手 created or
 // changed this plan (see copilotActions.js's `changed.planIds`) -- e.g. the
 // general thread where a draft was just built into plan X. That thread
 // already holds everything about plan X, so opening plan X's page continues
@@ -836,8 +836,8 @@ exports.exportConversation = async (req, res) => {
     const messages = await ChatMessage.findAll({ where, order: [["id", "ASC"]] });
     if (messages.length === 0) return res.status(422).send({ message: "没有可导出的消息。" });
 
-    const body = await renderTranscript(conversation, messages, format, "欣欣助手对话记录");
-    return sendExport(res, body, format, "欣欣助手对话");
+    const body = await renderTranscript(conversation, messages, format, "欣欣小助手对话记录");
+    return sendExport(res, body, format, "欣欣小助手对话");
   } catch (err) {
     return res.status(500).send({ message: err.message || "导出对话失败。" });
   }
@@ -865,7 +865,7 @@ const renderTranscript = async (conversation, messages, format, title) => {
 const safeFilenamePart = (s) => String(s || "").replace(/[\\/:*?"<>|\r\n]+/g, " ").trim().slice(0, 60);
 
 const sendExport = (res, body, format, baseName) => {
-  const filename = `${safeFilenamePart(baseName) || "欣欣助手文档"}-${exportStamp()}.${EXPORT_FORMATS[format].ext}`;
+  const filename = `${safeFilenamePart(baseName) || "欣欣小助手文档"}-${exportStamp()}.${EXPORT_FORMATS[format].ext}`;
   res.set("Content-Type", EXPORT_FORMATS[format].type);
   res.set("Content-Disposition", `attachment; filename="export.${EXPORT_FORMATS[format].ext}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
   res.set("Access-Control-Expose-Headers", "Content-Disposition");
@@ -873,7 +873,7 @@ const sendExport = (res, body, format, baseName) => {
 };
 
 // POST /api/chat/messages/:messageId/documents/:docId -- the 下载 button on a
-// document 欣欣助手 produced with generate_document (see copilotActions.js).
+// document 欣欣小助手 produced with generate_document (see copilotActions.js).
 // Rendered now from that tool call's own stored arguments: source=content is
 // the Markdown the model wrote; source=conversation is the conversation as
 // it stood when the document was asked for (every message before the reply

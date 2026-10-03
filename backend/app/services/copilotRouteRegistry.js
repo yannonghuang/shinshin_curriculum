@@ -4,7 +4,7 @@ const { authJwt } = require("../middleware");
 
 // The co-pilot's view of this app's REST API, discovered at runtime from the
 // live Express router rather than hand-listed -- so adding, removing or
-// re-guarding a route changes what 欣欣助手 can do with no edit here:
+// re-guarding a route changes what 欣欣小助手 can do with no edit here:
 //   - which endpoints exist        <- app._router.stack (registration order,
 //                                     same first-match semantics as Express)
 //   - who may call each one        <- the authJwt guards in its own chain

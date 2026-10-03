@@ -25,7 +25,7 @@ module.exports = function (app) {
   app.post("/api/chat/conversations/:id/messages", [authJwt.verifyToken], chat.sendMessageToConversation);
   app.delete("/api/chat/conversations/:id", [authJwt.verifyToken], chat.deleteConversation);
 
-  // The user's own 确认执行/取消 on an action 欣欣助手 proposed (see
+  // The user's own 确认执行/取消 on an action 欣欣小助手 proposed (see
   // copilotActions.js's confirm tier) -- ownership is checked against the
   // message's conversation; the action itself re-runs every route guard
   // its REST counterpart has, so no role gate is needed here.

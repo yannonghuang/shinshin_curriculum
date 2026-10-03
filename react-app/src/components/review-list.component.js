@@ -644,7 +644,7 @@ const ReviewList = (props) => {
                   <td>{review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-"}</td>
                   <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
                   <td>
-                    {/* Continuing an AI review's discussion with 欣欣助手 is
+                    {/* Continuing an AI review's discussion with 欣欣小助手 is
                         reserved to the plan's owning teacher (canDiscussAi
                         mirrors canEditPlan -- unlike canTriggerAi, which
                         admins/experts also get on submitted plans) --
@@ -656,7 +656,7 @@ const ReviewList = (props) => {
                       <button
                         type="button"
                         className="btn btn-link p-0 mr-2"
-                        title="打开欣欣助手，就这条点评继续提问"
+                        title="打开欣欣小助手，就这条点评继续提问"
                         onClick={() =>
                           window.dispatchEvent(new CustomEvent("copilot:open", { detail: { reviewId: review.id } }))
                         }

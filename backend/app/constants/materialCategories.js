@@ -3,7 +3,7 @@
 // topics an admin defines by hand (see materials-library.component.js's own
 // mirrored constant). Deliberately NOT excluded from knowledgeIngest.js's
 // retrieval pipeline -- per the "学习资源库 is the single source of truth,
-// on both thematic topics and system usage, feeding 欣欣助手/AI 点评 alike"
+// on both thematic topics and system usage, feeding 欣欣小助手/AI 点评 alike"
 // design, everything filed here is meant to be searchable by the chatbot
 // just like any other 学习资源库 topic.
 const MANUAL_CATEGORY = "使用指南";

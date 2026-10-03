@@ -217,7 +217,7 @@ async function ensureEvaluation(plan, { standard, want = { score: true, review: 
 // A new score or review *replaces* the plan's previous one(s): they're
 // deleted in the same transaction the new row is written in, so a plan
 // never carries more than its current AI score and AI review. The one
-// exception is an old AI review with a 欣欣助手 discussion (a chat
+// exception is an old AI review with a 欣欣小助手 discussion (a chat
 // conversation scoped "review:<id>" with messages) -- the teacher may have
 // read and discussed it, so it's kept, as history, rather than pulling the
 // thread out from under them (same rule as the

@@ -20,7 +20,7 @@ const chunkLocator = (c) =>
 // The lower two layers of a topic's knowledge tree (backend
 // services/knowledgeTree.js), shown under its 知识卡片 (the top layer):
 //   资料索引 -- each source's summary + "contents" inventory, what AI 点评 /
-//              欣欣助手 / AI 点评标准 route on when picking relevant material;
+//              欣欣小助手 / AI 点评标准 route on when picking relevant material;
 //   原文     -- the verbatim, page-cited text an inventory item (or a whole
 //              source) points at, loaded on demand.
 // Read-only, apart from admins' 重建资料索引 (re-extract + re-summarize every
@@ -107,7 +107,7 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
       </div>
       <p className="small text-muted">
         知识库按三层组织：上方的<b>主题知识卡片</b>概括整个主题；下面是每份资料的<b>摘要与内容条目</b>；点击条目可查看对应的
-        <b>原文</b>（注明页码）。AI 点评、AI 点评标准与欣欣助手按这些摘要与条目找到相关资料，并对每段原文做语义匹配，再引用其原文。
+        <b>原文</b>（注明页码）。AI 点评、AI 点评标准与欣欣小助手按这些摘要与条目找到相关资料，并对每段原文做语义匹配，再引用其原文。
       </p>
 
       {rebuilding && (

@@ -149,7 +149,7 @@ const PlansList = (props) => {
     retrieveAll();
   }, [retrieveAll]);
 
-  // 欣欣助手 created/edited/submitted/deleted a plan (see copilot-panel.
+  // 欣欣小助手 created/edited/submitted/deleted a plan (see copilot-panel.
   // component.js#announceChanges) -- reload so e.g. a draft it just built
   // shows up in 我的乡土课程 without a manual refresh. Any change counts, not
   // just ids already on screen: a newly created plan isn't in the list yet.

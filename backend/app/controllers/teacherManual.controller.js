@@ -7,7 +7,7 @@
 //
 // 使用指南 is deliberately just an ordinary MaterialTopic category, not a
 // special-cased one: per the "学习资源库 is the single source of truth, on
-// both thematic topics and system usage, feeding 欣欣助手/AI 点评 alike"
+// both thematic topics and system usage, feeding 欣欣小助手/AI 点评 alike"
 // design, this topic's content is ingested into the knowledge base exactly
 // like any other -- see teacherManualPublish.js -- and an admin is free
 // to file other "how to use the system" topics alongside it under the same
