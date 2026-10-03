@@ -93,33 +93,31 @@ const announceChanges = (messages) => {
 
 const ACTION_STATUS_LABELS = { pending: "待确认", confirmed: "已执行", cancelled: "已取消", failed: "执行失败" };
 
-// A speech bubble with the letters "AI" knocked out of it (plus a small
-// sparkle) -- spelling out "AI" reads at a glance in a way an abstract
-// sparkles mark alone didn't. Inline SVG (FontAwesome 5's free set has
-// nothing like it), drawn in currentColor with the letters cut through via a
-// mask, so it works on any background. maskId must be unique per instance
-// on the page.
-const AiChatIcon = ({ size = 24, maskId }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-    <mask id={maskId}>
-      <rect width="24" height="24" fill="#fff" />
-      <text
-        x="10"
-        y="14.3"
-        textAnchor="middle"
-        fontSize="8.6"
-        fontWeight="800"
-        fontFamily="Arial, Helvetica, sans-serif"
-        fill="#000"
-      >
-        AI
-      </text>
-    </mask>
+// An "Ai" lettermark -- thin-stroke letters with a swooping crossbar on the
+// "A" and a four-pointed sparkle as the dot of the "i". Spelling out "AI"
+// reads at a glance in a way an abstract sparkles mark alone didn't. Inline
+// SVG (FontAwesome 5's free set has nothing like it) in currentColor, so it
+// takes the surrounding text color.
+const AiLetterIcon = ({ size = 24 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.7"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M2.8 20L8.8 4.5L14.8 20" />
+    <path d="M4.6 15.6Q9.6 11.4 13.4 17.6" />
+    <path d="M19 11V20" />
     <path
-      mask={`url(#${maskId})`}
-      d="M4.5 4.5h11a3.5 3.5 0 0 1 3.5 3.5v6.5a3.5 3.5 0 0 1-3.5 3.5H9l-4 3.5V18h-.5A3.5 3.5 0 0 1 1 14.5V8a3.5 3.5 0 0 1 3.5-3.5z"
+      d="M19 3.2Q19.35 6 22.1 6.35Q19.35 6.7 19 9.5Q18.65 6.7 15.9 6.35Q18.65 6 19 3.2Z"
+      fill="currentColor"
+      stroke="none"
     />
-    <path d="M20.5 .5Q20.9 3.1 23.5 3.5Q20.9 3.9 20.5 6.5Q20.1 3.9 17.5 3.5Q20.1 3.1 20.5 .5Z" />
   </svg>
 );
 
@@ -934,7 +932,7 @@ const CopilotPanel = () => {
           </span>
         ) : (
           <span key="open" className="copilot-toggle-icon">
-            <AiChatIcon size={30} maskId="copilot-ai-mask-toggle" />
+            <AiLetterIcon size={30} />
           </span>
         )}
       </button>
@@ -957,7 +955,7 @@ const CopilotPanel = () => {
           )}
           <div className="copilot-header">
             <span className="copilot-title">
-              <AiChatIcon size={20} maskId="copilot-ai-mask-header" />
+              <AiLetterIcon size={20} />
               欣欣小助手
             </span>
             <div>
