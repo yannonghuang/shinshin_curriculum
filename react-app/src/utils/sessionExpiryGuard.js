@@ -33,3 +33,35 @@ export const stashUnsavedWork = () => {
 
 export const saveUnsavedWork = () =>
   Promise.allSettled([...handlers].filter((h) => h.hasUnsaved()).map((h) => h.save()));
+
+// The stash() storage, shared by every handler (plan edits in PlanDetail,
+// an expert's review form in ReviewList). A handler's key must include the
+// user's id, so a draft never leaks into someone else's session on a shared
+// computer.
+export const writeLocalDraft = (key, parts) => {
+  try {
+    localStorage.setItem(key, JSON.stringify({ ...parts, savedAt: Date.now() }));
+  } catch (e) {
+    console.log(e);
+  }
+};
+
+// Reads and removes the draft in one go.
+export const takeLocalDraft = (key) => {
+  try {
+    const raw = localStorage.getItem(key);
+    localStorage.removeItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+// A restored draft is dropped if the server copy changed after it was
+// stashed -- with this much slack, since savedAt is the browser's clock and
+// updatedAt the server's, and a partially-successful auto-save bumps
+// updatedAt just before the draft of its failed remainder is written.
+export const DRAFT_CLOCK_SLACK_MS = 5 * 60 * 1000;
+
+export const isDraftStale = (draft, serverUpdatedAt) =>
+  !!serverUpdatedAt && new Date(serverUpdatedAt).getTime() > draft.savedAt + DRAFT_CLOCK_SLACK_MS;

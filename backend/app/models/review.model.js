@@ -84,6 +84,20 @@ module.exports = (sequelize, Sequelize) => {
       teacherSeenAt: {
         type: Sequelize.DATE,
       },
+      // 'saved' = an expert/admin's draft (the 保存点评 button), mirroring a
+      // teacher's 保存草稿 on a plan: visible and editable only by its author,
+      // at most one per author per spot (plan + sectionKey + lessonIndex),
+      // and invisible to everyone else -- the plan's teacher, other
+      // reviewers, AI review history, dashboards, the 专家已点评 flag.
+      // Submitting it replaces the draft with a brand-new 'submitted' row
+      // (see review.controller.js#create), so a submitted review's id,
+      // createdAt and version snapshots always date from its submission.
+      // AI reviews are always 'submitted'.
+      status: {
+        type: Sequelize.ENUM("saved", "submitted"),
+        allowNull: false,
+        defaultValue: "submitted",
+      },
     },
     {
       tableName: "reviews",

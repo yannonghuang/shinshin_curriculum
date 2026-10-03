@@ -244,7 +244,7 @@ const REVIEW_HISTORY_MAX_CHARS = 4000;
 // WHAT·项目简介, for instance, not just prior 整体 comments.
 async function buildReviewHistoryText(planId) {
   const reviews = await db.review.findAll({
-    where: { planId },
+    where: { planId, status: "submitted" },
     order: [["createdAt", "ASC"]],
     limit: REVIEW_HISTORY_MAX_ENTRIES,
   });

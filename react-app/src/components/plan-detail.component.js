@@ -9,7 +9,7 @@ import ReviewDataService from "../services/review.service";
 import LessonFileManager from "./lesson-file-manager.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, PLAN_STATUSES, EMPTY_LESSON, currentSeason } from "../constants/plan-options";
 import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
-import { registerSessionExpiryHandler } from "../utils/sessionExpiryGuard";
+import { registerSessionExpiryHandler, writeLocalDraft, takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
 import "../curriculum.css";
 
 // True if an answers object (shaped like planFormData/one executionFormData
@@ -549,30 +549,10 @@ const metaFormPayload = (metaForm) => ({
 });
 
 // Local fallback for edits a session timeout couldn't get to the server
-// (see the session-expiry handler in PlanDetail). Keyed per plan *and* user,
-// so a draft never leaks into someone else's session on a shared computer.
+// (see the session-expiry handler in PlanDetail and utils/sessionExpiryGuard.js).
 const planDraftKey = (planId, userId) => `planDraft:${planId}:${userId}`;
-const DRAFT_CLOCK_SLACK_MS = 5 * 60 * 1000;
-
-const writePlanDraft = (planId, userId, parts) => {
-  try {
-    localStorage.setItem(planDraftKey(planId, userId), JSON.stringify({ ...parts, savedAt: Date.now() }));
-  } catch (e) {
-    console.log(e);
-  }
-};
-
-// Reads and removes the draft in one go.
-const takePlanDraft = (planId, userId) => {
-  try {
-    const key = planDraftKey(planId, userId);
-    const raw = localStorage.getItem(key);
-    localStorage.removeItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) {
-    return null;
-  }
-};
+const writePlanDraft = (planId, userId, parts) => writeLocalDraft(planDraftKey(planId, userId), parts);
+const takePlanDraft = (planId, userId) => takeLocalDraft(planDraftKey(planId, userId));
 
 const PlanDetail = (props) => {
   const planId = props.match.params.id;
@@ -705,13 +685,10 @@ const PlanDetail = (props) => {
       // on restore: from here on the usual beforeunload/<Prompt> guards and
       // a repeat timeout's own stash cover them. Dropped if the plan changed
       // server-side after the stash (e.g. edited later from another device),
-      // so a stale draft never clobbers newer content -- with some slack,
-      // since savedAt is the browser's clock and updatedAt the server's, and
-      // a partially-successful auto-save bumps updatedAt just before the
-      // draft of its failed remainder is written.
+      // so a stale draft never clobbers newer content (see isDraftStale).
       const user = AuthService.getCurrentUser();
       const draft = user && String(resp.data.teacherId) === String(user.id) ? takePlanDraft(planId, user.id) : null;
-      if (draft && !(resp.data.updatedAt && new Date(resp.data.updatedAt).getTime() > draft.savedAt + DRAFT_CLOCK_SLACK_MS)) {
+      if (draft && !isDraftStale(draft, resp.data.updatedAt)) {
         if (draft.metaForm) {
           setMetaForm(draft.metaForm);
           setMetaDirty(true);

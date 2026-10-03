@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import ReviewDataService from "../services/review.service";
 import AuthService from "../services/auth.service";
+import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
+import { registerSessionExpiryHandler, writeLocalDraft, takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
 
 // Migrated from shinshin's comments-list.component.js (inline textarea-submit + list-below
 // pattern), extended with:
@@ -44,6 +46,14 @@ import AuthService from "../services/auth.service";
 //    author -- it's edited/deleted at its origin (the segment's own mini-widget), never from the
 //    aggregate, so nothing you see on a section's own tab can vanish out from under it via an
 //    edit made somewhere else.
+//
+// Saved reviews (review.model.js's status), borrowed from a teacher's 保存草稿/提交待点评 on a
+// plan: an expert/admin can 保存点评 instead of 提交点评, keeping a draft only they can see --
+// one per spot (this widget's own write sectionKey + lessonIndex), loaded back into the form
+// whenever they return, and listed with a 已保存·未提交 tag until submitted. Unsaved form edits
+// are guarded like a plan's: a beforeunload prompt, and a session-timeout auto-save to that
+// draft (see utils/sessionExpiryGuard.js), with a local stash restored on the next visit when
+// even that couldn't reach the server.
 // Content beyond this length starts collapsed (a truncated preview + a
 // 展开/收起 toggle) -- an AI review in particular can run to several
 // paragraphs, which used to blow up every row's height in a list that's
@@ -165,6 +175,11 @@ const ReviewList = (props) => {
   // tagged 新 for as long as this widget stays mounted, even though they're
   // marked seen server-side right away (see trackSeen below).
   const [newIds, setNewIds] = useState(new Set());
+  // The form's saved state: what's stored server-side for it -- the
+  // requester's own draft for this spot, or empty when there's none. The
+  // form is dirty whenever it differs from this.
+  const [baseline, setBaseline] = useState({ text: "", score: "" });
+  const [hasDraft, setHasDraft] = useState(false);
 
   const toggleExpanded = (id) => {
     setExpandedIds((prev) => {
@@ -190,6 +205,28 @@ const ReviewList = (props) => {
   // get tagged with (see review.model.js's sectionKey comment) -- null for
   // 设计's aggregate (unchanged from before aggregateScope existed).
   const writeSectionKey = aggregateScope === "implementation" ? "IMPLEMENTATION_OVERALL" : null;
+  // The spot this widget's form writes to -- what review.controller.js#create
+  // keys a saved draft on.
+  const ownSectionKey = sectionKey || writeSectionKey;
+  const ownLessonIndex = lessonIndex !== undefined && lessonIndex !== null && lessonIndex !== "" ? Number(lessonIndex) : null;
+  const userId = currentUser && currentUser.id;
+  const isOwnDraft = useCallback(
+    (r) =>
+      r.status === "saved" &&
+      !!userId &&
+      String(r.reviewerId) === String(userId) &&
+      (r.sectionKey || null) === (ownSectionKey || null) &&
+      (r.lessonIndex === null || r.lessonIndex === undefined ? null : Number(r.lessonIndex)) === ownLessonIndex,
+    [userId, ownSectionKey, ownLessonIndex]
+  );
+  const localDraftKey = `reviewDraft:${planId}:${ownSectionKey || "OVERALL"}:${ownLessonIndex ?? ""}:${userId}`;
+  const isDirty = text !== baseline.text || score !== baseline.score;
+
+  // Latest form state for callbacks that mustn't be re-created per keystroke
+  // (retrieveReviews, the session-expiry handler).
+  const formRef = useRef({});
+  formRef.current = { text, score, isDirty };
+  const restoredRef = useRef(false);
 
   const retrieveReviews = useCallback(async () => {
     if (!planId) return;
@@ -200,6 +237,35 @@ const ReviewList = (props) => {
       const scoped = scopeReviews(list, { sectionKey, aggregateScope, sectionLabels });
       const sorted = [...scoped].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setReviews(sorted);
+      if (isExpertReviewer) {
+        const draft = sorted.find(isOwnDraft);
+        // Read before any setState below: outside a React event handler
+        // (React < 18) each one re-renders synchronously, and the first
+        // (setBaseline) would already make the untouched form look dirty.
+        const wasDirty = formRef.current.isDirty;
+        const saved = draft
+          ? { text: draft.content || "", score: draft.score === null || draft.score === undefined ? "" : String(Number(draft.score)) }
+          : { text: "", score: "" };
+        setBaseline(saved);
+        setHasDraft(!!draft);
+        // Never overwrite edits in progress; otherwise show what's saved.
+        if (!wasDirty) {
+          setText(saved.text);
+          setScore(saved.score);
+        }
+        // Form content a session timeout couldn't get to the server (see the
+        // session-expiry handler below) -- restored once, as unsaved, unless
+        // the server draft changed after it was stashed.
+        if (!restoredRef.current) {
+          restoredRef.current = true;
+          const stash = takeLocalDraft(localDraftKey);
+          if (stash && !(draft && isDraftStale(stash, draft.updatedAt))) {
+            setText(stash.text || "");
+            setScore(stash.score || "");
+            setMessage("已恢复登录超时前未保存的点评，请检查后保存或提交。");
+          }
+        }
+      }
       // trackSeen: the viewer is the plan's own teacher, on a 整体点评 view --
       // showing a review here counts as the teacher having seen it (see
       // review.model.js's teacherSeenAt), which clears the sidebar flash in
@@ -215,7 +281,7 @@ const ReviewList = (props) => {
       console.log(e);
       setMessage("加载点评列表失败。");
     }
-  }, [planId, lessonIndex, sectionKey, aggregateScope, sectionLabels, trackSeen, onSeen]);
+  }, [planId, lessonIndex, sectionKey, aggregateScope, sectionLabels, trackSeen, onSeen, isExpertReviewer, isOwnDraft, localDraftKey]);
 
   // Also reruns whenever aiLoading flips (in either direction) -- when
   // aiPending is lifted to a parent that outlives this widget's own mount
@@ -227,35 +293,97 @@ const ReviewList = (props) => {
     retrieveReviews();
   }, [retrieveReviews, aiLoading]);
 
-  const save = async (e) => {
-    e.preventDefault();
+  const reviewPayload = (form, status) => {
+    const data = {
+      content: form.text,
+      lessonIndex: lessonIndex !== undefined && lessonIndex !== null ? lessonIndex : undefined,
+    };
+    if (isExpertReviewer) {
+      // sectionKey is a fixed prop, never reviewer-chosen. A segment mini-widget
+      // tags with its own sectionKey; an aggregate tags with writeSectionKey
+      // (null for 设计, "IMPLEMENTATION_OVERALL" for 实施) so its own comments
+      // stay distinguishable from the segment reviews it also displays.
+      if (ownSectionKey) data.sectionKey = ownSectionKey;
+      if (form.score !== "") data.score = Number(form.score);
+      data.status = status;
+    }
+    return data;
+  };
+
+  // status "saved" (保存点评) keeps the form as the requester's draft;
+  // "submitted" (提交点评) publishes it, replacing that draft server-side.
+  const persist = async (status) => {
     if (!text.trim()) {
       setMessage("请填写点评内容。");
       return;
     }
     try {
-      const data = {
-        content: text,
-        lessonIndex: lessonIndex !== undefined && lessonIndex !== null ? lessonIndex : undefined,
-      };
-      if (isExpertReviewer) {
-        // sectionKey is a fixed prop, never reviewer-chosen. A segment mini-widget
-        // tags with its own sectionKey; an aggregate tags with writeSectionKey
-        // (null for 设计, "IMPLEMENTATION_OVERALL" for 实施) so its own comments
-        // stay distinguishable from the segment reviews it also displays.
-        if (sectionKey) data.sectionKey = sectionKey;
-        else if (writeSectionKey) data.sectionKey = writeSectionKey;
-        if (score !== "") data.score = Number(score);
+      await ReviewDataService.create(planId, reviewPayload({ text, score }, status));
+      if (status === "saved") {
+        setBaseline({ text, score });
+        setMessage("点评已保存（尚未提交，仅自己可见）。");
+      } else {
+        setText("");
+        setScore("");
+        setBaseline({ text: "", score: "" });
+        setMessage("");
       }
-      await ReviewDataService.create(planId, data);
-      setText("");
-      setScore("");
-      setMessage("");
       retrieveReviews();
     } catch (e) {
-      setMessage(e?.response?.data?.message || "提交点评失败。");
+      setMessage(e?.response?.data?.message || (status === "saved" ? "保存点评失败。" : "提交点评失败。"));
     }
   };
+
+  const submit = (e) => {
+    e.preventDefault();
+    persist("submitted");
+  };
+
+  // Same unsaved-edits guards as a teacher's plan editor (see
+  // plan-detail.component.js): beforeunload for tab close/refresh...
+  useEffect(() => {
+    if (!isExpertReviewer || !isDirty) return undefined;
+    const handleBeforeUnload = (e) => {
+      if (consumeSkipUnsavedWarning()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isExpertReviewer, isDirty]);
+
+  // ...and a session-timeout auto-save to the draft (see
+  // utils/sessionExpiryGuard.js), with a local stash for when the token is
+  // already dead. Never auto-submits: an expert's review only goes public
+  // when they say so.
+  useEffect(() => {
+    if (!isExpertReviewer || !planId || !userId) return undefined;
+    const unsaved = () => {
+      const f = formRef.current;
+      return f.isDirty && f.text.trim() ? { text: f.text, score: f.score } : null;
+    };
+    return registerSessionExpiryHandler({
+      hasUnsaved: () => !!unsaved(),
+      stash: () => {
+        const form = unsaved();
+        if (form) writeLocalDraft(localDraftKey, form);
+      },
+      save: async () => {
+        const form = unsaved();
+        if (!form) return;
+        try {
+          await ReviewDataService.create(planId, reviewPayload(form, "saved"));
+          takeLocalDraft(localDraftKey);
+          formRef.current.isDirty = false;
+          setBaseline(form);
+        } catch (e) {
+          console.log(e);
+        }
+      },
+    });
+    // reviewPayload only reads props folded into localDraftKey/planId.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExpertReviewer, planId, userId, localDraftKey]);
 
   const triggerAiReview = async () => {
     setAiLoading(true);
@@ -332,10 +460,12 @@ const ReviewList = (props) => {
   // first row encountered per group here is that group's latest.
   const latestIdByGroup = new Map();
   for (const r of reviews) {
+    if (r.status === "saved") continue;
     const key = reviewGroupKey(r);
     if (!latestIdByGroup.has(key)) latestIdByGroup.set(key, r.id);
   }
-  const showUpdatedBadge = (review) => isContentUpdated(review) && latestIdByGroup.get(reviewGroupKey(review)) === review.id;
+  const showUpdatedBadge = (review) =>
+    review.status !== "saved" && isContentUpdated(review) && latestIdByGroup.get(reviewGroupKey(review)) === review.id;
   // A review is "this aggregate's own" iff it's tagged with this aggregate's
   // writeSectionKey and has no lessonIndex -- everything else shown in an
   // aggregate (a segment review, or, in 实施's aggregate, 设计's own AI
@@ -363,14 +493,15 @@ const ReviewList = (props) => {
     return { label: "整体", clickable: false };
   };
 
+  // A saved draft is outside the history lock (review.controller.js#delete).
   const canDelete = (review) =>
     !isSectionOrigin(review) &&
-    isCurrentVersion(review) &&
+    (review.status === "saved" || isCurrentVersion(review)) &&
     (AuthService.isAdmin() || (review.reviewerId && currentUser && String(review.reviewerId) === String(currentUser.id)));
 
   const deleteReview = async (review) => {
     if (!canDelete(review)) return;
-    if (!window.confirm("确定要删除该点评吗？")) return;
+    if (!window.confirm(review.status === "saved" ? "确定要删除该已保存的点评吗？" : "确定要删除该点评吗？")) return;
     try {
       await ReviewDataService.delete(review.id);
       retrieveReviews();
@@ -397,7 +528,7 @@ const ReviewList = (props) => {
       </div>
 
       {isExpertReviewer && (
-        <form onSubmit={save} className="mb-3">
+        <form onSubmit={submit} className="mb-3">
           <div className="form-row">
             <div className="form-group col-md-2">
               <label>评分（可选）</label>
@@ -419,14 +550,20 @@ const ReviewList = (props) => {
             onChange={(e) => setText(e.target.value)}
             placeholder={sectionKey ? `请针对 ${sectionLabel(sectionKey, lessonIndex, sectionLabels)} 部分填写点评...` : "请填写点评内容..."}
           />
+          <button className="btn btn-outline-primary btn-sm mr-2" type="button" onClick={() => persist("saved")} disabled={!isDirty}>
+            保存点评
+          </button>
           <button className="btn btn-primary btn-sm" type="submit">
             提交点评
           </button>
+          <small className="text-muted ml-2">
+            {isDirty ? "有未保存的修改" : hasDraft ? "已保存，尚未提交（仅自己可见）" : null}
+          </small>
         </form>
       )}
 
       {!isExpertReviewer && !embedded && (
-        <form onSubmit={save} className="mb-3">
+        <form onSubmit={submit} className="mb-3">
           <textarea rows="3" className="form-control mb-2" value={text} onChange={(e) => setText(e.target.value)} placeholder="请填写留言..." />
           <button className="btn btn-primary btn-sm" type="submit">
             提交
@@ -474,6 +611,11 @@ const ReviewList = (props) => {
                       <span className="pl-tag-admin">管理员点评</span>
                     ) : (
                       <span className="pl-tag-expert">专家点评</span>
+                    )}
+                    {review.status === "saved" && (
+                      <span className="pl-tag ml-1" title="仅自己可见，提交后教师与其他人才能看到">
+                        已保存·未提交
+                      </span>
                     )}
                     {newIds.has(review.id) && <span className="pl-tag pl-tag-new ml-1">新</span>}
                     {!isAggregateView && updatedBadge}
