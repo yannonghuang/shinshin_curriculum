@@ -237,12 +237,12 @@ async function run() {
       });
     }
 
-    console.log("==> 欣欣助手 面板 (打开状态)");
+    console.log("==> 欣欣小助手 面板 (打开状态)");
     await page.locator(".copilot-toggle").click();
     await page.waitForTimeout(500);
     await shoot(page.locator(".copilot-panel"), "copilot-panel");
 
-    console.log("==> 欣欣助手 代办操作：「待确认」卡片 (提交待点评 -> 取消，不改动任何数据)");
+    console.log("==> 欣欣小助手 代办操作：「待确认」卡片 (提交待点评 -> 取消，不改动任何数据)");
     // A real request on this still-草稿 plan: submit_plan is confirm-tier, so
     // the reply carries a pending 确认执行/取消 card instead of acting --
     // captured, then 取消'd, so the plan itself stays exactly as it was. A
@@ -259,7 +259,7 @@ async function run() {
     await actionCard.getByRole("button", { name: "取消" }).click();
     await page.waitForTimeout(1000);
 
-    console.log("==> 欣欣助手 附件：选择文件 + 粘贴截图");
+    console.log("==> 欣欣小助手 附件：选择文件 + 粘贴截图");
     // Real material on both counts: the project's own spec .docx from the
     // repo root, picked through the 📎 file input, and a screenshot of the
     // real plan page currently open, pasted into the input the way a teacher
@@ -283,7 +283,7 @@ async function run() {
     await page.waitForTimeout(300);
     await shoot(page.locator(".copilot-panel"), "copilot-attachments");
 
-    console.log("==> 欣欣助手 导出：选择部分消息");
+    console.log("==> 欣欣小助手 导出：选择部分消息");
     // Sends the turn above for real (a live LLM round-trip, hence the long
     // wait), then opens 导出 in 选择部分消息 mode with the reply unticked --
     // captured and 取消'd; nothing is downloaded.

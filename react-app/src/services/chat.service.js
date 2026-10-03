@@ -57,7 +57,7 @@ class ChatDataService {
     return http.get(`/chat/attachments/${id}/image`, { headers: authHeader(), responseType: "blob" });
   }
 
-  // A document 欣欣助手 generated in a reply (generate_document) -- see
+  // A document 欣欣小助手 generated in a reply (generate_document) -- see
   // backend chat.controller.js#downloadDocument.
   downloadDocument(messageId, docId) {
     return http.post(`/chat/messages/${messageId}/documents/${docId}`, {}, { headers: authHeader(), responseType: "blob" });
@@ -73,7 +73,7 @@ class ChatDataService {
     return http.delete(`/chat/conversations/${id}`, { headers: authHeader() });
   }
 
-  // 确认执行/取消 on an action 欣欣助手 proposed -- see backend
+  // 确认执行/取消 on an action 欣欣小助手 proposed -- see backend
   // chat.controller.js#confirmAction. Both resolve to { message, followUp }:
   // the proposing message with its action's status updated, plus a short
   // assistant follow-up recording the outcome.

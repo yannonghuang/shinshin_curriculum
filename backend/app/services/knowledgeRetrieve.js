@@ -70,7 +70,7 @@ async function searchKnowledgeBase(query, { materialTopicId, limit = 5 } = {}) {
   return [...skills, ...chunks];
 }
 
-// The search_knowledge_base tool's executor for AI 点评 and 欣欣助手:
+// The search_knowledge_base tool's executor for AI 点评 and 欣欣小助手:
 // knowledge-tree retrieval (knowledgeTree.js#buildContext -- the model's
 // query routed over topic/source summaries, relevant material returned
 // verbatim within `budget`, the rest as summaries), topped up with the

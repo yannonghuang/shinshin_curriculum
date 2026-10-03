@@ -54,7 +54,7 @@ require("./app/routes/ai-review.routes")(app);
 require("./app/routes/dashboard.routes")(app);
 require("./app/routes/build-info.routes")(app);
 
-// 欣欣助手's action layer discovers the API from the live router (lazily, on
+// 欣欣小助手's action layer discovers the API from the live router (lazily, on
 // first use) -- must come after every route above is registered.
 require("./app/services/copilotRouteRegistry").attachApp(app);
 
@@ -88,7 +88,7 @@ const runChatRetentionSweep = () => {
 setTimeout(runChatRetentionSweep, 10 * 1000);
 setInterval(runChatRetentionSweep, CHAT_RETENTION_SWEEP_INTERVAL_MS);
 
-// Keeps the published 教师使用手册 (the copy 欣欣助手 actually reads, via the
+// Keeps the published 教师使用手册 (the copy 欣欣小助手 actually reads, via the
 // knowledge base) in step with the manual text shipped in this build --
 // otherwise it only updated when an admin remembered to republish after a
 // deploy. A no-op when nothing changed; see teacherManualPublish.js. Delayed

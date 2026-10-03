@@ -30,7 +30,7 @@ async function purgeStaleConversations() {
   return result.affectedRows || 0;
 }
 
-// Uploads to 欣欣助手 that were never sent (the panel closed, the chip's ×
+// Uploads to 欣欣小助手 that were never sent (the panel closed, the chip's ×
 // failed, the tab died) -- a sent attachment has a message_id and goes with
 // its conversation above. A day is long past any upload still about to be
 // sent.

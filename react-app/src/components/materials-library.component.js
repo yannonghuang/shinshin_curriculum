@@ -15,7 +15,7 @@ import "../curriculum.css";
 // Mirrors backend/app/constants/materialCategories.js's MANUAL_CATEGORY/
 // MANUAL_THEME -- 使用指南 is an ordinary category an admin can file any
 // "how to use the system" topic under (each behaving exactly like any other
-// topic: normal tabs, normal knowledge-base ingestion feeding 欣欣助手/AI 点评
+// topic: normal tabs, normal knowledge-base ingestion feeding 欣欣小助手/AI 点评
 // -- see teacherManual.controller.js#publish's own comment on the "学习资源库
 // is the single source of truth" design). The one specific topic these two
 // constants identify together -- the auto-generated manual, created by the
@@ -948,7 +948,7 @@ const MaterialsLibrary = () => {
           </div>
           <p className="text-muted mb-2">
             教师使用手册根据系统当前功能自动生成，涵盖课程设计的创建/编辑/保存/提交/上传/下载/删除、专家评审、AI 点评、
-            评审历史、AI 讨论、欣欣助手、执行阶段支撑材料管理与模板迁移等内容。
+            评审历史、AI 讨论、欣欣小助手、执行阶段支撑材料管理与模板迁移等内容。
           </p>
           <button
             type="button"
@@ -963,7 +963,7 @@ const MaterialsLibrary = () => {
           </button>
           <div className="text-muted mt-2" style={{ fontSize: "0.85em" }}>
             发布后将出现在下方的「使用指南 / 教师手册」主题下，教师可自行查看；再次发布会更新同一份文件。
-            首次发布之后，系统每次更新上线时如手册内容有变化，会自动重新发布（欣欣助手据此回答系统使用问题）。
+            首次发布之后，系统每次更新上线时如手册内容有变化，会自动重新发布（欣欣小助手据此回答系统使用问题）。
           </div>
         </div>
       )}

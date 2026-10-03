@@ -717,7 +717,7 @@ const PlanDetail = (props) => {
     retrievePlan();
   }, [retrievePlan]);
 
-  // 欣欣助手 changed this plan (see copilot-panel.component.js#announceChanges)
+  // 欣欣小助手 changed this plan (see copilot-panel.component.js#announceChanges)
   // -- reload so the page shows it, unless there are unsaved edits here:
   // planFormData/executionFormData are saved wholesale, so silently
   // reloading would discard them, and saving them would overwrite the
@@ -733,7 +733,7 @@ const PlanDetail = (props) => {
         return;
       }
       if (planDirty || executionDirty || metaDirty) {
-        setMessage("欣欣助手已修改了本课程设计，但当前页面有未保存的修改：保存将覆盖助手的修改；如需查看助手的修改，请放弃当前修改并刷新页面。");
+        setMessage("欣欣小助手已修改了本课程设计，但当前页面有未保存的修改：保存将覆盖助手的修改；如需查看助手的修改，请放弃当前修改并刷新页面。");
         return;
       }
       retrievePlan();

@@ -4,7 +4,7 @@ const { searchKnowledgeTree, searchKnowledgeBaseToolDef } = require("./knowledge
 const { buildPlanContentText } = require("./planContext");
 const planForm = require("./copilotPlanForm");
 
-// 欣欣助手's action layer: lets the co-pilot do on a user's behalf anything
+// 欣欣小助手's action layer: lets the co-pilot do on a user's behalf anything
 // that user could otherwise do by hand -- and nothing more. Nothing here is
 // a static snapshot of the API: the set of endpoints, who may call each, and
 // what each takes all come from copilotRouteRegistry.js's runtime discovery
@@ -178,7 +178,7 @@ const TOOLS = [
     routes: [],
     def: searchKnowledgeBaseToolDef,
     // Knowledge-tree retrieval over the whole library, 使用指南 included
-    // (欣欣助手 answers "how do I use the system" questions from it), with
+    // (欣欣小助手 answers "how do I use the system" questions from it), with
     // topics' 主讲人/备注 visible so "谁讲过…" questions stay answerable.
     run: (ctx, args) => searchKnowledgeTree(args.query, { excludeCategories: [], includeTopicMeta: true }),
   },
@@ -210,7 +210,7 @@ const TOOLS = [
       if (source === "content" && !String(args.content || "").trim()) {
         throw new Error("source=content 时必须在 content 中提供文档正文。");
       }
-      const title = String(args.title || "").trim().slice(0, 100) || (source === "conversation" ? "欣欣助手对话记录" : "欣欣助手文档");
+      const title = String(args.title || "").trim().slice(0, 100) || (source === "conversation" ? "欣欣小助手对话记录" : "欣欣小助手文档");
       return {
         document: { docId: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, source, format, title },
         note: "文档已生成。请告诉用户点击回复下方的「下载」按钮获取文件（PDF 会打开打印对话框，选择「另存为 PDF」）。不要在回复中重复文档全文。",

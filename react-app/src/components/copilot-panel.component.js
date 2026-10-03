@@ -20,7 +20,7 @@ import "../curriculum.css";
 // /plans/:id is recognized today; extend the regex if other pages should
 // contribute context later. reviewId, on the other hand, can't come from the
 // URL (there's no /reviews/:id route) -- any component can request it via a
-// "copilot:open" window event (see the listener below), e.g. a "与欣欣助手
+// "copilot:open" window event (see the listener below), e.g. a "与欣欣小助手
 // 讨论这条点评" button in review-list.component.js.
 const PLAN_PAGE_RE = /^\/plans\/(\d+)/;
 
@@ -72,7 +72,7 @@ const actionEntries = (message) =>
 
 const DOCUMENT_FORMAT_LABELS = { docx: "Word", pdf: "PDF", md: "Markdown" };
 
-// Tells whichever page is open that 欣欣助手 just changed data behind its
+// Tells whichever page is open that 欣欣小助手 just changed data behind its
 // back -- e.g. plan-detail.component.js reloads the plan it's showing (or
 // warns, if it has unsaved edits of its own) instead of silently going stale.
 const announceChanges = (messages) => {
@@ -92,6 +92,16 @@ const announceChanges = (messages) => {
 };
 
 const ACTION_STATUS_LABELS = { pending: "待确认", confirmed: "已执行", cancelled: "已取消", failed: "执行失败" };
+
+// The "AI sparkles" mark (a large and a small four-pointed star) that most
+// AI assistants use -- FontAwesome 5's free set has no equivalent, so it's
+// inline SVG. Drawn in currentColor, so it takes the surrounding text color.
+const SparklesIcon = ({ size = 24, className }) => (
+  <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M10 4.5Q11 12 18.5 13Q11 14 10 21.5Q9 14 1.5 13Q9 12 10 4.5Z" />
+    <path d="M18.5 1.5Q19 5 22.5 5.5Q19 6 18.5 9.5Q18 6 14.5 5.5Q18 5 18.5 1.5Z" />
+  </svg>
+);
 
 // Import -- what the file picker offers. The old binary Office formats are
 // listed on purpose: the server rejects them with a "save as .docx/.pptx"
@@ -688,7 +698,7 @@ const CopilotPanel = () => {
       if (format === "pdf") {
         await printHtml(await resp.data.text());
       } else {
-        downloadBlob(resp.data, filenameFromDisposition(resp.headers["content-disposition"], `欣欣助手对话.${format}`));
+        downloadBlob(resp.data, filenameFromDisposition(resp.headers["content-disposition"], `欣欣小助手对话.${format}`));
       }
       setIsExportMode(false);
     } catch (err) {
@@ -895,9 +905,18 @@ const CopilotPanel = () => {
         type="button"
         className="copilot-toggle"
         onClick={() => setIsOpen((prev) => !prev)}
-        title={isOpen ? "关闭欣欣助手" : "打开欣欣助手"}
+        title={isOpen ? "关闭欣欣小助手" : "打开欣欣小助手"}
       >
-        <i className={`fas fa-${isOpen ? "times" : "comment-dots"}`}></i>
+        {/* key'd spans -- FontAwesome's JS swaps <i> for <svg>, see the attachment-chip note */}
+        {isOpen ? (
+          <span key="close">
+            <i className="fas fa-times"></i>
+          </span>
+        ) : (
+          <span key="open" className="copilot-toggle-icon">
+            <SparklesIcon size={26} />
+          </span>
+        )}
       </button>
 
       {isOpen && (
@@ -917,7 +936,10 @@ const CopilotPanel = () => {
             </div>
           )}
           <div className="copilot-header">
-            <span>欣欣助手</span>
+            <span className="copilot-title">
+              <SparklesIcon size={18} />
+              欣欣小助手
+            </span>
             <div>
               {viewMode === "chat" && (
                 <button

@@ -17,7 +17,7 @@ const {
 } = require("docx");
 const { Marked } = require("marked");
 
-// On-the-fly export of a 欣欣助手 transcript (all of a conversation, or the
+// On-the-fly export of a 欣欣小助手 transcript (all of a conversation, or the
 // messages the teacher ticked) as Word (.docx), Markdown (.md), or a
 // printable HTML page the panel prints to PDF. Nothing is stored -- each
 // request renders from chat_messages/chat_attachments as they are.
@@ -27,7 +27,7 @@ const { Marked } = require("marked");
 // docx paragraphs/runs/tables; .md is the content as-is; HTML is marked's own
 // renderer with raw HTML escaped (see htmlMarked below).
 
-const ROLE_NAMES = { user: "我", assistant: "欣欣助手" };
+const ROLE_NAMES = { user: "我", assistant: "欣欣小助手" };
 const ACTION_STATUS_LABELS = { pending: "待确认", confirmed: "已执行", cancelled: "已取消", failed: "执行失败" };
 
 // Same zone the users are in -- the server/container runs in UTC.
@@ -450,7 +450,7 @@ async function toDocx(t) {
 }
 
 // ------------------------------------------------------------------
-// Standalone documents -- a Markdown body 欣欣助手 wrote itself via
+// Standalone documents -- a Markdown body 欣欣小助手 wrote itself via
 // generate_document (source=content), e.g. a discussion organized into a
 // proposal. Same Markdown handling as a reply, minus the transcript framing.
 // ------------------------------------------------------------------

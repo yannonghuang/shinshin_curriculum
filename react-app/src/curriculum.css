@@ -1481,6 +1481,18 @@
   cursor: pointer;
 }
 
+.copilot-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.copilot-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .copilot-toggle:hover {
   filter: brightness(1.08);
 }
@@ -1807,7 +1819,7 @@
   border-top: 1px solid var(--pl-line);
 }
 
-/* 欣欣助手 import -- see copilot-panel.component.js's Import section. The
+/* 欣欣小助手 import -- see copilot-panel.component.js's Import section. The
    composer wraps the pending-attachment chips and the input row so the
    chips sit directly above the input they'll be sent with. */
 .copilot-composer {
@@ -1912,6 +1924,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: flex-start; /* a file chip keeps its own height beside a tall thumbnail */
   margin-top: 4px;
 }
 .copilot-bubble-content + .copilot-message-attachments {
@@ -1967,7 +1980,7 @@
   font-size: 28px;
 }
 
-/* 欣欣助手 export -- replaces the composer while choosing what to export. */
+/* 欣欣小助手 export -- replaces the composer while choosing what to export. */
 .copilot-export-bar {
   border-top: 1px solid var(--pl-line);
   padding: 8px 12px 10px;
@@ -2026,7 +2039,7 @@
   overflow-y: auto;
 }
 
-/* 欣欣助手 action cards -- see copilot-panel.component.js#renderActions. */
+/* 欣欣小助手 action cards -- see copilot-panel.component.js#renderActions. */
 .copilot-action {
   margin-top: 8px;
   padding: 6px 8px;

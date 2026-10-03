@@ -53,7 +53,7 @@ const findOrCreateManualTopic = async () => {
 // library entry in place instead of piling up duplicate files. Knowledge-base
 // ingestion runs in the background -- the file is already saved by then, so
 // the caller needn't wait on extraction/summarization. That ingestion is what
-// makes the manual's wording answerable by 欣欣助手.
+// makes the manual's wording answerable by 欣欣小助手.
 async function publishTeacherManual({ buffer } = {}) {
   const manual = buffer || (await generateTeacherManualBuffer());
   const topic = await findOrCreateManualTopic();
@@ -93,7 +93,7 @@ async function publishTeacherManual({ buffer } = {}) {
 }
 
 // Run once at server startup: the manual's text lives in code
-// (teacherManualGenerator.js), but 欣欣助手 reads the *published* copy in the
+// (teacherManualGenerator.js), but 欣欣小助手 reads the *published* copy in the
 // knowledge base -- which used to change only when an admin remembered to
 // click 发布 after a deploy, so the assistant could go on answering from a
 // manual that predates the features it was asked about. Compared by

@@ -483,7 +483,7 @@ exports.bulkCreateFromZip = async (req, res) => {
     });
 
     // Knowledge-base ingestion for every imported file -- this path used to
-    // skip it entirely, leaving zip-imported material invisible to 欣欣助手
+    // skip it entirely, leaving zip-imported material invisible to 欣欣小助手
     // and AI 点评. Same contract as #create's ingestOne: after responding
     // (a large zip shouldn't hold the request open through extraction),
     // one file at a time, best-effort per file, then one skill-card

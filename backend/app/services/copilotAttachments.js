@@ -8,7 +8,7 @@ const { Op } = db.Sequelize;
 const llmClient = require("./llmClient");
 const textExtract = require("./textExtract");
 
-// Files a user hands 欣欣助手 -- picked from disk, dropped onto the panel, or
+// Files a user hands 欣欣小助手 -- picked from disk, dropped onto the panel, or
 // pasted (a screenshot) into its input. Everything is turned into *text* once,
 // at upload time, and that text is what the chat model reads on every later
 // turn: documents through textExtract.js (the same extraction the AI review
@@ -148,14 +148,14 @@ async function ingest({ userId, buffer, originalName, mime, width, height }) {
     try {
       extractedText = await describeImage(buffer, IMAGE_MIME_BY_EXT[ext]);
     } catch (e) {
-      console.error("欣欣助手图片识别失败:", e.message);
+      console.error("欣欣小助手图片识别失败:", e.message);
       warning = "未能识别图片内容，助手将只知道您上传了一张图片。";
     }
   } else {
     try {
       extractedText = await extractDocumentText(buffer, ext);
     } catch (e) {
-      console.error("欣欣助手附件解析失败:", name, e.message);
+      console.error("欣欣小助手附件解析失败:", name, e.message);
     }
     if (!extractedText) warning = "未能从该文件中提取到文字（例如扫描版 PDF），助手将无法阅读其内容。";
   }
