@@ -377,7 +377,7 @@ exports.findAll = async (req, res) => {
     const planIds = data.rows.map((r) => r.id);
     const reviewRows = planIds.length
       ? await Review.findAll({
-          where: { planId: { [Op.in]: planIds }, reviewerType: { [Op.in]: ["ai", "expert"] } },
+          where: { planId: { [Op.in]: planIds }, reviewerType: { [Op.in]: ["ai", "expert"] }, status: "submitted" },
           attributes: ["planId", "reviewerType"],
         })
       : [];
@@ -432,6 +432,9 @@ exports.findOne = async (req, res) => {
         {
           model: Review,
           as: "Reviews",
+          // Drafts are their author's alone (see review.model.js's status).
+          where: { status: "submitted" },
+          required: false,
           attributes: [
             "id",
             "lessonIndex",

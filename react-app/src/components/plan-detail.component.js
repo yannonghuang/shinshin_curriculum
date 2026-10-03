@@ -9,7 +9,8 @@ import ReviewDataService from "../services/review.service";
 import LessonFileManager from "./lesson-file-manager.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, PLAN_STATUSES, EMPTY_LESSON, currentSeason } from "../constants/plan-options";
 import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
-import { registerSessionExpiryHandler } from "../utils/sessionExpiryGuard";
+import { registerSessionExpiryHandler, writeLocalDraft, takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
+import { hasPendingReviewEdits, discardPendingReviewEdits, subscribePendingReviewEdits } from "../utils/pendingReviewEdits";
 import "../curriculum.css";
 
 // True if an answers object (shaped like planFormData/one executionFormData
@@ -549,30 +550,10 @@ const metaFormPayload = (metaForm) => ({
 });
 
 // Local fallback for edits a session timeout couldn't get to the server
-// (see the session-expiry handler in PlanDetail). Keyed per plan *and* user,
-// so a draft never leaks into someone else's session on a shared computer.
+// (see the session-expiry handler in PlanDetail and utils/sessionExpiryGuard.js).
 const planDraftKey = (planId, userId) => `planDraft:${planId}:${userId}`;
-const DRAFT_CLOCK_SLACK_MS = 5 * 60 * 1000;
-
-const writePlanDraft = (planId, userId, parts) => {
-  try {
-    localStorage.setItem(planDraftKey(planId, userId), JSON.stringify({ ...parts, savedAt: Date.now() }));
-  } catch (e) {
-    console.log(e);
-  }
-};
-
-// Reads and removes the draft in one go.
-const takePlanDraft = (planId, userId) => {
-  try {
-    const key = planDraftKey(planId, userId);
-    const raw = localStorage.getItem(key);
-    localStorage.removeItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) {
-    return null;
-  }
-};
+const writePlanDraft = (planId, userId, parts) => writeLocalDraft(planDraftKey(planId, userId), parts);
+const takePlanDraft = (planId, userId) => takeLocalDraft(planDraftKey(planId, userId));
 
 const PlanDetail = (props) => {
   const planId = props.match.params.id;
@@ -705,13 +686,10 @@ const PlanDetail = (props) => {
       // on restore: from here on the usual beforeunload/<Prompt> guards and
       // a repeat timeout's own stash cover them. Dropped if the plan changed
       // server-side after the stash (e.g. edited later from another device),
-      // so a stale draft never clobbers newer content -- with some slack,
-      // since savedAt is the browser's clock and updatedAt the server's, and
-      // a partially-successful auto-save bumps updatedAt just before the
-      // draft of its failed remainder is written.
+      // so a stale draft never clobbers newer content (see isDraftStale).
       const user = AuthService.getCurrentUser();
       const draft = user && String(resp.data.teacherId) === String(user.id) ? takePlanDraft(planId, user.id) : null;
-      if (draft && !(resp.data.updatedAt && new Date(resp.data.updatedAt).getTime() > draft.savedAt + DRAFT_CLOCK_SLACK_MS)) {
+      if (draft && !isDraftStale(draft, resp.data.updatedAt)) {
         if (draft.metaForm) {
           setMetaForm(draft.metaForm);
           setMetaDirty(true);
@@ -764,13 +742,27 @@ const PlanDetail = (props) => {
     return () => window.removeEventListener("copilot:data-changed", onCopilotChange);
   }, [planId, plan, planDirty, executionDirty, metaDirty, retrievePlan, props.history]);
 
+  // Unsaved edits in an expert's review forms (utils/pendingReviewEdits.js),
+  // including ones in a section that isn't on screen -- guarded by the same
+  // beforeunload/<Prompt> as the plan's own edits. Leaving the page after
+  // that prompt discards them, just like the plan's own.
+  const [reviewEditsPending, setReviewEditsPending] = useState(() => hasPendingReviewEdits(planId));
+  useEffect(() => {
+    setReviewEditsPending(hasPendingReviewEdits(planId));
+    const unsubscribe = subscribePendingReviewEdits(() => setReviewEditsPending(hasPendingReviewEdits(planId)));
+    return () => {
+      unsubscribe();
+      discardPendingReviewEdits(planId);
+    };
+  }, [planId]);
+
   // Covers actual tab close/refresh/typed-URL navigation -- the in-app
   // <Prompt> below (same planDirty/executionDirty/metaDirty condition) covers
   // react-router navigation (返回, browser back/forward) instead, since
   // beforeunload doesn't fire for client-side route changes.
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (!planDirty && !executionDirty && !metaDirty) return;
+      if (!planDirty && !executionDirty && !metaDirty && !reviewEditsPending) return;
       // Set by e.g. App.js's logOut right before a reload it already got
       // explicit confirmation for via its own push-triggered <Prompt> --
       // this component isn't guaranteed to have unmounted (and torn down
@@ -782,7 +774,7 @@ const PlanDetail = (props) => {
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [planDirty, executionDirty, metaDirty]);
+  }, [planDirty, executionDirty, metaDirty, reviewEditsPending]);
 
   const currentUser = AuthService.getCurrentUser();
   const isOwner = !!(plan && currentUser && String(plan.teacherId) === String(currentUser.id));
@@ -1551,7 +1543,10 @@ const PlanDetail = (props) => {
           see its own comment) and any other browser back/forward while
           still on this route -- actual tab close/refresh is the
           beforeunload listener set up above instead. */}
-      <Prompt when={planDirty || executionDirty || metaDirty} message="有未保存的内容，确定要离开吗？" />
+      {/* .some() rather than another `||`: one more branch in this (very
+          large) component's body overflows eslint-plugin-react-hooks' code
+          path count into false "hook called conditionally" errors. */}
+      <Prompt when={[planDirty, executionDirty, metaDirty, reviewEditsPending].some(Boolean)} message="有未保存的内容，确定要离开吗？" />
       {/* Sticky so 返回 and the page's single 保存草稿/提交待点评 pair stay in
           view however far down a long section the teacher has scrolled --
           that pair saves every section at once (see saveAll), replacing the

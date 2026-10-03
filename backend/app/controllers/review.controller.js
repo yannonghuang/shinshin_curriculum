@@ -13,7 +13,12 @@ const normalizeLessonIndex = (lessonIndex) => {
   return Number.isInteger(n) && n > 0 ? n : null;
 };
 
-// Create an expert review (POST /api/plans/:planId/reviews)
+// Create an expert review (POST /api/plans/:planId/reviews). body.status:
+//  - "saved" (保存点评): upserts the requester's one draft for this spot
+//    (plan + sectionKey + lessonIndex) -- see review.model.js's status.
+//  - "submitted" (提交点评, the default): creates the review, and drops the
+//    requester's draft for the same spot in the same transaction, since the
+//    form being submitted is that draft.
 exports.create = async (req, res) => {
   try {
     const planId = Number(req.params.planId);
@@ -24,6 +29,10 @@ exports.create = async (req, res) => {
     const { content, score, sectionKey } = req.body;
     if (!content) {
       return res.status(422).send({ message: "点评内容不能为空。" });
+    }
+    const status = req.body.status === undefined ? "submitted" : req.body.status;
+    if (status !== "saved" && status !== "submitted") {
+      return res.status(422).send({ message: "点评状态无效。" });
     }
 
     const plan = await Plan.findByPk(planId);
@@ -48,7 +57,7 @@ exports.create = async (req, res) => {
       ? (plan.segmentVersionAt && plan.segmentVersionAt[segmentKey]) || plan.contentVersionAt
       : null;
 
-    const data = await Review.create({
+    const fields = {
       planId,
       lessonIndex: reviewLessonIndex,
       reviewerType,
@@ -59,6 +68,23 @@ exports.create = async (req, res) => {
       aiModel: null,
       planVersionAt: plan.contentVersionAt,
       segmentVersionAt,
+      status,
+    };
+    const draftWhere = {
+      planId,
+      reviewerId: req.userId,
+      sectionKey: fields.sectionKey,
+      lessonIndex: reviewLessonIndex,
+      status: "saved",
+    };
+
+    const data = await db.sequelize.transaction(async (transaction) => {
+      const draft = await Review.findOne({ where: draftWhere, transaction, lock: transaction.LOCK.UPDATE });
+      if (status === "saved") {
+        return draft ? draft.update(fields, { transaction }) : Review.create(fields, { transaction });
+      }
+      if (draft) await draft.destroy({ transaction });
+      return Review.create(fields, { transaction });
     });
 
     return res.send(data);
@@ -148,7 +174,11 @@ exports.findByPlan = async (req, res) => {
       return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
 
-    const where = { planId };
+    // A saved (draft) review is its author's alone -- see review.model.js.
+    const where = {
+      planId,
+      [db.Sequelize.Op.or]: [{ status: "submitted" }, ...(req.userId ? [{ status: "saved", reviewerId: req.userId }] : [])],
+    };
     if (req.query.lessonIndex !== undefined) {
       if (req.query.lessonIndex === "" || req.query.lessonIndex === "null") {
         where.lessonIndex = null;
@@ -198,7 +228,7 @@ exports.markSeen = async (req, res) => {
     }
     const [updated] = await Review.update(
       { teacherSeenAt: new Date() },
-      { where: { id: { [db.Sequelize.Op.in]: ids }, planId, teacherSeenAt: null } }
+      { where: { id: { [db.Sequelize.Op.in]: ids }, planId, status: "submitted", teacherSeenAt: null } }
     );
     return res.send({ updated });
   } catch (err) {
@@ -284,9 +314,11 @@ exports.delete = async (req, res) => {
     // contentVersionAt past this review's snapshot), the review is part of
     // the historical record for a superseded version -- lock it against
     // deletion, even for its own author or admin, so that history stays
-    // intact. See plan.model.js/review.model.js.
+    // intact. See plan.model.js/review.model.js. A saved draft was never
+    // part of that record, so its author may always discard it.
     const plan = await Plan.findByPk(review.planId);
     if (
+      review.status === "submitted" &&
       plan &&
       review.planVersionAt &&
       new Date(review.planVersionAt).getTime() !== new Date(plan.contentVersionAt).getTime()

@@ -55,7 +55,7 @@ async function buildRows({ submittedOnly = false } = {}) {
     db.artifact.findAll({ where: { planId: { [Op.in]: planIds }, lessonIndex: null }, attributes: ["planId"], raw: true }),
     AiPlanScore.findAll({ where: { planId: { [Op.in]: planIds } }, order: [["id", "DESC"]] }),
     Review.findAll({
-      where: { planId: { [Op.in]: planIds }, reviewerType: { [Op.in]: ["ai", "expert"] } },
+      where: { planId: { [Op.in]: planIds }, reviewerType: { [Op.in]: ["ai", "expert"] }, status: "submitted" },
       attributes: ["planId", "reviewerType", "sectionKey", "score", "createdAt"],
       include: [{ model: db.user, as: "Reviewer", attributes: ["username", "chineseName"], required: false }],
     }),
