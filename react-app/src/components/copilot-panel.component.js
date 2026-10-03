@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useHistory, useLocation } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -61,8 +61,41 @@ const formatRelativeTime = (dateStr) => {
   return new Date(dateStr).toLocaleDateString("zh-cn");
 };
 
+// Every action-tool entry in one message's toolCallLog (retrievedChunkIds)
+// that the panel renders as a card -- a pending/settled confirm-tier action,
+// or a completed write that points at a plan. Pure lookups
+// (search_knowledge_base etc.) stay in the 参考资料 footer instead.
+const actionEntries = (message) =>
+  (Array.isArray(message.retrievedChunkIds) ? message.retrievedChunkIds : []).filter(
+    (e) => e && e.output && (e.output.pendingConfirmation || e.output.changed || e.output.link)
+  );
+
+// Tells whichever page is open that 欣欣助手 just changed data behind its
+// back -- e.g. plan-detail.component.js reloads the plan it's showing (or
+// warns, if it has unsaved edits of its own) instead of silently going stale.
+const announceChanges = (messages) => {
+  const planIds = new Set();
+  let deleted = false;
+  for (const m of messages) {
+    for (const e of actionEntries(m)) {
+      const changed = e.output.changed || (e.output.result && e.output.result.changed);
+      if (!changed) continue;
+      (changed.planIds || []).forEach((id) => planIds.add(Number(id)));
+      if (changed.deleted) deleted = true;
+    }
+  }
+  if (planIds.size > 0) {
+    window.dispatchEvent(new CustomEvent("copilot:data-changed", { detail: { planIds: [...planIds], deleted } }));
+  }
+};
+
+const ACTION_STATUS_LABELS = { pending: "待确认", confirmed: "已执行", cancelled: "已取消", failed: "执行失败" };
+
 const CopilotPanel = () => {
   const location = useLocation();
+  const history = useHistory();
+  // `${messageId}:${actionId}` while its 确认/取消 request is in flight.
+  const [actionBusyKey, setActionBusyKey] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -208,7 +241,7 @@ const CopilotPanel = () => {
   useEffect(() => {
     if (!isOpen) {
       setExplicitConversationId(null);
-      setViewMode("chat");
+        setViewMode("chat");
     }
   }, [isOpen]);
 
@@ -278,6 +311,7 @@ const CopilotPanel = () => {
         const withoutPending = prev.filter((m) => !m._pending);
         return [...withoutPending, resp.data.userMessage, resp.data.assistantMessage];
       });
+      announceChanges([resp.data.assistantMessage]);
     } catch (err) {
       setError(err?.response?.data?.message || "发送失败，请重试。");
     } finally {
@@ -285,10 +319,88 @@ const CopilotPanel = () => {
     }
   };
 
+  // 确认执行/取消 on a pending action -- the server runs it (or not) and
+  // returns the proposing message with its status updated, plus a follow-up
+  // assistant message recording the outcome.
+  const settleAction = async (message, actionId, confirm) => {
+    const busyKey = `${message.id}:${actionId}`;
+    if (actionBusyKey) return;
+    setActionBusyKey(busyKey);
+    setError("");
+    try {
+      const resp = confirm
+        ? await ChatDataService.confirmAction(message.id, actionId)
+        : await ChatDataService.cancelAction(message.id, actionId);
+      setMessages((prev) => [...prev.map((m) => (m.id === resp.data.message.id ? resp.data.message : m)), resp.data.followUp]);
+      if (confirm) announceChanges([resp.data.followUp]);
+    } catch (err) {
+      setError(err?.response?.data?.message || "操作失败，请重试。");
+    } finally {
+      setActionBusyKey(null);
+    }
+  };
+
+  const renderActions = (message) => {
+    const entries = actionEntries(message);
+    if (entries.length === 0) return null;
+    // One "打开《…》" per plan per message -- a turn often reads a plan
+    // (get_plan_details) and then edits it (update_plan).
+    const linkedPlanIds = new Set();
+    return entries.map((e, i) => {
+      const o = e.output;
+      let link = o.link || (o.result && o.result.link);
+      if (link && linkedPlanIds.has(link.id)) link = null;
+      if (link) linkedPlanIds.add(link.id);
+      if (!link && !o.pendingConfirmation) return null;
+      const deleted = (o.changed && o.changed.deleted) || (o.result && o.result.changed && o.result.changed.deleted);
+      const busy = actionBusyKey === `${message.id}:${o.actionId}`;
+      return (
+        <div key={`${e.name}-${i}`} className="copilot-action">
+          {o.pendingConfirmation && (
+            <>
+              <div className="copilot-action-summary">
+                <span className={`copilot-action-status copilot-action-status-${o.status}`}>
+                  {ACTION_STATUS_LABELS[o.status] || o.status}
+                </span>
+                {o.summary}
+              </div>
+              {o.status === "failed" && o.error && <div className="copilot-action-error">{o.error}</div>}
+              {o.status === "pending" && (
+                <div className="copilot-action-buttons">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    disabled={!!actionBusyKey}
+                    onClick={() => settleAction(message, o.actionId, true)}
+                  >
+                    {busy ? "执行中..." : "确认执行"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-secondary"
+                    disabled={!!actionBusyKey}
+                    onClick={() => settleAction(message, o.actionId, false)}
+                  >
+                    取消
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+          {link && link.type === "plan" && !deleted && (
+            <button type="button" className="btn btn-sm btn-link p-0 copilot-action-link" onClick={() => history.push(`/plans/${link.id}`)}>
+              <i className="fas fa-external-link-alt"></i> 打开《{link.title}》
+            </button>
+          )}
+        </div>
+      );
+    });
+  };
+
   const startNew = async () => {
     try {
       setExplicitConversationId(null);
-      setViewMode("chat");
+        setViewMode("chat");
       await ChatDataService.startNew(pageContext);
       setMessages([]);
       setError("");
@@ -449,6 +561,7 @@ const CopilotPanel = () => {
                       ) : (
                         <div className="copilot-bubble-content">{m.content}</div>
                       )}
+                      {m.role === "assistant" && renderActions(m)}
                       {m.role === "assistant" && renderCitations(m)}
                     </div>
                   );

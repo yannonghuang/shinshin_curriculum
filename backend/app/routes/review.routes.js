@@ -7,6 +7,11 @@ module.exports = function (app) {
     next();
   });
 
+  // Expert/admin review. body: content (required), score (optional number),
+  // sectionKey + lessonIndex pick what it's about -- omit both for 计划整体点评;
+  // sectionKey "IMPLEMENTATION_OVERALL" for 实施整体点评; "EXECUTION_RECORD" +
+  // lessonIndex for one 课时's 实施记录; "LESSON_DESIGN" + lessonIndex for
+  // one 课时's 分课时设计; otherwise a design segment's own anchor key.
   app.post("/api/plans/:planId/reviews", [authJwt.verifyToken, authJwt.isExpertOrAdmin], reviews.create);
   // Owner teacher, or an admin/expert on a submitted plan -- the rule lives
   // in review.controller.js#createAiReview, since it depends on the plan.

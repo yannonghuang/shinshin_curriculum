@@ -149,6 +149,15 @@ const PlansList = (props) => {
     retrieveAll();
   }, [retrieveAll]);
 
+  // 欣欣助手 created/edited/submitted/deleted a plan (see copilot-panel.
+  // component.js#announceChanges) -- reload so e.g. a draft it just built
+  // shows up in 我的乡土课程 without a manual refresh. Any change counts, not
+  // just ids already on screen: a newly created plan isn't in the list yet.
+  useEffect(() => {
+    window.addEventListener("copilot:data-changed", retrieveAll);
+    return () => window.removeEventListener("copilot:data-changed", retrieveAll);
+  }, [retrieveAll]);
+
   // 新增乡土课程 creates an empty plan immediately (no upfront form) and
   // takes the user straight into it -- 基本信息 there (manual edit + upload,
   // see plan-detail.component.js) is now the only place that fills in

@@ -80,7 +80,7 @@ const buildBasicInfoLines = (plan) => {
   // Locality anchor for the AI agent's theme/locality-first framing (see
   // review.controller.js's AI_REVIEW_SYSTEM_PROMPT and chat.controller.js's
   // COPILOT_SYSTEM_PROMPT) -- only present when the caller loaded `plan`
-  // with the Teacher->School include (createAiReview, getPlanDetails below).
+  // with the Teacher->School include (createAiReview, copilotActions.js's get_plan_details).
   if (plan.Teacher?.School?.address) lines.push(`学校/地区：${plan.Teacher.School.address}`);
   return lines;
 };
@@ -265,48 +265,9 @@ async function buildReviewHistoryText(planId) {
   return text.length > REVIEW_HISTORY_MAX_CHARS ? `${text.slice(0, REVIEW_HISTORY_MAX_CHARS)}\n……（历史点评过多，已截断）` : text;
 }
 
-// OpenAI-style tool definition for the co-pilot agent loop (chat.controller.js)
-// -- lets the model fetch a plan's actual content on demand rather than
-// having it force-injected into every single turn, mirroring
-// knowledgeRetrieve.js's searchKnowledgeBaseToolDef pattern exactly. The
-// system prompt only needs a lightweight "you're looking at 《title》
-// (planId: N)" pointer; the model calls this when a question actually
-// concerns the plan's content (e.g. "review this plan"), not for every
-// message in the conversation.
-const getPlanDetailsToolDef = {
-  type: "function",
-  function: {
-    name: "get_plan_details",
-    description: "获取指定乡土课程设计的详细内容（基本信息、WHY/WHAT/HOW 在线填写内容或已上传文件的文字内容等）。",
-    parameters: {
-      type: "object",
-      properties: {
-        planId: { type: "number", description: "课程设计 ID" },
-      },
-      required: ["planId"],
-    },
-  },
-};
-
-async function getPlanDetails({ planId }) {
-  const plan = await db.plan.findByPk(planId, {
-    include: [
-      { model: db.templateVersion, as: "PlanTemplateVersion" },
-      { model: db.templateVersion, as: "ExecutionTemplateVersion" },
-      { model: db.user, as: "Teacher", include: [{ model: db.school, as: "School" }] },
-    ],
-  });
-  if (!plan) return { error: "未找到该课程设计。" };
-  const artifacts = plan.planFormData ? [] : await db.artifact.findAll({ where: { planId, lessonIndex: null } });
-  const content = await buildPlanContentText(plan, null, artifacts);
-  return { title: plan.title, content };
-}
-
 module.exports = {
   buildPlanContentText,
   buildWholePlanContentText,
   buildDesignText,
   buildReviewHistoryText,
-  getPlanDetailsToolDef,
-  getPlanDetails,
 };

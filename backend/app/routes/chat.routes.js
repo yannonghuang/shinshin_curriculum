@@ -25,6 +25,13 @@ module.exports = function (app) {
   app.post("/api/chat/conversations/:id/messages", [authJwt.verifyToken], chat.sendMessageToConversation);
   app.delete("/api/chat/conversations/:id", [authJwt.verifyToken], chat.deleteConversation);
 
+  // The user's own 确认执行/取消 on an action 欣欣助手 proposed (see
+  // copilotActions.js's confirm tier) -- ownership is checked against the
+  // message's conversation; the action itself re-runs every route guard
+  // its REST counterpart has, so no role gate is needed here.
+  app.post("/api/chat/messages/:messageId/actions/:actionId/confirm", [authJwt.verifyToken], chat.confirmAction);
+  app.post("/api/chat/messages/:messageId/actions/:actionId/cancel", [authJwt.verifyToken], chat.cancelAction);
+
   // Admin-only: draft a shared-knowledge-base card from one of the admin's
   // own conversations (see chat.controller.js#shareDraft) -- the actual save
   // into knowledge_skills still goes through the existing

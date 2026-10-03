@@ -35,6 +35,18 @@ class ChatDataService {
   deleteConversation(id) {
     return http.delete(`/chat/conversations/${id}`, { headers: authHeader() });
   }
+
+  // 确认执行/取消 on an action 欣欣助手 proposed -- see backend
+  // chat.controller.js#confirmAction. Both resolve to { message, followUp }:
+  // the proposing message with its action's status updated, plus a short
+  // assistant follow-up recording the outcome.
+  confirmAction(messageId, actionId) {
+    return http.post(`/chat/messages/${messageId}/actions/${actionId}/confirm`, {}, { headers: authHeader() });
+  }
+
+  cancelAction(messageId, actionId) {
+    return http.post(`/chat/messages/${messageId}/actions/${actionId}/cancel`, {}, { headers: authHeader() });
+  }
 }
 
 export default new ChatDataService();

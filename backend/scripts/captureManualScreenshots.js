@@ -241,6 +241,23 @@ async function run() {
     await page.locator(".copilot-toggle").click();
     await page.waitForTimeout(500);
     await shoot(page.locator(".copilot-panel"), "copilot-panel");
+
+    console.log("==> 欣欣助手 代办操作：「待确认」卡片 (提交待点评 -> 取消，不改动任何数据)");
+    // A real request on this still-草稿 plan: submit_plan is confirm-tier, so
+    // the reply carries a pending 确认执行/取消 card instead of acting --
+    // captured, then 取消'd, so the plan itself stays exactly as it was. A
+    // fresh 新对话 first, so the card isn't preceded by unrelated history.
+    // The reply is a live LLM round-trip, hence the long wait.
+    await page.locator(".copilot-panel").getByRole("button", { name: "新对话" }).click();
+    await page.waitForTimeout(500);
+    await page.locator(".copilot-input-row input").fill("请把这份课程设计提交待点评。");
+    await page.locator(".copilot-input-row button[type=submit]").click();
+    const actionCard = page.locator(".copilot-action", { has: page.getByRole("button", { name: "确认执行" }) }).first();
+    await actionCard.waitFor({ timeout: 180000 });
+    await page.waitForTimeout(500);
+    await shoot(page.locator(".copilot-panel"), "copilot-action-confirm");
+    await actionCard.getByRole("button", { name: "取消" }).click();
+    await page.waitForTimeout(1000);
     await page.locator(".copilot-toggle").click();
 
     // ---------------------------------------------------------------
