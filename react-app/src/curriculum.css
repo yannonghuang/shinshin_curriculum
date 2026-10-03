@@ -1822,11 +1822,31 @@
   padding-left: 10px;
   padding-right: 10px;
 }
-/* With the paperclip in the row, the narrowest panel no longer leaves 发送
-   room for both characters on one line. */
-.copilot-input-row button[type="submit"] {
+/* Auto-growing (see copilot-panel.component.js's input-height effect):
+   one line by default, scrolls past max-height. The row's buttons stay
+   pinned to its bottom edge as it grows. */
+.copilot-input-row {
+  align-items: flex-end;
+}
+.copilot-input {
+  resize: none;
+  min-height: 38px;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+/* Round up-arrow send button, the usual AI-chat affordance -- same height
+   as a one-line input so the row lines up before the input grows. */
+.copilot-send-btn {
   flex: 0 0 auto;
-  white-space: nowrap;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .copilot-pending-attachments {

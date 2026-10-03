@@ -250,7 +250,7 @@ async function run() {
     // The reply is a live LLM round-trip, hence the long wait.
     await page.locator(".copilot-panel").getByRole("button", { name: "新对话" }).click();
     await page.waitForTimeout(500);
-    await page.locator(".copilot-input-row input").fill("请把这份课程设计提交待点评。");
+    await page.locator(".copilot-input-row textarea").fill("请把这份课程设计提交待点评。");
     await page.locator(".copilot-input-row button[type=submit]").click();
     const actionCard = page.locator(".copilot-action", { has: page.getByRole("button", { name: "确认执行" }) }).first();
     await actionCard.waitFor({ timeout: 180000 });
@@ -272,14 +272,14 @@ async function run() {
     await page
       .locator(".copilot-panel input[type=file]")
       .setInputFiles(path.join(REPO_ROOT, "乡土课程项目实施与案例分享系统（AI智能体）Spec.docx"));
-    await page.locator(".copilot-input-row input[type=text]").evaluate((el, b64) => {
+    await page.locator(".copilot-input-row textarea").evaluate((el, b64) => {
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const dt = new DataTransfer();
       dt.items.add(new File([bytes], "image.png", { type: "image/png" }));
       el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
     }, pastedScreenshot);
     await page.waitForFunction(() => document.querySelectorAll(".copilot-chip-ready").length === 2, null, { timeout: 180000 });
-    await page.locator(".copilot-input-row input[type=text]").fill("请结合附件文档，说明截图中这份课程设计还缺哪些内容。");
+    await page.locator(".copilot-input-row textarea").fill("请结合附件文档，说明截图中这份课程设计还缺哪些内容。");
     await page.waitForTimeout(300);
     await shoot(page.locator(".copilot-panel"), "copilot-attachments");
 

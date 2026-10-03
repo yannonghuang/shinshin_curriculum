@@ -282,6 +282,7 @@ const CopilotPanel = () => {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
   // Keyed by message id (or the same fallback key used for React's `key`
   // prop below) -- lets the copy button grab the already-markdown-rendered
   // DOM node for that exact bubble without re-deriving HTML from scratch.
@@ -498,6 +499,21 @@ const CopilotPanel = () => {
     }
   }, [messages]);
 
+  // The input grows with what's typed (up to .copilot-input's max-height,
+  // then scrolls) and shrinks back to one line once sent/cleared.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + 2}px`; // + top/bottom border
+  }, [input, isOpen, viewMode, isExportMode]);
+
+  // Back to the input once a reply lands -- it was disabled while sending,
+  // which drops focus.
+  useEffect(() => {
+    if (!isSending && isOpen && inputRef.current) inputRef.current.focus();
+  }, [isSending, isOpen]);
+
   if (!isLoggedIn) return null;
 
   const isUploading = pendingAttachments.some((a) => a.status === "uploading");
@@ -541,6 +557,16 @@ const CopilotPanel = () => {
     } finally {
       setIsSending(false);
     }
+  };
+
+  // Enter sends, Shift+Enter is a newline -- the usual AI-chat convention.
+  // Not while an IME is composing: with pinyin input, Enter confirms the
+  // candidate text, and sending then would fire off a half-typed message.
+  // (keyCode 229 covers browsers that end composition before keydown.)
+  const onInputKeyDown = (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    send(e);
   };
 
   // ---------------------------------------------------------------
@@ -1129,22 +1155,36 @@ const CopilotPanel = () => {
                         e.target.value = ""; // so picking the same file again still fires onChange
                       }}
                     />
-                    <input
-                      type="text"
-                      className="form-control"
-                      placeholder={pendingAttachments.length > 0 ? "说明需要如何处理附件（可不填）..." : "输入问题，或粘贴截图..."}
+                    <textarea
+                      ref={inputRef}
+                      rows={1}
+                      className="form-control copilot-input"
+                      placeholder={
+                        pendingAttachments.length > 0 ? "说明需要如何处理附件（可不填）..." : "输入问题，或粘贴截图（Shift+Enter 换行）..."
+                      }
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={onInputKeyDown}
                       onPaste={onPaste}
                       disabled={isSending}
                     />
                     <button
                       type="submit"
-                      className="btn btn-primary"
+                      className="btn btn-primary copilot-send-btn"
                       disabled={isSending || isUploading || (!input.trim() && readyAttachments.length === 0)}
-                      title={isUploading ? "附件处理中，请稍候" : undefined}
+                      title={isUploading ? "附件处理中，请稍候" : "发送（Enter）"}
+                      aria-label="发送"
                     >
-                      {isSending ? "..." : "发送"}
+                      {/* key'd spans, not bare <i>s -- see the FontAwesome note on the attachment chips */}
+                      {isSending ? (
+                        <span key="sending">
+                          <i className="fas fa-spinner fa-spin"></i>
+                        </span>
+                      ) : (
+                        <span key="send">
+                          <i className="fas fa-arrow-up"></i>
+                        </span>
+                      )}
                     </button>
                   </form>
                 </div>
