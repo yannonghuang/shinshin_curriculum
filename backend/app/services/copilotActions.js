@@ -183,6 +183,41 @@ const TOOLS = [
     run: (ctx, args) => searchKnowledgeTree(args.query, { excludeCategories: [], includeTopicMeta: true }),
   },
 
+  // ---- Documents --------------------------------------------------------------
+  {
+    label: "生成可下载文档",
+    routes: [],
+    def: fn(
+      "generate_document",
+      "为用户生成一份可下载的文档（Word、PDF 或 Markdown），回复下方会出现「下载」按钮。" +
+        "source=conversation：把本对话到目前为止的全部内容（含双方发言、附件名称、操作记录）原样导出；" +
+        "source=content：由你在 content 中写出完整的 Markdown 正文（如把讨论整理成方案、总结、教案、报告），导出为一份独立文档。",
+      {
+        source: { type: "string", enum: ["conversation", "content"], description: "conversation=导出对话记录；content=导出你撰写的正文" },
+        format: { type: "string", enum: ["docx", "pdf", "md"], description: "文件格式，默认 docx（Word）" },
+        title: { type: "string", description: "文档标题（可选）" },
+        content: { type: "string", description: "source=content 时必填：完整的 Markdown 正文，不要包含标题本身" },
+      },
+      ["source"]
+    ),
+    // Nothing is rendered or stored here: the arguments themselves (kept in
+    // the message's toolCallLog) are the document, rendered on each download
+    // by chat.controller.js#downloadDocument. The output stays small -- it's
+    // fed back to the model, which shouldn't re-read its own content.
+    run: async (ctx, args) => {
+      const source = args.source === "content" ? "content" : "conversation";
+      const format = ["docx", "pdf", "md"].includes(args.format) ? args.format : "docx";
+      if (source === "content" && !String(args.content || "").trim()) {
+        throw new Error("source=content 时必须在 content 中提供文档正文。");
+      }
+      const title = String(args.title || "").trim().slice(0, 100) || (source === "conversation" ? "欣欣助手对话记录" : "欣欣助手文档");
+      return {
+        document: { docId: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, source, format, title },
+        note: "文档已生成。请告诉用户点击回复下方的「下载」按钮获取文件（PDF 会打开打印对话框，选择「另存为 PDF」）。不要在回复中重复文档全文。",
+      };
+    },
+  },
+
   // ---- Generic API access ----------------------------------------------------
   {
     label: "查询可用接口",

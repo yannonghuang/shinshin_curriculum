@@ -258,6 +258,44 @@ async function run() {
     await shoot(page.locator(".copilot-panel"), "copilot-action-confirm");
     await actionCard.getByRole("button", { name: "取消" }).click();
     await page.waitForTimeout(1000);
+
+    console.log("==> 欣欣助手 附件：选择文件 + 粘贴截图");
+    // Real material on both counts: the project's own spec .docx from the
+    // repo root, picked through the 📎 file input, and a screenshot of the
+    // real plan page currently open, pasted into the input the way a teacher
+    // pastes one (a synthetic ClipboardEvent carrying the PNG -- what
+    // copilot-panel.component.js#onPaste reads). Both go through the real
+    // upload/extraction (the image through the live vision model).
+    await page.locator(".copilot-panel").getByRole("button", { name: "新对话" }).click();
+    await page.waitForTimeout(500);
+    const pastedScreenshot = (await page.screenshot({ clip: { x: 0, y: 0, width: 1000, height: 640 } })).toString("base64");
+    await page
+      .locator(".copilot-panel input[type=file]")
+      .setInputFiles(path.join(REPO_ROOT, "乡土课程项目实施与案例分享系统（AI智能体）Spec.docx"));
+    await page.locator(".copilot-input-row input[type=text]").evaluate((el, b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const dt = new DataTransfer();
+      dt.items.add(new File([bytes], "image.png", { type: "image/png" }));
+      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, pastedScreenshot);
+    await page.waitForFunction(() => document.querySelectorAll(".copilot-chip-ready").length === 2, null, { timeout: 180000 });
+    await page.locator(".copilot-input-row input[type=text]").fill("请结合附件文档，说明截图中这份课程设计还缺哪些内容。");
+    await page.waitForTimeout(300);
+    await shoot(page.locator(".copilot-panel"), "copilot-attachments");
+
+    console.log("==> 欣欣助手 导出：选择部分消息");
+    // Sends the turn above for real (a live LLM round-trip, hence the long
+    // wait), then opens 导出 in 选择部分消息 mode with the reply unticked --
+    // captured and 取消'd; nothing is downloaded.
+    await page.locator(".copilot-input-row button[type=submit]").click();
+    await page.waitForFunction(() => !document.querySelector(".copilot-bubble-thinking"), null, { timeout: 180000 });
+    await page.waitForTimeout(1000);
+    await page.locator(".copilot-panel").getByRole("button", { name: "导出" }).click();
+    await page.locator(".copilot-panel").getByLabel("选择部分消息").check();
+    await page.locator(".copilot-select-box").last().uncheck();
+    await page.waitForTimeout(300);
+    await shoot(page.locator(".copilot-panel"), "copilot-export");
+    await page.locator(".copilot-export-bar").getByRole("button", { name: "取消" }).click();
     await page.locator(".copilot-toggle").click();
 
     // ---------------------------------------------------------------

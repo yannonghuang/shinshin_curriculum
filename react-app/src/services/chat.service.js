@@ -13,8 +13,10 @@ class ChatDataService {
     return http.post("/chat/conversations/new", { pageContext }, { headers: authHeader() });
   }
 
-  sendMessage(content, pageContext) {
-    return http.post("/chat/conversations/current/messages", { content, pageContext }, { headers: authHeader() });
+  // attachmentIds: uploads from uploadAttachment below, claimed by this
+  // message server-side (see chat.controller.js#appendTurn).
+  sendMessage(content, pageContext, attachmentIds) {
+    return http.post("/chat/conversations/current/messages", { content, pageContext, attachmentIds }, { headers: authHeader() });
   }
 
   // "Revisit all threads" -- list every retained conversation, open one by
@@ -28,8 +30,43 @@ class ChatDataService {
     return http.get(`/chat/conversations/${id}`, { headers: authHeader() });
   }
 
-  sendMessageToConversation(id, content) {
-    return http.post(`/chat/conversations/${id}/messages`, { content }, { headers: authHeader() });
+  sendMessageToConversation(id, content, attachmentIds) {
+    return http.post(`/chat/conversations/${id}/messages`, { content, attachmentIds }, { headers: authHeader() });
+  }
+
+  // Import -- one file per request; the server extracts its text (or, for an
+  // image, transcribes it) before answering, so this can take a while for an
+  // image. width/height are an image's post-downscale size, for a Word
+  // export to embed it at the right aspect ratio.
+  uploadAttachment(file, { width, height } = {}, onUploadProgress) {
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    if (width) formData.append("width", width);
+    if (height) formData.append("height", height);
+    return http.post("/chat/attachments", formData, {
+      headers: { ...authHeader(), "Content-Type": "multipart/form-data" },
+      onUploadProgress,
+    });
+  }
+
+  deleteAttachment(id) {
+    return http.delete(`/chat/attachments/${id}`, { headers: authHeader() });
+  }
+
+  getAttachmentImage(id) {
+    return http.get(`/chat/attachments/${id}/image`, { headers: authHeader(), responseType: "blob" });
+  }
+
+  // A document 欣欣助手 generated in a reply (generate_document) -- see
+  // backend chat.controller.js#downloadDocument.
+  downloadDocument(messageId, docId) {
+    return http.post(`/chat/messages/${messageId}/documents/${docId}`, {}, { headers: authHeader(), responseType: "blob" });
+  }
+
+  // Export -- format: "docx" | "md" | "html"; messageIds omitted = the
+  // whole conversation (including messages older than the panel's window).
+  exportConversation(id, format, messageIds) {
+    return http.post(`/chat/conversations/${id}/export`, { format, messageIds }, { headers: authHeader(), responseType: "blob" });
   }
 
   deleteConversation(id) {

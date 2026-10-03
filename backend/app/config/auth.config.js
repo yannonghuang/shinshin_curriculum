@@ -14,6 +14,6 @@ module.exports = {
   // authenticated request, so in practice this is a *sliding* inactivity
   // window, not a fixed session length: staying active keeps renewing it,
   // and it only actually expires after this many seconds with no request at
-  // all. 900s = 15 minutes of inactivity.
-  validity: Number(process.env.JWT_VALIDITY || 900),
+  // all. 1800s = 30 minutes of inactivity.
+  validity: Number(process.env.JWT_VALIDITY || 1800),
 };

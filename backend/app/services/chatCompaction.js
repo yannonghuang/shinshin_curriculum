@@ -3,6 +3,7 @@ const ChatMessage = db.chatMessage;
 const ChatConversation = db.chatConversation;
 const Op = db.Sequelize.Op;
 const llmClient = require("./llmClient");
+const copilotAttachments = require("./copilotAttachments");
 
 // Multi-level context compaction ("LCM") for chat threads -- replaces pure
 // truncation (chat.controller.js's HISTORY_TURNS window used to be the only
@@ -59,7 +60,20 @@ async function compactConversationInner(conversationId) {
     const batch = unsummarized.slice(0, unsummarized.length - RAW_WINDOW_MESSAGES);
     if (batch.length === 0) return { ok: false, reason: "not_due" };
 
-    const batchText = batch.map((m) => `${m.role === "user" ? "教师" : "助手"}：${m.content}`).join("\n");
+    // Attachments fold in too (much shorter than in a live turn) -- once a
+    // turn leaves the raw window, this summary is the only trace of a file
+    // the teacher shared.
+    const attachmentsByMessage = await copilotAttachments.loadForMessages(
+      batch.filter((m) => m.role === "user").map((m) => m.id),
+      { withText: true }
+    );
+    const batchText = batch
+      .map(
+        (m) =>
+          `${m.role === "user" ? "教师" : "助手"}：${m.content}` +
+          copilotAttachments.renderForModel(attachmentsByMessage.get(m.id), { perAttachment: 2000, perTurn: 4000 })
+      )
+      .join("\n");
     const oldFactSheet = conversation.factSheet || EMPTY_FACT_SHEET;
     const userContent =
       `旧摘要：\n${conversation.runningSummary || "（无）"}\n\n` +

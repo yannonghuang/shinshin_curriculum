@@ -10,8 +10,8 @@ const User = db.user;
 // clustering, see docker-compose.prod.yml), so a plain in-memory Map is safe
 // here and needs no external store. Losing this cache on a restart just
 // means the next request per user writes again -- not a correctness issue,
-// only ever adds writes, never skips one that matters (900s/60s = comfortably
-// within the 15-minute inactivity window either way).
+// only ever adds writes, never skips one that matters (1800s/60s = comfortably
+// within the 30-minute inactivity window either way).
 const ACTIVITY_PERSIST_THROTTLE_MS = 60 * 1000;
 const lastPersistedActivity = new Map();
 

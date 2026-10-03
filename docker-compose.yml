@@ -66,11 +66,12 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-shinshin}
       DB_NAME: ${DB_NAME:-shinshin_curriculum}
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
-      JWT_VALIDITY: ${JWT_VALIDITY:-900}
+      JWT_VALIDITY: ${JWT_VALIDITY:-1800}
       LLM_PROVIDER: ${LLM_PROVIDER:-dashscope}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       AI_REVIEW_MODEL: ${AI_REVIEW_MODEL:-qwen3.8-max}
+      COPILOT_VISION_MODEL: ${COPILOT_VISION_MODEL:-qwen-vl-max}
     volumes:
       - ./backend:/app
       - backend_node_modules:/app/node_modules

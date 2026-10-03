@@ -963,6 +963,7 @@ const MaterialsLibrary = () => {
           </button>
           <div className="text-muted mt-2" style={{ fontSize: "0.85em" }}>
             发布后将出现在下方的「使用指南 / 教师手册」主题下，教师可自行查看；再次发布会更新同一份文件。
+            首次发布之后，系统每次更新上线时如手册内容有变化，会自动重新发布（欣欣助手据此回答系统使用问题）。
           </div>
         </div>
       )}
