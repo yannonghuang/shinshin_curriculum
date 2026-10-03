@@ -739,6 +739,31 @@ const PlanDetail = (props) => {
     retrievePlan();
   }, [retrievePlan]);
 
+  // 欣欣助手 changed this plan (see copilot-panel.component.js#announceChanges)
+  // -- reload so the page shows it, unless there are unsaved edits here:
+  // planFormData/executionFormData are saved wholesale, so silently
+  // reloading would discard them, and saving them would overwrite the
+  // assistant's change -- the teacher gets told and decides.
+  useEffect(() => {
+    const onCopilotChange = (e) => {
+      const ids = (e.detail && e.detail.planIds) || [];
+      if (!ids.some((id) => String(id) === String(planId))) return;
+      if (e.detail.deleted) {
+        const user = AuthService.getCurrentUser();
+        const ownedByMe = plan && user && String(plan.teacherId) === String(user.id);
+        props.history.push(ownedByMe ? "/plans?mine=true" : "/plans");
+        return;
+      }
+      if (planDirty || executionDirty || metaDirty) {
+        setMessage("欣欣助手已修改了本课程设计，但当前页面有未保存的修改：保存将覆盖助手的修改；如需查看助手的修改，请放弃当前修改并刷新页面。");
+        return;
+      }
+      retrievePlan();
+    };
+    window.addEventListener("copilot:data-changed", onCopilotChange);
+    return () => window.removeEventListener("copilot:data-changed", onCopilotChange);
+  }, [planId, plan, planDirty, executionDirty, metaDirty, retrievePlan, props.history]);
+
   // Covers actual tab close/refresh/typed-URL navigation -- the in-app
   // <Prompt> below (same planDirty/executionDirty/metaDirty condition) covers
   // react-router navigation (返回, browser back/forward) instead, since

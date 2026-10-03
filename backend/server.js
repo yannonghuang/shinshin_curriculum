@@ -54,6 +54,10 @@ require("./app/routes/ai-review.routes")(app);
 require("./app/routes/dashboard.routes")(app);
 require("./app/routes/build-info.routes")(app);
 
+// 欣欣助手's action layer discovers the API from the live router (lazily, on
+// first use) -- must come after every route above is registered.
+require("./app/services/copilotRouteRegistry").attachApp(app);
+
 // Note: no static frontend serving / catch-all here — the frontend is being
 // built separately and its build output path doesn't exist yet.
 

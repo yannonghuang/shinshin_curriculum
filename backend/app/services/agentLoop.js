@@ -47,11 +47,21 @@ async function runAgentLoop({ systemPrompt, messages, tools, executors, maxRound
       if (!executor) {
         output = { error: `Unknown tool: ${name}` };
       } else {
+        let args;
         try {
-          const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
-          output = await executor(args);
+          args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
         } catch (e) {
-          output = { error: e.message || "Tool execution failed" };
+          // Long free-text arguments (e.g. a whole drafted plan) are where a
+          // model most often slips -- typically an unescaped " inside a
+          // string. Saying so explicitly makes the retry land first time.
+          output = { error: `工具参数不是合法的 JSON（${e.message}）。请检查字符串中的双引号是否已转义（\\"）或改用中文引号「」，然后重新调用。` };
+        }
+        if (!output) {
+          try {
+            output = await executor(args);
+          } catch (e) {
+            output = { error: e.message || "Tool execution failed" };
+          }
         }
       }
       toolCallLog.push({ name, arguments: call.function?.arguments, output });

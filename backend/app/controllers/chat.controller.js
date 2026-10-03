@@ -3,10 +3,9 @@ const ChatConversation = db.chatConversation;
 const ChatMessage = db.chatMessage;
 const Plan = db.plan;
 const Review = db.review;
-const { QueryTypes } = db.Sequelize;
+const { QueryTypes, Op } = db.Sequelize;
 const agentLoop = require("../services/agentLoop");
-const { searchKnowledgeTree, searchKnowledgeBaseToolDef } = require("../services/knowledgeRetrieve");
-const { getPlanDetailsToolDef, getPlanDetails } = require("../services/planContext");
+const copilotActions = require("../services/copilotActions");
 const chatCompaction = require("../services/chatCompaction");
 const llmClient = require("../services/llmClient");
 
@@ -43,6 +42,28 @@ const COPILOT_SYSTEM_PROMPT =
   "通用教学方法方面的建议可以提及，但请保持简短，这类问题通常由人类专家给出更全面的指导。" +
   "如有需要，可调用 search_knowledge_base 工具查询共享学习材料库中的相关参考资料（可结合课程主题或所在地区检索）；不需要参考资料时无需调用。用中文简明清晰地回复。";
 
+// Appended after COPILOT_SYSTEM_PROMPT -- 欣欣助手 can also *do* things on
+// the user's behalf through copilotActions.js's role-filtered tools, so the
+// model needs to know when to act, how to turn a drafted plan into the
+// template's own fields, and that confirm-tier actions aren't done until the
+// user clicks.
+const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员", super: "超级管理员" };
+const buildActionPrompt = ({ roles, labels, apiCount }) =>
+  `\n\n当前用户角色：${roles.map((r) => ROLE_LABELS[r] || r).join("、") || "未知"}。` +
+  `你可以通过工具直接代表用户执行系统操作，范围仅限于该用户自己的权限。专用工具：${labels.join("、")}；` +
+  `此外还可通过 list_available_apis 查看、通过 call_api 调用该用户有权使用的全部 ${apiCount} 个系统接口。优先使用专用工具，没有合适的专用工具时再用 call_api。` +
+  "规则：" +
+  "1. 用户明确要求执行某个操作时（如「把刚才的草案建成新的课程设计」「把第二课时的实施记录填上」），直接调用相应工具完成，不要让用户自己去手动操作；用户只是咨询或讨论时，不要擅自修改任何数据。" +
+  "2. 新建或修改课程设计内容前，先调用 get_plan_template 获取字段清单，再把对话中的草案内容逐项填入对应字段 key（尽量完整保留草案原文，不要压缩成摘要）；分课时内容填入 lessons，不要放进其他字段；草案中没有对应内容的字段留空。" +
+  "标题、主题、年级、课时数等基本信息能从对话中确定就填写，主题与年级必须取自模板返回的选项，无法确定的留空，不要编造。" +
+  "3. 不要编造课程设计 ID 或主题 ID：需要时先用 list_plans、list_material_topics 等工具查询；指代不明时先向用户确认是哪一个。" +
+  "4. 工具返回 pendingConfirmation 时，该操作尚未执行，请简要说明将要执行的操作并提示用户点击对话框中的「确认执行」按钮；绝不能声称已经完成。" +
+  "5. 操作完成后简要说明结果（如新建课程设计的标题）；工具返回 error 时如实告知原因，不要假装成功。" +
+  // A thread started before these tools existed may hold earlier "I can't
+  // save/upload that" replies -- left unchecked, the model stays consistent
+  // with its own history instead of using what it can do now.
+  "6. 以当前可用的工具为准：即使本对话早先的回复说过无法上传、保存或执行某操作，现在只要有相应工具就直接执行。「上传/保存/录入草稿到系统」即指新建（或更新）课程设计。";
+
 // Scopes a conversation to whatever the user is currently looking at, so
 // switching between plans (or leaving a review discussion) doesn't drag
 // unrelated history along -- reviewId implies its own plan, so it takes
@@ -74,22 +95,68 @@ const parseScopeKeyToPageContext = (scopeKey) => {
 // throughout), so this is the whole mechanism: lazily create one if none
 // exists yet for that (userId, scopeKey) pair, or if the one that exists has
 // gone stale (see CONVERSATION_FRESH_START_MS).
+// Last actual activity, not the conversation row's own updatedAt -- creating
+// the row doesn't get touched by adding messages to it, so the row's own
+// timestamp would never reflect a real conversation's activity.
+const lastActivityOf = async (conversation) => {
+  const lastMessage = await ChatMessage.findOne({
+    where: { conversationId: conversation.id },
+    order: [["id", "DESC"]],
+    attributes: ["createdAt"],
+  });
+  return new Date(lastMessage ? lastMessage.createdAt : conversation.createdAt).getTime();
+};
+
+// The user's most recent still-fresh conversation in which 欣欣助手 created or
+// changed this plan (see copilotActions.js's `changed.planIds`) -- e.g. the
+// general thread where a draft was just built into plan X. That thread
+// already holds everything about plan X, so opening plan X's page continues
+// it instead of starting an empty plan-scoped one (see
+// getOrCreateCurrentConversation).
+const findActionLinkedConversation = async (userId, planId) => {
+  const conversations = await ChatConversation.findAll({ where: { userId }, attributes: ["id"] });
+  if (conversations.length === 0) return null;
+  const messages = await ChatMessage.findAll({
+    where: {
+      conversationId: { [Op.in]: conversations.map((c) => c.id) },
+      role: "assistant",
+      retrievedChunkIds: { [Op.ne]: null },
+      createdAt: { [Op.gte]: new Date(Date.now() - CONVERSATION_FRESH_START_MS) },
+    },
+    attributes: ["conversationId", "retrievedChunkIds"],
+    order: [["id", "DESC"]],
+  });
+  const linked = messages.find(
+    (m) =>
+      Array.isArray(m.retrievedChunkIds) &&
+      m.retrievedChunkIds.some((e) => {
+        const ids = e && e.output && e.output.changed && e.output.changed.planIds;
+        return Array.isArray(ids) && ids.some((id) => Number(id) === Number(planId));
+      })
+  );
+  return linked ? ChatConversation.findByPk(linked.conversationId) : null;
+};
+
 const getOrCreateCurrentConversation = async (userId, scopeKey) => {
   let conversation = await ChatConversation.findOne({ where: { userId, scopeKey }, order: [["id", "DESC"]] });
-  if (conversation) {
-    // Last actual activity, not the conversation row's own updatedAt --
-    // creating the row doesn't get touched by adding messages to it, so the
-    // row's own timestamp would never reflect a real conversation's activity.
-    const lastMessage = await ChatMessage.findOne({
-      where: { conversationId: conversation.id },
-      order: [["id", "DESC"]],
-      attributes: ["createdAt"],
-    });
-    const lastActivity = lastMessage ? lastMessage.createdAt : conversation.createdAt;
-    if (Date.now() - new Date(lastActivity).getTime() > CONVERSATION_FRESH_START_MS) {
-      conversation = null; // stale -- fall through to start a fresh one
+  let lastActivity = conversation ? await lastActivityOf(conversation) : 0;
+  if (conversation && Date.now() - lastActivity > CONVERSATION_FRESH_START_MS) {
+    conversation = null; // stale -- fall through to start a fresh one
+  }
+
+  // A plan page also counts a conversation that acted on this plan as one of
+  // its own, whichever is more recently active -- so a draft built into a
+  // plan from the general assistant (or from another plan's page) carries
+  // straight on when the teacher opens that plan, by link or from the list.
+  // An explicit 新对话 on the plan page creates a newer plan-scoped row,
+  // which then wins as usual.
+  if (scopeKey && scopeKey.startsWith("plan:")) {
+    const linked = await findActionLinkedConversation(userId, Number(scopeKey.slice("plan:".length)));
+    if (linked && (!conversation || (await lastActivityOf(linked)) > lastActivity)) {
+      conversation = linked;
     }
   }
+
   if (!conversation) {
     conversation = await ChatConversation.create({ userId, scopeKey });
   }
@@ -175,6 +242,28 @@ const assertReviewOwnership = async (userId, reviewId) => {
   }
 };
 
+// Only a message's text is replayed as history, not its tool results -- so
+// without this, the turn after "建成新的课程设计" wouldn't know which planId
+// it just created, or whether a proposed action is still awaiting the
+// user's 确认. Read-only lookups (search/list/get) are left out; only
+// actions that wrote something or are pending get a line. Goes into the
+// system prompt rather than onto the replayed messages themselves -- the
+// model otherwise starts imitating the note's format in its own replies.
+const ACTION_STATUS_LABELS = { pending: "待用户确认", confirmed: "已执行", cancelled: "已取消", failed: "执行失败" };
+const renderActionLog = (messages) => {
+  const notes = [];
+  for (const message of messages) {
+    const log = message.role === "assistant" && Array.isArray(message.retrievedChunkIds) ? message.retrievedChunkIds : [];
+    for (const e of log) {
+      const o = e && e.output;
+      if (!o || !(o.changed || o.pendingConfirmation)) continue;
+      if (o.pendingConfirmation) notes.push(`- ${o.summary}（${ACTION_STATUS_LABELS[o.status] || o.status}）`);
+      else notes.push(`- ${e.name}${o.planId ? ` planId=${o.planId}` : ""}${o.title ? `《${o.title}》` : ""}（已执行）`);
+    }
+  }
+  return notes.length > 0 ? `\n\n本对话中近期由你代用户发起的操作（系统记录，仅供参考，回复中不要复述此列表）：\n${notes.join("\n")}` : "";
+};
+
 // Shared by both sendMessage (current-scope-resolved) and
 // sendMessageToConversation (an explicitly-picked past thread) -- appends
 // the user/assistant turn to whichever conversation row and pageContext the
@@ -199,9 +288,17 @@ const appendTurn = async (conversation, content, pageContext) => {
     order: [["id", "DESC"]],
     limit: HISTORY_TURNS * 2,
   });
-  const history = priorMessages.reverse().map((m) => ({ role: m.role, content: m.content }));
+  priorMessages.reverse();
+  const history = priorMessages.map((m) => ({ role: m.role, content: m.content || "" }));
 
-  let systemPrompt = COPILOT_SYSTEM_PROMPT + chatCompaction.renderCompactedContext(conversation);
+  // Only the actions this user's roles grant -- see copilotActions.js.
+  const toolset = await copilotActions.buildToolset(conversation.userId);
+
+  let systemPrompt =
+    COPILOT_SYSTEM_PROMPT +
+    buildActionPrompt(toolset) +
+    renderActionLog(priorMessages) +
+    chatCompaction.renderCompactedContext(conversation);
   try {
     systemPrompt += await buildContextAddition(pageContext);
   } catch (e) {
@@ -211,20 +308,20 @@ const appendTurn = async (conversation, content, pageContext) => {
   const result = await agentLoop.runAgentLoop({
     systemPrompt,
     messages: history,
-    tools: [searchKnowledgeBaseToolDef, getPlanDetailsToolDef],
-    executors: {
-      // Knowledge-tree retrieval over the whole library, 使用指南 included
-      // (欣欣助手 answers "how do I use the system" questions from it), with
-      // topics' 主讲人/备注 visible so "谁讲过…" questions stay answerable.
-      search_knowledge_base: (args) => searchKnowledgeTree(args.query, { excludeCategories: [], includeTopicMeta: true }),
-      get_plan_details: (args) => getPlanDetails(args),
-    },
+    tools: toolset.tools,
+    executors: toolset.executors,
+    // An action usually takes a lookup first (get_plan_template / list_plans)
+    // then the write itself, sometimes a follow-up fix after a validation
+    // error -- 3 rounds (review's own cap) leaves no room for that.
+    maxRounds: 6,
     // Higher than review's own cap -- a chat reply routinely runs long
     // (structured markdown with tables/sections, especially once
     // get_plan_details content is in play), and a truncated reply mid-
     // sentence is worse here than in a stored review, since the user is
-    // reading it live and there's no edit-and-resave path to fix it.
-    maxTokens: 2048,
+    // reading it live and there's no edit-and-resave path to fix it. Doubled
+    // again for actions: create_plan/update_plan carry a whole drafted plan
+    // as tool-call arguments, which count against the same budget.
+    maxTokens: 4096,
     temperature: 0.3,
   });
 
@@ -459,6 +556,95 @@ exports.shareDraft = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).send({ message: err.message || "生成分享草稿时发生错误。" });
+  }
+};
+
+// Guards against a double-click running the same confirmed action twice --
+// a plain in-memory Set is enough here, same single-Node-process reasoning
+// as authJwt.js's lastPersistedActivity.
+const actionsInFlight = new Set();
+
+// Shared by confirmAction/cancelAction: resolves one pending action proposed
+// in one of this user's own assistant messages (see copilotActions.js's
+// confirm tier -- the proposal lives in that message's toolCallLog).
+const loadPendingAction = async (userId, messageId, actionId) => {
+  const message = await ChatMessage.findByPk(messageId);
+  const conversation = message && (await ChatConversation.findOne({ where: { id: message.conversationId, userId } }));
+  if (!conversation) {
+    const err = new Error("未找到该消息。");
+    err.status = 404;
+    throw err;
+  }
+  const log = Array.isArray(message.retrievedChunkIds) ? message.retrievedChunkIds : [];
+  const index = log.findIndex((e) => e && e.output && e.output.actionId === actionId);
+  if (index === -1) {
+    const err = new Error("未找到该待确认操作。");
+    err.status = 404;
+    throw err;
+  }
+  if (log[index].output.status !== "pending") {
+    const err = new Error("该操作已处理，不能重复执行。");
+    err.status = 409;
+    throw err;
+  }
+  return { message, conversation, log, index };
+};
+
+// Rewrites one log entry's output in place and posts a short assistant
+// follow-up, so the outcome is both visible in the panel and part of the
+// history the model sees on the next turn (it otherwise only knows it
+// *proposed* the action).
+const settlePendingAction = async ({ message, conversation, log, index }, outputPatch, followUpText, followUpLog) => {
+  const nextLog = log.map((e, i) => (i === index ? { ...e, output: { ...e.output, ...outputPatch } } : e));
+  message.set("retrievedChunkIds", nextLog);
+  message.changed("retrievedChunkIds", true);
+  await message.save();
+  const followUp = await ChatMessage.create({
+    conversationId: conversation.id,
+    role: "assistant",
+    content: followUpText,
+    retrievedChunkIds: followUpLog || null,
+  });
+  return { message, followUp };
+};
+
+// POST /api/chat/messages/:messageId/actions/:actionId/confirm -- the user's
+// own 确认执行 click on a pending co-pilot action. This, not the model, is
+// what actually runs a confirm-tier action.
+exports.confirmAction = async (req, res) => {
+  const lockKey = `${req.params.messageId}:${req.params.actionId}`;
+  if (actionsInFlight.has(lockKey)) return res.status(409).send({ message: "该操作正在执行中。" });
+  actionsInFlight.add(lockKey);
+  try {
+    const pending = await loadPendingAction(req.userId, req.params.messageId, req.params.actionId);
+    const entry = pending.log[pending.index];
+    const args = entry.arguments ? JSON.parse(entry.arguments) : {};
+    const summary = entry.output.summary;
+    try {
+      const { result } = await copilotActions.runConfirmedAction(req.userId, entry.name, args);
+      return res.send(
+        await settlePendingAction(pending, { status: "confirmed", result }, `已执行：${summary}。`, [
+          { name: entry.name, arguments: entry.arguments, output: result },
+        ])
+      );
+    } catch (e) {
+      return res.send(await settlePendingAction(pending, { status: "failed", error: e.message }, `执行失败：${summary}。原因：${e.message}`));
+    }
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "执行操作时发生错误。" });
+  } finally {
+    actionsInFlight.delete(lockKey);
+  }
+};
+
+// POST /api/chat/messages/:messageId/actions/:actionId/cancel
+exports.cancelAction = async (req, res) => {
+  try {
+    const pending = await loadPendingAction(req.userId, req.params.messageId, req.params.actionId);
+    const summary = pending.log[pending.index].output.summary;
+    return res.send(await settlePendingAction(pending, { status: "cancelled" }, `已取消：${summary}。`));
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "取消操作时发生错误。" });
   }
 };
 

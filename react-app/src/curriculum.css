@@ -1822,3 +1822,58 @@
   max-height: 360px;
   overflow-y: auto;
 }
+
+/* 欣欣助手 action cards -- see copilot-panel.component.js#renderActions. */
+.copilot-action {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--pl-line);
+  border-radius: 6px;
+  background: var(--pl-bg);
+  font-size: 13px;
+}
+
+.copilot-action-summary {
+  line-height: 1.5;
+}
+
+.copilot-action-status {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 12px;
+  background: var(--pl-line);
+  color: var(--pl-muted);
+}
+
+.copilot-action-status-pending {
+  background: var(--pl-warn-soft);
+  color: var(--pl-warn);
+}
+
+.copilot-action-status-confirmed {
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+}
+
+.copilot-action-status-failed {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.copilot-action-error {
+  margin-top: 4px;
+  color: #721c24;
+  font-size: 12px;
+}
+
+.copilot-action-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.copilot-action-link {
+  font-size: 13px;
+}
