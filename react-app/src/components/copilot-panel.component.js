@@ -93,13 +93,33 @@ const announceChanges = (messages) => {
 
 const ACTION_STATUS_LABELS = { pending: "待确认", confirmed: "已执行", cancelled: "已取消", failed: "执行失败" };
 
-// The "AI sparkles" mark (a large and a small four-pointed star) that most
-// AI assistants use -- FontAwesome 5's free set has no equivalent, so it's
-// inline SVG. Drawn in currentColor, so it takes the surrounding text color.
-const SparklesIcon = ({ size = 24, className }) => (
-  <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-    <path d="M10 4.5Q11 12 18.5 13Q11 14 10 21.5Q9 14 1.5 13Q9 12 10 4.5Z" />
-    <path d="M18.5 1.5Q19 5 22.5 5.5Q19 6 18.5 9.5Q18 6 14.5 5.5Q18 5 18.5 1.5Z" />
+// A speech bubble with the letters "AI" knocked out of it (plus a small
+// sparkle) -- spelling out "AI" reads at a glance in a way an abstract
+// sparkles mark alone didn't. Inline SVG (FontAwesome 5's free set has
+// nothing like it), drawn in currentColor with the letters cut through via a
+// mask, so it works on any background. maskId must be unique per instance
+// on the page.
+const AiChatIcon = ({ size = 24, maskId }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <mask id={maskId}>
+      <rect width="24" height="24" fill="#fff" />
+      <text
+        x="10"
+        y="14.3"
+        textAnchor="middle"
+        fontSize="8.6"
+        fontWeight="800"
+        fontFamily="Arial, Helvetica, sans-serif"
+        fill="#000"
+      >
+        AI
+      </text>
+    </mask>
+    <path
+      mask={`url(#${maskId})`}
+      d="M4.5 4.5h11a3.5 3.5 0 0 1 3.5 3.5v6.5a3.5 3.5 0 0 1-3.5 3.5H9l-4 3.5V18h-.5A3.5 3.5 0 0 1 1 14.5V8a3.5 3.5 0 0 1 3.5-3.5z"
+    />
+    <path d="M20.5 .5Q20.9 3.1 23.5 3.5Q20.9 3.9 20.5 6.5Q20.1 3.9 17.5 3.5Q20.1 3.1 20.5 .5Z" />
   </svg>
 );
 
@@ -914,7 +934,7 @@ const CopilotPanel = () => {
           </span>
         ) : (
           <span key="open" className="copilot-toggle-icon">
-            <SparklesIcon size={26} />
+            <AiChatIcon size={30} maskId="copilot-ai-mask-toggle" />
           </span>
         )}
       </button>
@@ -937,7 +957,7 @@ const CopilotPanel = () => {
           )}
           <div className="copilot-header">
             <span className="copilot-title">
-              <SparklesIcon size={18} />
+              <AiChatIcon size={20} maskId="copilot-ai-mask-header" />
               欣欣小助手
             </span>
             <div>
