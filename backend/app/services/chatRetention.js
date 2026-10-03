@@ -30,4 +30,15 @@ async function purgeStaleConversations() {
   return result.affectedRows || 0;
 }
 
-module.exports = { purgeStaleConversations, RETENTION_DAYS };
+// Uploads to 欣欣助手 that were never sent (the panel closed, the chip's ×
+// failed, the tab died) -- a sent attachment has a message_id and goes with
+// its conversation above. A day is long past any upload still about to be
+// sent.
+async function purgeOrphanAttachments() {
+  const [result] = await db.sequelize.query(
+    `DELETE FROM chat_attachments WHERE message_id IS NULL AND created_at < DATE_SUB(NOW(), INTERVAL 1 DAY)`
+  );
+  return result.affectedRows || 0;
+}
+
+module.exports = { purgeStaleConversations, purgeOrphanAttachments, RETENTION_DAYS };

@@ -78,9 +78,29 @@ const runChatRetentionSweep = () => {
       if (deletedCount > 0) console.log(`Chat retention sweep: purged ${deletedCount} conversation(s).`);
     })
     .catch((err) => console.error("Chat retention sweep failed:", err.message));
+  chatRetention
+    .purgeOrphanAttachments()
+    .then((deletedCount) => {
+      if (deletedCount > 0) console.log(`Chat retention sweep: purged ${deletedCount} unsent attachment(s).`);
+    })
+    .catch((err) => console.error("Chat attachment sweep failed:", err.message));
 };
 setTimeout(runChatRetentionSweep, 10 * 1000);
 setInterval(runChatRetentionSweep, CHAT_RETENTION_SWEEP_INTERVAL_MS);
+
+// Keeps the published 教师使用手册 (the copy 欣欣助手 actually reads, via the
+// knowledge base) in step with the manual text shipped in this build --
+// otherwise it only updated when an admin remembered to republish after a
+// deploy. A no-op when nothing changed; see teacherManualPublish.js. Delayed
+// past the retention sweep so startup isn't doing both at once.
+setTimeout(() => {
+  require("./app/services/teacherManualPublish")
+    .syncPublishedTeacherManual()
+    .then((r) => {
+      if (r.updated) console.log("Teacher manual changed since last publish -- republished to 学习资源库 and the knowledge base.");
+    })
+    .catch((err) => console.error("Teacher manual sync failed:", err.message));
+}, 30 * 1000);
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {

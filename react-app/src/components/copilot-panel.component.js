@@ -37,8 +37,8 @@ const PLAN_PAGE_RE = /^\/plans\/(\d+)/;
 // top-left-anchored version could grow height a little but not width at
 // all, because its default left position was deliberately placed with zero
 // slack to the right).
-const PANEL_DEFAULT_WIDTH = 360;
-const PANEL_DEFAULT_HEIGHT = 520;
+const PANEL_DEFAULT_WIDTH = 600;
+const PANEL_DEFAULT_HEIGHT = 680;
 const PANEL_MIN_WIDTH = 300;
 const PANEL_MIN_HEIGHT = 360;
 const PANEL_MARGIN = 20;
@@ -63,12 +63,14 @@ const formatRelativeTime = (dateStr) => {
 
 // Every action-tool entry in one message's toolCallLog (retrievedChunkIds)
 // that the panel renders as a card -- a pending/settled confirm-tier action,
-// or a completed write that points at a plan. Pure lookups
-// (search_knowledge_base etc.) stay in the 参考资料 footer instead.
+// a completed write that points at a plan, or a generate_document download.
+// Pure lookups (search_knowledge_base etc.) stay in the 参考资料 footer instead.
 const actionEntries = (message) =>
   (Array.isArray(message.retrievedChunkIds) ? message.retrievedChunkIds : []).filter(
-    (e) => e && e.output && (e.output.pendingConfirmation || e.output.changed || e.output.link)
+    (e) => e && e.output && (e.output.pendingConfirmation || e.output.changed || e.output.link || e.output.document)
   );
+
+const DOCUMENT_FORMAT_LABELS = { docx: "Word", pdf: "PDF", md: "Markdown" };
 
 // Tells whichever page is open that 欣欣助手 just changed data behind its
 // back -- e.g. plan-detail.component.js reloads the plan it's showing (or
@@ -90,6 +92,183 @@ const announceChanges = (messages) => {
 };
 
 const ACTION_STATUS_LABELS = { pending: "待确认", confirmed: "已执行", cancelled: "已取消", failed: "执行失败" };
+
+// Import -- what the file picker offers. The old binary Office formats are
+// listed on purpose: the server rejects them with a "save as .docx/.pptx"
+// hint, which beats the picker silently greying them out.
+const ATTACH_ACCEPT = ".docx,.pptx,.pdf,.xlsx,.txt,.md,.csv,.doc,.ppt,.xls,image/*";
+const MAX_ATTACHMENTS_PER_MESSAGE = 5;
+// Images are downscaled in the browser before upload -- a phone photo or a
+// retina screenshot is several MB, far more than the vision model needs to
+// read it, and it's stored and replayed into Word exports afterwards.
+const IMAGE_MAX_EDGE = 1600;
+const IMAGE_KEEP_ORIGINAL_BYTES = 1.5 * 1024 * 1024;
+
+const isImageFile = (file) => (file.type || "").startsWith("image/");
+
+const loadImage = (file) =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("无法读取该图片。"));
+    };
+    img.src = url;
+  });
+
+// -> { file, width, height }. A PNG/JPEG already small enough is sent as-is
+// (a PNG screenshot of text stays crisp); anything else is redrawn onto a
+// canvas no larger than IMAGE_MAX_EDGE and re-encoded as JPEG.
+const prepareImage = async (file) => {
+  const img = await loadImage(file);
+  const scale = Math.min(1, IMAGE_MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight));
+  const width = Math.round(img.naturalWidth * scale);
+  const height = Math.round(img.naturalHeight * scale);
+  if (scale === 1 && file.size <= IMAGE_KEEP_ORIGINAL_BYTES && /^image\/(png|jpeg)$/.test(file.type)) {
+    return { file, width, height };
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff"; // transparent PNG regions would turn black in JPEG
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(img, 0, 0, width, height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88));
+  const baseName = (file.name || "图片").replace(/\.[^.]+$/, "");
+  return { file: new File([blob], `${baseName}.jpg`, { type: "image/jpeg" }), width, height };
+};
+
+// A pasted screenshot arrives as a nameless "image.png" -- give it a name the
+// teacher can tell apart in the chip and in an export.
+const namePastedFile = (file) => {
+  if (file.name && file.name !== "image.png") return file;
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg");
+  return new File([file], `粘贴图片-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.${ext}`, { type: file.type });
+};
+
+// Which pastes are attachments: clipboard files *without* accompanying text.
+// Copying text out of Word/WPS also puts a picture of the selection on the
+// clipboard -- that paste should be the text, not an image of it. Copying a
+// file in Finder/Explorer carries its own filename as the text, which still
+// counts as a file paste.
+const pastedFiles = (clipboardData) => {
+  const files = Array.from((clipboardData && clipboardData.files) || []);
+  if (files.length === 0) return [];
+  const text = (clipboardData.getData("text/plain") || "").trim();
+  if (text && !files.some((f) => f.name === text)) return [];
+  return files;
+};
+
+// An axios blob request's error body is a Blob too -- pull the JSON
+// { message } back out of it.
+const blobErrorMessage = async (err, fallback) => {
+  const data = err && err.response && err.response.data;
+  if (data instanceof Blob) {
+    try {
+      return JSON.parse(await data.text()).message || fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+  return (data && data.message) || fallback;
+};
+
+const filenameFromDisposition = (header, fallback) => {
+  const match = /filename\*=UTF-8''([^;]+)/i.exec(header || "");
+  return match ? decodeURIComponent(match[1]) : fallback;
+};
+
+const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+// Prints server-rendered transcript HTML (→ the browser's 另存为 PDF) from a
+// hidden iframe that may not run scripts -- the HTML can echo text from an
+// uploaded file, so it gets no script execution even though it's already
+// escaped server-side (copilotExport.js#htmlMarked).
+const printHtml = (html) =>
+  new Promise((resolve) => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("sandbox", "allow-same-origin allow-modals");
+    iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+    iframe.onload = () => {
+      // Images are inline data URLs, so they're loaded by now.
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+      setTimeout(() => {
+        iframe.remove();
+        resolve();
+      }, 1000);
+    };
+    iframe.srcdoc = html;
+    document.body.appendChild(iframe);
+  });
+
+const formatFileSize = (bytes) =>
+  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`;
+
+// Thumbnail of a sent image attachment -- fetched with the auth header as a
+// blob (a bare <img src> can't carry it). `localUrl` short-circuits the fetch
+// for the optimistic bubble, which still has the teacher's own local copy.
+const AttachmentImage = ({ id, name, localUrl }) => {
+  const [url, setUrl] = useState(localUrl || null);
+  useEffect(() => {
+    if (localUrl || !id) return undefined;
+    let objectUrl = null;
+    let cancelled = false;
+    ChatDataService.getAttachmentImage(id)
+      .then((resp) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(resp.data);
+        setUrl(objectUrl);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [id, localUrl]);
+  if (!url) return <div className="copilot-attachment-thumb copilot-attachment-thumb-loading"></div>;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" title={name}>
+      <img className="copilot-attachment-thumb" src={url} alt={name} />
+    </a>
+  );
+};
+
+// A message's attachments as shown in its bubble: images as thumbnails,
+// documents as file chips.
+const MessageAttachments = ({ attachments }) => {
+  if (!attachments || attachments.length === 0) return null;
+  return (
+    <div className="copilot-message-attachments">
+      {attachments.map((a) =>
+        a.kind === "image" ? (
+          <AttachmentImage key={a.id || a.name} id={a.id} name={a.name} localUrl={a.previewUrl} />
+        ) : (
+          <div key={a.id || a.name} className="copilot-attachment-file" title={a.name}>
+            <i className="fas fa-file-alt"></i> <span>{a.name}</span>
+          </div>
+        )
+      )}
+    </div>
+  );
+};
 
 const CopilotPanel = () => {
   const location = useLocation();
@@ -175,6 +354,27 @@ const CopilotPanel = () => {
   const [viewMode, setViewMode] = useState("chat"); // "chat" | "history"
   const [historyList, setHistoryList] = useState(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  // The conversation the messages on screen belong to -- what 导出 exports.
+  // Whichever endpoint last returned it (current/by-id/new/send) wins.
+  const [conversationId, setConversationId] = useState(null);
+
+  // Import: chips above the input for files picked/pasted/dropped but not
+  // yet sent -- { key, name, kind, size, status: "uploading" | "ready" |
+  // "error", id?, warning?, error?, previewUrl? (images: a local object URL) }.
+  const [pendingAttachments, setPendingAttachments] = useState([]);
+  // Chips removed while their upload was still in flight -- the upload's
+  // result is deleted server-side as soon as it lands instead of shown.
+  const discardedUploadKeysRef = useRef(new Set());
+  const fileInputRef = useRef(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // Export: exportScope "all" = the whole conversation server-side (older
+  // messages beyond what the panel has loaded included); "selected" = only
+  // the ticked bubbles.
+  const [isExportMode, setIsExportMode] = useState(false);
+  const [exportScope, setExportScope] = useState("all");
+  const [selectedMessageIds, setSelectedMessageIds] = useState(() => new Set());
+  const [exportingFormat, setExportingFormat] = useState(null);
 
   // Listens for e.g. review-list.component.js's "discuss this review"
   // button -- window.dispatchEvent(new CustomEvent("copilot:open", { detail:
@@ -220,6 +420,7 @@ const CopilotPanel = () => {
         ? await ChatDataService.getConversationById(explicitConversationId)
         : await ChatDataService.getCurrent(pageContext);
       setMessages(resp.data.messages || []);
+      setConversationId(resp.data.conversation ? resp.data.conversation.id : null);
       setIsLoaded(true);
     } catch (e) {
       console.log(e);
@@ -242,8 +443,15 @@ const CopilotPanel = () => {
     if (!isOpen) {
       setExplicitConversationId(null);
         setViewMode("chat");
+      setIsExportMode(false);
     }
   }, [isOpen]);
+
+  // Switching to another conversation (scope change, 历史, 新对话) leaves
+  // export mode -- its selection referred to the previous one's messages.
+  useEffect(() => {
+    setIsExportMode(false);
+  }, [conversationId, viewMode]);
 
   const openHistory = async () => {
     setViewMode("history");
@@ -292,30 +500,175 @@ const CopilotPanel = () => {
 
   if (!isLoggedIn) return null;
 
+  const isUploading = pendingAttachments.some((a) => a.status === "uploading");
+  const readyAttachments = pendingAttachments.filter((a) => a.status === "ready");
+
   const send = async (e) => {
     e.preventDefault();
     const content = input.trim();
-    if (!content || isSending) return;
+    if ((!content && readyAttachments.length === 0) || isSending || isUploading) return;
+    const sentAttachments = readyAttachments;
+    const keptAttachments = pendingAttachments;
     setInput("");
+    setPendingAttachments([]);
     setError("");
     // Optimistic append -- the real row (with its real id/timestamp) replaces
     // this once the request returns; a failure just leaves it in place with
     // an error message below rather than silently discarding what was typed.
-    setMessages((prev) => [...prev, { role: "user", content, _pending: true }]);
+    setMessages((prev) => [...prev, { role: "user", content, attachments: sentAttachments, _pending: true }]);
     setIsSending(true);
+    const attachmentIds = sentAttachments.map((a) => a.id);
     try {
       const resp = explicitConversationId
-        ? await ChatDataService.sendMessageToConversation(explicitConversationId, content)
-        : await ChatDataService.sendMessage(content, pageContext);
+        ? await ChatDataService.sendMessageToConversation(explicitConversationId, content, attachmentIds)
+        : await ChatDataService.sendMessage(content, pageContext, attachmentIds);
       setMessages((prev) => {
         const withoutPending = prev.filter((m) => !m._pending);
         return [...withoutPending, resp.data.userMessage, resp.data.assistantMessage];
       });
+      if (resp.data.conversation) setConversationId(resp.data.conversation.id);
       announceChanges([resp.data.assistantMessage]);
+      sentAttachments.forEach((a) => a.previewUrl && URL.revokeObjectURL(a.previewUrl));
     } catch (err) {
+      // 422 = rejected before anything was stored (e.g. an attachment that
+      // expired) -- hand the draft back instead of leaving a ghost bubble.
+      if (err?.response?.status === 422) {
+        setMessages((prev) => prev.filter((m) => !m._pending));
+        setInput(content);
+        setPendingAttachments(keptAttachments);
+      }
       setError(err?.response?.data?.message || "发送失败，请重试。");
     } finally {
       setIsSending(false);
+    }
+  };
+
+  // ---------------------------------------------------------------
+  // Import
+  // ---------------------------------------------------------------
+  const patchAttachment = (key, patch) =>
+    setPendingAttachments((prev) => prev.map((a) => (a.key === key ? { ...a, ...patch } : a)));
+
+  const uploadOne = async (rawFile) => {
+    const key = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const isImage = isImageFile(rawFile);
+    setPendingAttachments((prev) => [
+      ...prev,
+      { key, name: rawFile.name, kind: isImage ? "image" : "document", size: rawFile.size, status: "uploading", progress: 0 },
+    ]);
+    try {
+      let file = rawFile;
+      let dims = {};
+      if (isImage) {
+        const prepared = await prepareImage(rawFile);
+        file = prepared.file;
+        dims = { width: prepared.width, height: prepared.height };
+        patchAttachment(key, { name: file.name, size: file.size, previewUrl: URL.createObjectURL(file) });
+      }
+      const resp = await ChatDataService.uploadAttachment(file, dims, (evt) => {
+        if (evt.total) patchAttachment(key, { progress: Math.round((evt.loaded / evt.total) * 100) });
+      });
+      if (discardedUploadKeysRef.current.has(key)) {
+        discardedUploadKeysRef.current.delete(key);
+        ChatDataService.deleteAttachment(resp.data.id).catch(() => {});
+        return;
+      }
+      patchAttachment(key, { status: "ready", id: resp.data.id, warning: resp.data.warning, chars: resp.data.chars });
+    } catch (err) {
+      patchAttachment(key, { status: "error", error: err?.response?.data?.message || err.message || "上传失败。" });
+    }
+  };
+
+  const addFiles = (files) => {
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+    setError("");
+    const room = MAX_ATTACHMENTS_PER_MESSAGE - pendingAttachments.length;
+    if (room <= 0) {
+      setError(`每条消息最多添加 ${MAX_ATTACHMENTS_PER_MESSAGE} 个附件。`);
+      return;
+    }
+    if (list.length > room) setError(`每条消息最多添加 ${MAX_ATTACHMENTS_PER_MESSAGE} 个附件，多出的文件已忽略。`);
+    list.slice(0, room).forEach(uploadOne);
+  };
+
+  const removeAttachment = (a) => {
+    if (a.status === "uploading") discardedUploadKeysRef.current.add(a.key);
+    if (a.status === "ready" && a.id) ChatDataService.deleteAttachment(a.id).catch(() => {});
+    if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+    setPendingAttachments((prev) => prev.filter((x) => x.key !== a.key));
+  };
+
+  const onPaste = (e) => {
+    const files = pastedFiles(e.clipboardData);
+    if (files.length === 0) return; // ordinary text paste
+    e.preventDefault();
+    addFiles(files.map(namePastedFile));
+  };
+
+  const hasDraggedFiles = (e) => Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes("Files");
+
+  const onDragOver = (e) => {
+    if (viewMode !== "chat" || isExportMode || !hasDraggedFiles(e)) return;
+    e.preventDefault();
+    if (!isDragOver) setIsDragOver(true);
+  };
+
+  const onDragLeave = (e) => {
+    // dragleave also fires when crossing into a child -- only clear once the
+    // pointer has actually left the panel.
+    if (!e.currentTarget.contains(e.relatedTarget)) setIsDragOver(false);
+  };
+
+  const onDrop = (e) => {
+    if (!hasDraggedFiles(e)) return;
+    e.preventDefault();
+    setIsDragOver(false);
+    if (viewMode !== "chat" || isExportMode) return;
+    addFiles(e.dataTransfer.files);
+  };
+
+  // ---------------------------------------------------------------
+  // Export
+  // ---------------------------------------------------------------
+  const exportableMessages = messages.filter((m) => m.id && !m._pending && (m.role === "user" || m.role === "assistant"));
+
+  const enterExportMode = () => {
+    setExportScope("all");
+    setSelectedMessageIds(new Set(exportableMessages.map((m) => m.id)));
+    setIsExportMode(true);
+    setError("");
+  };
+
+  const toggleSelected = (id) =>
+    setSelectedMessageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const runExport = async (format) => {
+    if (!conversationId || exportingFormat) return;
+    const messageIds = exportScope === "selected" ? exportableMessages.filter((m) => selectedMessageIds.has(m.id)).map((m) => m.id) : undefined;
+    if (messageIds && messageIds.length === 0) {
+      setError("请至少选择一条消息。");
+      return;
+    }
+    setExportingFormat(format);
+    setError("");
+    try {
+      const resp = await ChatDataService.exportConversation(conversationId, format === "pdf" ? "html" : format, messageIds);
+      if (format === "pdf") {
+        await printHtml(await resp.data.text());
+      } else {
+        downloadBlob(resp.data, filenameFromDisposition(resp.headers["content-disposition"], `欣欣助手对话.${format}`));
+      }
+      setIsExportMode(false);
+    } catch (err) {
+      setError(await blobErrorMessage(err, "导出失败，请重试。"));
+    } finally {
+      setExportingFormat(null);
     }
   };
 
@@ -340,6 +693,27 @@ const CopilotPanel = () => {
     }
   };
 
+  // 下载 on a generate_document card -- rendered server-side on each click
+  // (see chat.controller.js#downloadDocument); pdf arrives as HTML to print.
+  const downloadDocument = async (message, doc) => {
+    const busyKey = `${message.id}:doc:${doc.docId}`;
+    if (actionBusyKey) return;
+    setActionBusyKey(busyKey);
+    setError("");
+    try {
+      const resp = await ChatDataService.downloadDocument(message.id, doc.docId);
+      if (doc.format === "pdf") {
+        await printHtml(await resp.data.text());
+      } else {
+        downloadBlob(resp.data, filenameFromDisposition(resp.headers["content-disposition"], `${doc.title}.${doc.format}`));
+      }
+    } catch (err) {
+      setError(await blobErrorMessage(err, "下载失败，请重试。"));
+    } finally {
+      setActionBusyKey(null);
+    }
+  };
+
   const renderActions = (message) => {
     const entries = actionEntries(message);
     if (entries.length === 0) return null;
@@ -351,6 +725,27 @@ const CopilotPanel = () => {
       let link = o.link || (o.result && o.result.link);
       if (link && linkedPlanIds.has(link.id)) link = null;
       if (link) linkedPlanIds.add(link.id);
+      if (o.document) {
+        const doc = o.document;
+        const busy = actionBusyKey === `${message.id}:doc:${doc.docId}`;
+        return (
+          <div key={`${e.name}-${i}`} className="copilot-action">
+            <div className="copilot-action-summary">
+              <i className="fas fa-file-download"></i> {doc.title}（{DOCUMENT_FORMAT_LABELS[doc.format] || doc.format}）
+            </div>
+            <div className="copilot-action-buttons">
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                disabled={!!actionBusyKey}
+                onClick={() => downloadDocument(message, doc)}
+              >
+                {busy ? "生成中..." : doc.format === "pdf" ? "打印 / 另存为 PDF" : "下载"}
+              </button>
+            </div>
+          </div>
+        );
+      }
       if (!link && !o.pendingConfirmation) return null;
       const deleted = (o.changed && o.changed.deleted) || (o.result && o.result.changed && o.result.changed.deleted);
       const busy = actionBusyKey === `${message.id}:${o.actionId}`;
@@ -401,7 +796,8 @@ const CopilotPanel = () => {
     try {
       setExplicitConversationId(null);
         setViewMode("chat");
-      await ChatDataService.startNew(pageContext);
+      const resp = await ChatDataService.startNew(pageContext);
+      setConversationId(resp.data.conversation ? resp.data.conversation.id : null);
       setMessages([]);
       setError("");
     } catch (err) {
@@ -479,11 +875,35 @@ const CopilotPanel = () => {
       </button>
 
       {isOpen && (
-        <div className="copilot-panel" ref={panelRef} style={{ width: panelSize.width, height: panelSize.height }}>
+        <div
+          className="copilot-panel"
+          ref={panelRef}
+          style={{ width: panelSize.width, height: panelSize.height }}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+        >
           <div className="copilot-resize-handle" onMouseDown={onResizeMouseDown} title="拖动调整大小"></div>
+          {isDragOver && (
+            <div className="copilot-drop-overlay">
+              <i className="fas fa-file-upload"></i>
+              <div>松开即可添加为附件</div>
+            </div>
+          )}
           <div className="copilot-header">
             <span>欣欣助手</span>
             <div>
+              {viewMode === "chat" && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-link copilot-new-btn"
+                  disabled={!conversationId || exportableMessages.length === 0}
+                  title="将对话导出为 Word / Markdown / PDF"
+                  onClick={() => (isExportMode ? setIsExportMode(false) : enterExportMode())}
+                >
+                  导出
+                </button>
+              )}
               <button
                 type="button"
                 className="btn btn-sm btn-link copilot-new-btn"
@@ -539,9 +959,27 @@ const CopilotPanel = () => {
                 )}
                 {messages.map((m, i) => {
                   const key = m.id || `pending-${i}`;
+                  const selectable = isExportMode && exportScope === "selected" && m.id && !m._pending;
+                  const selected = selectable && selectedMessageIds.has(m.id);
                   return (
-                    <div key={key} className={`copilot-bubble copilot-bubble-${m.role}`}>
-                      {m.role === "assistant" && !m._pending && (
+                    <div
+                      key={key}
+                      className={`copilot-bubble copilot-bubble-${m.role}${selectable ? " copilot-bubble-selectable" : ""}${
+                        selected ? " copilot-bubble-selected" : ""
+                      }`}
+                      onClick={selectable ? () => toggleSelected(m.id) : undefined}
+                    >
+                      {selectable && (
+                        <input
+                          type="checkbox"
+                          className="copilot-select-box"
+                          checked={!!selected}
+                          onChange={() => toggleSelected(m.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          title="选择这条消息导出"
+                        />
+                      )}
+                      {m.role === "assistant" && !m._pending && !isExportMode && (
                         <button
                           type="button"
                           className="copilot-copy-btn"
@@ -559,7 +997,10 @@ const CopilotPanel = () => {
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                         </div>
                       ) : (
-                        <div className="copilot-bubble-content">{m.content}</div>
+                        <>
+                          {m.content && <div className="copilot-bubble-content">{m.content}</div>}
+                          <MessageAttachments attachments={m.attachments} />
+                        </>
                       )}
                       {m.role === "assistant" && renderActions(m)}
                       {m.role === "assistant" && renderCitations(m)}
@@ -576,19 +1017,138 @@ const CopilotPanel = () => {
 
               {error && <div className="alert alert-info py-1 px-2 copilot-error">{error}</div>}
 
-              <form className="copilot-input-row" onSubmit={send}>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="输入问题..."
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  disabled={isSending}
-                />
-                <button type="submit" className="btn btn-primary" disabled={isSending || !input.trim()}>
-                  {isSending ? "..." : "发送"}
-                </button>
-              </form>
+              {isExportMode ? (
+                <div className="copilot-export-bar">
+                  <div className="copilot-export-scope">
+                    <label>
+                      <input type="radio" checked={exportScope === "all"} onChange={() => setExportScope("all")} /> 整段对话
+                    </label>
+                    <label>
+                      <input type="radio" checked={exportScope === "selected"} onChange={() => setExportScope("selected")} /> 选择部分消息
+                    </label>
+                    {exportScope === "selected" && (
+                      <span className="copilot-export-count">
+                        已选 {exportableMessages.filter((m) => selectedMessageIds.has(m.id)).length} 条
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-link p-0 ml-2"
+                          onClick={() => setSelectedMessageIds(new Set(exportableMessages.map((m) => m.id)))}
+                        >
+                          全选
+                        </button>
+                        <button type="button" className="btn btn-sm btn-link p-0 ml-2" onClick={() => setSelectedMessageIds(new Set())}>
+                          清空
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                  <div className="copilot-export-actions">
+                    <span>导出为：</span>
+                    {[
+                      ["docx", "Word"],
+                      ["md", "Markdown"],
+                      ["pdf", "PDF"],
+                    ].map(([format, label]) => (
+                      <button
+                        key={format}
+                        type="button"
+                        className="btn btn-sm btn-primary"
+                        disabled={!!exportingFormat}
+                        title={format === "pdf" ? "打开打印对话框，选择「另存为 PDF」" : undefined}
+                        onClick={() => runExport(format)}
+                      >
+                        {exportingFormat === format ? "生成中..." : label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary"
+                      disabled={!!exportingFormat}
+                      onClick={() => setIsExportMode(false)}
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="copilot-composer">
+                  {pendingAttachments.length > 0 && (
+                    <div className="copilot-pending-attachments">
+                      {pendingAttachments.map((a) => (
+                        <div
+                          key={a.key}
+                          className={`copilot-chip copilot-chip-${a.status}${a.warning ? " copilot-chip-warning" : ""}`}
+                          title={a.error || a.warning || `${a.name}（${formatFileSize(a.size)}）`}
+                        >
+                          {/* Icons sit in a <span> React owns: App.js loads FontAwesome's JS, which swaps
+                              each <i> for an <svg> behind React's back, so React can't later remove an <i>
+                              it rendered conditionally (removeChild crash) -- it removes the span instead. */}
+                          {a.previewUrl ? (
+                            <img className="copilot-chip-thumb" src={a.previewUrl} alt="" />
+                          ) : (
+                            <span>
+                              <i className={`fas fa-${a.kind === "image" ? "image" : "file-alt"}`}></i>
+                            </span>
+                          )}
+                          <span className="copilot-chip-name">{a.name}</span>
+                          <span className="copilot-chip-status">
+                            {a.status === "uploading" &&
+                              (a.progress < 100 ? `上传 ${a.progress || 0}%` : a.kind === "image" ? "识别中..." : "解析中...")}
+                            {a.status === "error" && "失败"}
+                            {a.status === "ready" && a.warning && (
+                              <span>
+                                <i className="fas fa-exclamation-triangle"></i>
+                              </span>
+                            )}
+                          </span>
+                          <button type="button" className="copilot-chip-remove" title="移除" onClick={() => removeAttachment(a)}>
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <form className="copilot-input-row" onSubmit={send}>
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary copilot-attach-btn"
+                      title="添加附件（Word、PPT、PDF、Excel、文本或图片；也可直接粘贴截图或拖入文件）"
+                      disabled={isSending}
+                      onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                    >
+                      <i className="fas fa-paperclip"></i>
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept={ATTACH_ACCEPT}
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        addFiles(e.target.files);
+                        e.target.value = ""; // so picking the same file again still fires onChange
+                      }}
+                    />
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder={pendingAttachments.length > 0 ? "说明需要如何处理附件（可不填）..." : "输入问题，或粘贴截图..."}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onPaste={onPaste}
+                      disabled={isSending}
+                    />
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={isSending || isUploading || (!input.trim() && readyAttachments.length === 0)}
+                      title={isUploading ? "附件处理中，请稍候" : undefined}
+                    >
+                      {isSending ? "..." : "发送"}
+                    </button>
+                  </form>
+                </div>
+              )}
             </>
           )}
         </div>

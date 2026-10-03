@@ -32,6 +32,14 @@ module.exports = function (app) {
   app.post("/api/chat/messages/:messageId/actions/:actionId/confirm", [authJwt.verifyToken], chat.confirmAction);
   app.post("/api/chat/messages/:messageId/actions/:actionId/cancel", [authJwt.verifyToken], chat.cancelAction);
 
+  // Import/export (see chat.controller.js's Attachments/Export sections) --
+  // attachments are owner-checked by userId, exports by the conversation's.
+  app.post("/api/chat/attachments", [authJwt.verifyToken], chat.uploadAttachment);
+  app.delete("/api/chat/attachments/:id", [authJwt.verifyToken], chat.deleteAttachment);
+  app.get("/api/chat/attachments/:id/image", [authJwt.verifyToken], chat.getAttachmentImage);
+  app.post("/api/chat/conversations/:id/export", [authJwt.verifyToken], chat.exportConversation);
+  app.post("/api/chat/messages/:messageId/documents/:docId", [authJwt.verifyToken], chat.downloadDocument);
+
   // Admin-only: draft a shared-knowledge-base card from one of the admin's
   // own conversations (see chat.controller.js#shareDraft) -- the actual save
   // into knowledge_skills still goes through the existing

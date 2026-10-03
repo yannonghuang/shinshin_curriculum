@@ -50,6 +50,7 @@ db.knowledgeChunk = require("./knowledge-chunk.model.js")(sequelize, Sequelize);
 db.knowledgeSourceSummary = require("./knowledge-source-summary.model.js")(sequelize, Sequelize);
 db.chatConversation = require("./chat-conversation.model.js")(sequelize, Sequelize);
 db.chatMessage = require("./chat-message.model.js")(sequelize, Sequelize);
+db.chatAttachment = require("./chat-attachment.model.js")(sequelize, Sequelize);
 db.aiReviewStandard = require("./ai-review-standard.model.js")(sequelize, Sequelize);
 db.aiPlanScore = require("./ai-plan-score.model.js")(sequelize, Sequelize);
 
@@ -309,6 +310,19 @@ db.chatConversation.hasMany(db.chatMessage, {
 });
 db.chatMessage.belongsTo(db.chatConversation, {
   foreignKey: "conversationId",
+  onDelete: "CASCADE",
+});
+
+// chatMessage -> chatAttachments (files picked/pasted into 欣欣助手 -- see
+// copilotAttachments.js). messageId is null while an upload is still waiting
+// to be sent.
+db.chatMessage.hasMany(db.chatAttachment, {
+  foreignKey: "messageId",
+  as: "Attachments",
+  onDelete: "CASCADE",
+});
+db.chatAttachment.belongsTo(db.chatMessage, {
+  foreignKey: "messageId",
   onDelete: "CASCADE",
 });
 
