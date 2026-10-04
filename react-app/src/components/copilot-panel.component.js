@@ -72,6 +72,21 @@ const actionEntries = (message) =>
 
 const DOCUMENT_FORMAT_LABELS = { docx: "Word", pdf: "PDF", md: "Markdown" };
 
+// Links in a reply (web sources, a 百度图片 search) open in a new tab -- a
+// plain <a> would navigate the whole app away, losing the open panel.
+const MARKDOWN_COMPONENTS = {
+  a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+};
+
+// web_search's real source pages (copilotActions.js), every search this
+// turn, de-duplicated by URL. Only http(s) links are shown.
+const webSourcesOf = (message) => {
+  const seen = new Set();
+  return (Array.isArray(message.retrievedChunkIds) ? message.retrievedChunkIds : [])
+    .flatMap((call) => (call && call.output && Array.isArray(call.output.webSources) ? call.output.webSources : []))
+    .filter((src) => src && /^https?:\/\//i.test(src.url || "") && !seen.has(src.url) && seen.add(src.url));
+};
+
 // Tells whichever page is open that 欣欣小助手 just changed data behind its
 // back -- e.g. plan-detail.component.js reloads the plan it's showing (or
 // warns, if it has unsaved edits of its own) instead of silently going stale.
@@ -885,6 +900,25 @@ const CopilotPanel = () => {
     );
   };
 
+  // 网络来源 footer -- distinct from 参考资料 (the vetted 学习资源库) so a
+  // teacher can always tell library material from internet results.
+  const renderWebSources = (message) => {
+    const sources = webSourcesOf(message);
+    if (sources.length === 0) return null;
+    return (
+      <div className="copilot-citations copilot-web-sources">
+        <i className="fas fa-globe"></i> 网络来源（未经审核，请自行核实）：
+        {sources.map((src, i) => (
+          <a key={src.url} href={src.url} target="_blank" rel="noopener noreferrer" title={src.url}>
+            {i > 0 ? "、" : ""}
+            {src.site ? `${src.site}·` : ""}
+            {src.title || src.url}
+          </a>
+        ))}
+      </div>
+    );
+  };
+
   // Copies both the rendered formatting (as HTML, so pasting into e.g. a
   // doc or email keeps headings/bold/lists) and a plain-text fallback in the
   // same clipboard write -- the target app picks whichever it understands.
@@ -1060,7 +1094,9 @@ const CopilotPanel = () => {
                           className="copilot-bubble-content copilot-markdown"
                           ref={(el) => (messageContentRefs.current[key] = el)}
                         >
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                            {m.content}
+                          </ReactMarkdown>
                         </div>
                       ) : (
                         <>
@@ -1070,6 +1106,7 @@ const CopilotPanel = () => {
                       )}
                       {m.role === "assistant" && renderActions(m)}
                       {m.role === "assistant" && renderCitations(m)}
+                      {m.role === "assistant" && renderWebSources(m)}
                     </div>
                   );
                 })}

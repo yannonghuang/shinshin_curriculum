@@ -1742,6 +1742,11 @@
   color: var(--pl-muted);
 }
 
+.copilot-web-sources a {
+  color: var(--pl-accent);
+  word-break: break-all;
+}
+
 .copilot-bubble-thinking {
   font-style: italic;
   color: var(--pl-muted);

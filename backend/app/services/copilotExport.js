@@ -49,7 +49,10 @@ const citationLine = (message) => {
     if (out && Array.isArray(out.sources)) return out.sources.map((s) => `《${s.title}》${s.locator || ""}`);
     return [];
   });
-  return titles.length > 0 ? `参考资料：${[...new Set(titles)].join("、")}` : null;
+  const web = log.flatMap((call) => (call && call.output && Array.isArray(call.output.webSources) ? call.output.webSources : []));
+  const webLine = web.length > 0 ? `网络来源：${[...new Map(web.map((w) => [w.url, `${w.title}（${w.url}）`])).values()].join("、")}` : null;
+  const libraryLine = titles.length > 0 ? `参考资料：${[...new Set(titles)].join("、")}` : null;
+  return [libraryLine, webLine].filter(Boolean).join("\n") || null;
 };
 
 // Normalizes what every format renders from: { title, subtitle, exportedAt,
@@ -86,7 +89,7 @@ function toMarkdown(t) {
     for (const a of e.attachments) out.push(`> 📎 附件${a.kind === "image" ? "图片" : "文件"}：${a.name}`);
     if (e.attachments.length) out.push("");
     for (const line of e.actions) out.push(`> ${line}`);
-    if (e.citations) out.push(`> ${e.citations}`);
+    if (e.citations) e.citations.split("\n").forEach((line) => out.push(`> ${line}`));
     if (e.actions.length || e.citations) out.push("");
   }
   return out.join("\n");
@@ -151,7 +154,7 @@ function toHtml(t) {
           return `<div class="entry-attachment">📎 附件${a.kind === "image" ? "图片" : "文件"}：${escapeHtml(a.name)}${img}</div>`;
         })
         .join("");
-      const notes = [...e.actions, ...(e.citations ? [e.citations] : [])]
+      const notes = [...e.actions, ...(e.citations ? e.citations.split("\n") : [])]
         .map((line) => `<div class="entry-note">${escapeHtml(line)}</div>`)
         .join("");
       return (
@@ -442,7 +445,7 @@ async function toDocx(t) {
       if (a.kind === "image") children.push(...imageParagraphs(a));
     }
     for (const line of e.actions) children.push(noteParagraph(line));
-    if (e.citations) children.push(noteParagraph(e.citations));
+    if (e.citations) e.citations.split("\n").forEach((line) => children.push(noteParagraph(line)));
   }
 
   const doc = new Document({ numbering: ORDERED_LIST_NUMBERING, sections: [{ children }] });
