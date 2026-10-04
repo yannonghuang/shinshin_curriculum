@@ -3,6 +3,7 @@ const registry = require("./copilotRouteRegistry");
 const { searchKnowledgeTree, searchKnowledgeBaseToolDef } = require("./knowledgeRetrieve");
 const { buildPlanContentText } = require("./planContext");
 const planForm = require("./copilotPlanForm");
+const llmClient = require("./llmClient");
 
 // 欣欣小助手's action layer: lets the co-pilot do on a user's behalf anything
 // that user could otherwise do by hand -- and nothing more. Nothing here is
@@ -181,6 +182,43 @@ const TOOLS = [
     // (欣欣小助手 answers "how do I use the system" questions from it), with
     // topics' 主讲人/备注 visible so "谁讲过…" questions stay answerable.
     run: (ctx, args) => searchKnowledgeTree(args.query, { excludeCategories: [], includeTopicMeta: true }),
+  },
+
+  // ---- Web search ---------------------------------------------------------------
+  {
+    label: "联网检索",
+    routes: [],
+    def: fn(
+      "web_search",
+      "通过互联网检索公开信息（如地方文化、风俗、历史、新闻、政策等），返回带 [ref_n] 引用标记的摘要和来源网页列表。" +
+        "应先用 search_knowledge_base 检索学习资源库；资源库没有相关内容、或用户明确要求上网查找/需要最新信息时，再调用本工具。" +
+        "检索词中不要包含学生姓名等个人信息。",
+      { query: { type: "string", description: "要检索的问题或关键词，用中文，尽量具体（如「黄陂三鲜 历史 制作工艺」）" } },
+      ["query"]
+    ),
+    // A separate search-enabled model call (llmClient.js#webSearch): the
+    // summary comes back with [ref_n] markers keyed to `webSources`, the
+    // real pages the search found -- the panel lists them under the reply as
+    // 网络来源 (named apart from search_knowledge_base's `sources`, which the
+    // 参考资料 footer reads).
+    run: async (ctx, args) => {
+      const query = String(args.query || "").trim().slice(0, 200);
+      if (!query) throw new Error("请提供检索内容。");
+      const result = await llmClient.webSearch({
+        prompt:
+          `请联网检索并用中文客观、准确地总结关于「${query}」的信息，600字以内；` +
+          "引用检索结果时用 [ref_n] 标注来源编号；检索结果中没有的信息不要补充或推测。",
+      });
+      const webSources = result.sources.slice(0, 8);
+      return {
+        query,
+        summary: result.text,
+        webSources,
+        note:
+          "以上内容来自互联网检索，未经学习资源库审核。回复时：说明这些信息来自网络；只使用以上摘要和来源，不要编造链接或图片网址；" +
+          "引用时把 [ref_n] 换成对应来源的 Markdown 链接，如 [百度百科·黄陂三合](https://…)。系统会在回复下方另行列出全部来源。",
+      };
+    },
   },
 
   // ---- Documents --------------------------------------------------------------

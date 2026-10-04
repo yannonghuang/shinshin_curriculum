@@ -78,6 +78,11 @@ const buildActionPrompt = ({ roles, labels, apiCount }) =>
   // before the model concludes something can't be done.
   "9. 用户询问某个功能或要求做某件事，而你的工具和接口都无法完成时，在回答「系统不支持」之前，必须先调用 search_knowledge_base 检索《教师使用手册》（学习资源库「使用指南」），" +
   "查找系统中是否有对应的页面、按钮或操作方法（检索词可用功能名称，如「导出对话」「上传附件」）；手册中有说明的，按手册告诉用户在哪里、如何操作。手册中也没有时，才说明暂不支持。" +
+  // web_search (copilotActions.js) -- library first, web second, and web
+  // content always labelled and sourced, never passed off as vetted.
+  "10. 需要资料时先用 search_knowledge_base 检索学习资源库；资源库没有相关内容，或用户明确要求上网查找、需要最新信息时，再调用 web_search 联网检索，不要直接回答「资源库中没有」就结束。" +
+  "使用联网结果时须说明信息来自网络、建议教师自行核实，并以 Markdown 链接注明引用的来源；绝不编造网址。" +
+  "你无法检索或显示网络图片，不要编造图片链接；用户想看图片时，可以给出来源网页链接，或给出百度图片搜索链接：[在百度图片中查看](https://image.baidu.com/search/index?tn=baiduimage&word=关键词)。" +
   // Attachments arrive as text blocks appended to the user's message (see
   // copilotAttachments.js#renderForModel) -- the model has to know they're
   // the teacher's material, not the teacher's instructions.
@@ -285,6 +290,38 @@ const renderActionLog = (messages) => {
   return notes.length > 0 ? `\n\n本对话中近期由你代用户发起的操作（系统记录，仅供参考，回复中不要复述此列表）：\n${notes.join("\n")}` : "";
 };
 
+// web_search summaries cite their sources as [ref_n] (copilotActions.js),
+// and the model doesn't always turn those into links when it quotes them --
+// so any left in the final reply become "[n]" links to the real source page
+// here, once, before it's stored (and so also in history and exports). A
+// marker with no matching source is dropped rather than shown raw.
+const linkWebCitations = (text, toolCallLog) => {
+  if (!text || !/\[ref_\d+\]/.test(text)) return text;
+  const urlByIndex = new Map();
+  for (const call of toolCallLog || []) {
+    for (const src of (call && call.output && call.output.webSources) || []) {
+      if (/^https?:\/\//i.test(src.url || "")) urlByIndex.set(Number(src.index), src.url);
+    }
+  }
+  return text.replace(/\[ref_(\d+)\]/g, (m, n) => {
+    const url = urlByIndex.get(Number(n));
+    return url ? `[[${n}]](${safeLinkUrl(url)})` : "";
+  });
+};
+
+// Markdown link targets can't hold raw spaces/brackets/CJK reliably --
+// normalize to a fully percent-encoded URL (leaving one that's already
+// encoded, or malformed, as encoded as encodeURI makes it).
+const safeLinkUrl = (url) => {
+  let decoded = url;
+  try {
+    decoded = decodeURI(url);
+  } catch (e) {
+    // malformed escape -- encode what's there
+  }
+  return encodeURI(decoded).replace(/\(/g, "%28").replace(/\)/g, "%29");
+};
+
 // Shared by both sendMessage (current-scope-resolved) and
 // sendMessageToConversation (an explicitly-picked past thread) -- appends
 // the user/assistant turn to whichever conversation row and pageContext the
@@ -362,7 +399,7 @@ const appendTurn = async (conversation, content, pageContext, attachmentIds) => 
   const assistantMessage = await ChatMessage.create({
     conversationId: conversation.id,
     role: "assistant",
-    content: result.text,
+    content: linkWebCitations(result.text, result.toolCallLog),
     retrievedChunkIds: result.toolCallLog.length > 0 ? result.toolCallLog : null,
   });
 
