@@ -11,13 +11,18 @@ const DEFAULT_MODELS = { dashscope: "qwen3.8-max" };
 // actually drives a multi-round tool-calling conversation. A plain
 // (no-tools) caller like review.controller.js's original single-shot usage
 // is completely unaffected -- toolCalls just comes back undefined.
-async function llmChat({ systemPrompt, messages, maxTokens = 1024, temperature = 0.2, model, provider, tools, toolChoice }) {
+// thinking: false turns off a reasoning model's hidden "thinking" pass
+// (DashScope's enable_thinking) -- for small mechanical calls (picking
+// library sections, summarizing history) where it only adds latency: a
+// profiled chat turn spent ~30s per knowledge-base search producing ~1,500
+// reasoning tokens for ~200 characters of JSON. Omitted = model default.
+async function llmChat({ systemPrompt, messages, maxTokens = 1024, temperature = 0.2, model, provider, tools, toolChoice, thinking }) {
   const effectiveProvider = (provider || process.env.LLM_PROVIDER || "dashscope").toLowerCase();
   const resolvedModel = model || process.env.AI_REVIEW_MODEL || DEFAULT_MODELS[effectiveProvider];
   if (effectiveProvider !== "dashscope") {
     throw new Error(`Unsupported LLM_PROVIDER: ${effectiveProvider}`); // extend here if another provider is added later
   }
-  return dashscopeChat({ systemPrompt, messages, maxTokens, temperature, model: resolvedModel, tools, toolChoice });
+  return dashscopeChat({ systemPrompt, messages, maxTokens, temperature, model: resolvedModel, tools, toolChoice, thinking });
 }
 
 // Transient failures are retried: the app runs in Hong Kong against a
@@ -64,7 +69,7 @@ async function fetchWithRetry(url, init) {
   }
 }
 
-async function dashscopeChat({ systemPrompt, messages, maxTokens, temperature, model, tools, toolChoice }) {
+async function dashscopeChat({ systemPrompt, messages, maxTokens, temperature, model, tools, toolChoice, thinking }) {
   const apiKey = process.env.DASHSCOPE_API_KEY;
   if (!apiKey) throw new Error("DASHSCOPE_API_KEY is not configured");
   const baseUrl = process.env.DASHSCOPE_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -72,6 +77,7 @@ async function dashscopeChat({ systemPrompt, messages, maxTokens, temperature, m
   if (systemPrompt) all.push({ role: "system", content: systemPrompt });
   all.push(...messages);
   const body = { model, max_tokens: maxTokens, temperature, messages: all };
+  if (thinking === false) body.enable_thinking = false;
   if (tools && tools.length > 0) {
     body.tools = tools;
     body.tool_choice = toolChoice || "auto";

@@ -1824,6 +1824,78 @@
   border-top: 1px solid var(--pl-line);
 }
 
+/* 欣欣小助手 background turns -- a progress card under the question while
+   its answer is worked on (see copilot-panel.component.js#renderTaskCard). */
+.copilot-task-card {
+  align-self: flex-start;
+  max-width: 85%;
+  min-width: 220px;
+  padding: 8px 12px;
+  border: 1px dashed var(--pl-accent);
+  border-radius: 10px;
+  background: var(--pl-bg);
+  font-size: 13px;
+  color: var(--pl-text);
+}
+.copilot-task-failed,
+.copilot-task-interrupted {
+  border-color: #dc3545;
+}
+.copilot-task-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.copilot-task-icon {
+  color: var(--pl-accent);
+}
+.copilot-task-failed .copilot-task-icon,
+.copilot-task-interrupted .copilot-task-icon {
+  color: #dc3545;
+}
+.copilot-task-steps {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.copilot-task-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pl-muted);
+  line-height: 1.7;
+}
+/* A long tool's own sub-steps (e.g. 起草课程设计's research / outline /
+   parallel writing), indented under it. */
+.copilot-task-steps li.sub {
+  padding-left: 18px;
+  font-size: 12px;
+}
+.copilot-task-steps li.running {
+  color: var(--pl-text);
+}
+.copilot-task-steps li .svg-inline--fa,
+.copilot-task-steps li i {
+  width: 12px;
+  font-size: 11px;
+}
+.copilot-task-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--pl-muted);
+}
+.copilot-task-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #dc3545;
+}
+.copilot-task-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 /* 欣欣小助手 import -- see copilot-panel.component.js's Import section. The
    composer wraps the pending-attachment chips and the input row so the
    chips sit directly above the input they'll be sent with. */

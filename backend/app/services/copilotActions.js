@@ -4,6 +4,8 @@ const { searchKnowledgeTree, searchKnowledgeBaseToolDef } = require("./knowledge
 const { buildPlanContentText } = require("./planContext");
 const planForm = require("./copilotPlanForm");
 const llmClient = require("./llmClient");
+const planDrafter = require("./planDrafter");
+const { MANUAL_CATEGORY } = require("../constants/materialCategories");
 
 // 欣欣小助手's action layer: lets the co-pilot do on a user's behalf anything
 // that user could otherwise do by hand -- and nothing more. Nothing here is
@@ -156,6 +158,16 @@ const LESSONS_PROP = {
   },
 };
 
+// Shared by web_search and draft_plan's research step.
+const runWebSearch = async (query) => {
+  const result = await llmClient.webSearch({
+    prompt:
+      `请联网检索并用中文客观、准确地总结关于「${query}」的信息，600字以内；` +
+      "引用检索结果时用 [ref_n] 标注来源编号；检索结果中没有的信息不要补充或推测。",
+  });
+  return { summary: result.text, webSources: result.sources.slice(0, 8) };
+};
+
 const fn = (name, description, properties = {}, required = []) => ({
   type: "function",
   function: { name, description, parameters: { type: "object", properties, required } },
@@ -165,7 +177,10 @@ const fn = (name, description, properties = {}, required = []) => ({
 // Tools
 // ---------------------------------------------------------------------------
 //
-// Each entry: { def, label, routes, confirm?, run(ctx, args), precheck? }
+// Each entry: { def, label, routes, readOnly?, confirm?, run(ctx, args), precheck? }
+//   readOnly -- true (or a function of args) when the call changes nothing,
+//               so agentLoop.js may run it alongside the round's other
+//               read-only calls; writes always run one at a time, in order.
 //   routes   -- "METHOD /pattern" keys this tool is built on. Offered only
 //               when every one is currently registered *and* admits the
 //               user's roles; `routes: []` = no API dependency at all.
@@ -176,6 +191,7 @@ const fn = (name, description, properties = {}, required = []) => ({
 const TOOLS = [
   {
     label: "检索学习资源库",
+    readOnly: true,
     routes: [],
     def: searchKnowledgeBaseToolDef,
     // Knowledge-tree retrieval over the whole library, 使用指南 included
@@ -187,6 +203,7 @@ const TOOLS = [
   // ---- Web search ---------------------------------------------------------------
   {
     label: "联网检索",
+    readOnly: true,
     routes: [],
     def: fn(
       "web_search",
@@ -204,15 +221,10 @@ const TOOLS = [
     run: async (ctx, args) => {
       const query = String(args.query || "").trim().slice(0, 200);
       if (!query) throw new Error("请提供检索内容。");
-      const result = await llmClient.webSearch({
-        prompt:
-          `请联网检索并用中文客观、准确地总结关于「${query}」的信息，600字以内；` +
-          "引用检索结果时用 [ref_n] 标注来源编号；检索结果中没有的信息不要补充或推测。",
-      });
-      const webSources = result.sources.slice(0, 8);
+      const { summary, webSources } = await runWebSearch(query);
       return {
         query,
-        summary: result.text,
+        summary,
         webSources,
         note:
           "以上内容来自互联网检索，未经学习资源库审核。回复时：说明这些信息来自网络；只使用以上摘要和来源，不要编造链接或图片网址；" +
@@ -221,9 +233,57 @@ const TOOLS = [
     },
   },
 
+  // ---- Drafting sub-agent -------------------------------------------------------
+  {
+    label: "起草课程设计",
+    readOnly: true, // drafts text only -- creating the plan is a separate, explicit step
+    routes: ["GET /api/plans/options", "GET /api/templates/:templateKey/active"],
+    def: fn(
+      "draft_plan",
+      "按系统课程设计模板起草一份完整的乡土课程设计（学习目标、项目简介、入项/探究/制作与迭代/出项，以及每个课时的详细设计）。" +
+        "用户要求草拟/设计/写一份新的课程设计时直接调用本工具：它会自行检索学习资源库和网络、并行撰写各部分，" +
+        "不要先自己调用 search_knowledge_base / web_search / get_plan_template，也不要自己撰写全文。" +
+        "起草结果会直接展示给用户，并提供「新建为课程设计」按钮。",
+      {
+        title: { type: "string", description: "课程标题或主题，如「黄陂三鲜」" },
+        grade: { type: "string", description: "年级，如「五年级」" },
+        lessonCount: { type: "number", description: "课时数；用户说「为期N周」且未说明每周课时数时按每周1课时计" },
+        theme: { type: "string", description: "乡土主题（可选）" },
+        requirements: { type: "string", description: "用户的其他具体要求（可选），如侧重点、学校/地区特点" },
+      },
+      ["title"]
+    ),
+    // The sub-agent itself is planDrafter.js. Its reply goes to the teacher
+    // as-is (finalReply -- see agentLoop.js), and the template-shaped
+    // content rides along in `draft` for the panel's 新建为课程设计 button
+    // (chat.controller.js#createPlanFromDraft).
+    run: async (ctx, args) => {
+      const template = await TOOLS_BY_NAME.get("get_plan_template").run(ctx, {});
+      const result = await planDrafter.draftPlan(args, {
+        loadTemplate: async () => template,
+        searchLibrary: (query) => searchKnowledgeTree(query, { excludeCategories: [MANUAL_CATEGORY], includeTopicMeta: false }),
+        webSearch: runWebSearch,
+        emit: ctx.emit,
+      });
+      const draftId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const intro = `以下是按系统课程设计模板起草的《${result.basic.title}》（共 ${result.basic.plannedLessonCount} 课时）。可直接点击下方「新建为课程设计」保存为草稿，或告诉我需要调整的地方。`;
+      return {
+        draft: {
+          draftId,
+          title: result.basic.title,
+          planArgs: { ...result.basic, fields: result.fields, lessons: result.lessons },
+        },
+        finalReply: `${intro}\n\n${result.markdown}`,
+        sources: result.librarySources,
+        webSources: result.webSources,
+      };
+    },
+  },
+
   // ---- Documents --------------------------------------------------------------
   {
     label: "生成可下载文档",
+    readOnly: true,
     routes: [],
     def: fn(
       "generate_document",
@@ -259,6 +319,7 @@ const TOOLS = [
   // ---- Generic API access ----------------------------------------------------
   {
     label: "查询可用接口",
+    readOnly: true,
     routes: [],
     def: fn(
       "list_available_apis",
@@ -284,6 +345,7 @@ const TOOLS = [
   },
   {
     label: "调用系统接口",
+    readOnly: (args) => String(args.method || "").toUpperCase() === "GET",
     routes: [],
     // Only GET runs inside the agent loop; anything else becomes a pending
     // action the user confirms -- see confirmFor below.
@@ -323,6 +385,7 @@ const TOOLS = [
   // ---- Curated: plans ----------------------------------------------------------
   {
     label: "查看课程设计",
+    readOnly: true,
     routes: ["GET /api/plans/:id"],
     def: fn(
       "get_plan_details",
@@ -349,6 +412,7 @@ const TOOLS = [
   },
   {
     label: "查询课程设计列表",
+    readOnly: true,
     routes: ["GET /api/plans"],
     def: fn("list_plans", "按条件查询乡土课程设计列表（仅返回当前用户有权查看的）。mine=true 只看本人创建的。", {
       mine: { type: "boolean", description: "只看本人创建的课程设计" },
@@ -373,6 +437,7 @@ const TOOLS = [
   },
   {
     label: "查看课程设计模板",
+    readOnly: true,
     routes: ["GET /api/plans/options", "GET /api/templates/:templateKey/active", "GET /api/plans/:id"],
     def: fn(
       "get_plan_template",
@@ -586,8 +651,10 @@ const buildToolset = async (userId) => {
   const executors = {};
   let pendingCounter = 0;
   for (const tool of offered) {
-    executors[tool.def.function.name] = async (args) => {
-      if (!needsConfirmation(tool, args)) return tool.run(ctx, args);
+    // hooks.emit (from agentLoop.js) lets a long-running tool report its own
+    // sub-steps to the progress card -- draft_plan does.
+    executors[tool.def.function.name] = async (args, hooks) => {
+      if (!needsConfirmation(tool, args)) return tool.run({ ...ctx, emit: hooks && hooks.emit }, args);
       const summary = await tool.precheck(ctx, args);
       pendingCounter += 1;
       return {
@@ -604,7 +671,12 @@ const buildToolset = async (userId) => {
   // label, plus how many raw endpoints call_api can reach for this user.
   const apiCount = registry.listRoutes(roles).length;
   const labels = offered.map((t) => t.label);
-  return { roles, tools: offered.map((t) => t.def), executors, labels, apiCount };
+  const isReadOnly = (name, args) => {
+    const tool = TOOLS_BY_NAME.get(name);
+    if (!tool || !tool.readOnly) return false;
+    return typeof tool.readOnly === "function" ? !!tool.readOnly(args || {}) : true;
+  };
+  return { roles, tools: offered.map((t) => t.def), executors, labels, apiCount, isReadOnly };
 };
 
 // Runs a previously-proposed confirm action, after the user clicked 确认执行.
@@ -622,4 +694,24 @@ const runConfirmedAction = async (userId, name, args) => {
   return { label: tool.label, result: await tool.run({ userId, roles }, args) };
 };
 
-module.exports = { buildToolset, runConfirmedAction };
+// 新建为课程设计 on a draft_plan reply: create_plan with the draft's own
+// template-shaped content, under the user's current roles (the route's
+// guards run as usual).
+const createPlanFromDraft = async (userId, planArgs) => {
+  const roles = await getUserRoles(userId);
+  const tool = TOOLS_BY_NAME.get("create_plan");
+  if (!isOffered(tool, roles)) {
+    const err = new Error("当前账号没有新建课程设计的权限。");
+    err.status = 403;
+    throw err;
+  }
+  return tool.run({ userId, roles }, planArgs);
+};
+
+// A tool's 中文 label, for progress steps (chatTasks.js).
+const labelOf = (name) => {
+  const tool = TOOLS_BY_NAME.get(name);
+  return tool ? tool.label : null;
+};
+
+module.exports = { buildToolset, runConfirmedAction, labelOf, createPlanFromDraft };
