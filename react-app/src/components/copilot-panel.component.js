@@ -67,15 +67,40 @@ const formatRelativeTime = (dateStr) => {
 // Pure lookups (search_knowledge_base etc.) stay in the 参考资料 footer instead.
 const actionEntries = (message) =>
   (Array.isArray(message.retrievedChunkIds) ? message.retrievedChunkIds : []).filter(
-    (e) => e && e.output && (e.output.pendingConfirmation || e.output.changed || e.output.link || e.output.document)
+    (e) => e && e.output && (e.output.pendingConfirmation || e.output.changed || e.output.link || e.output.document || e.output.draft)
   );
 
 const DOCUMENT_FORMAT_LABELS = { docx: "Word", pdf: "PDF", md: "Markdown" };
 
+// Turn order, same rule as the backend's chat.controller.js#orderTurns: a
+// reply sits right after the question it answers (replyToMessageId), even
+// when a background answer finished after newer messages.
+const orderTurns = (messages) =>
+  [...messages].sort((a, b) => {
+    if (a._pending || b._pending) return a._pending ? 1 : -1; // optimistic bubble stays last
+    const ka = Number(a.replyToMessageId || a.id);
+    const kb = Number(b.replyToMessageId || b.id);
+    return ka !== kb ? ka - kb : Number(a.id) - Number(b.id);
+  });
+
+// Background turns (backend chatTasks.js): a reply that takes longer than a
+// few seconds comes back as a task, shown as a progress card under its
+// question and polled until it resolves.
+const TASK_POLL_MS = 1500;
+const isTaskActive = (t) => t.status === "queued" || t.status === "running";
+const elapsedLabel = (since) => {
+  const s = Math.max(0, Math.round((Date.now() - new Date(since).getTime()) / 1000));
+  return s < 60 ? `${s} 秒` : `${Math.floor(s / 60)} 分 ${s % 60} 秒`;
+};
+
 // Links in a reply (web sources, a 百度图片 search) open in a new tab -- a
 // plain <a> would navigate the whole app away, losing the open panel.
 const MARKDOWN_COMPONENTS = {
-  a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+  a: ({ node, children, ...props }) => (
+    <a {...props} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  ),
 };
 
 // web_search's real source pages (copilotActions.js), every search this
@@ -320,7 +345,22 @@ const CopilotPanel = () => {
   const [actionBusyKey, setActionBusyKey] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessagesRaw] = useState([]);
+  // Every update keeps turn order (see orderTurns). An update that returns
+  // the same array is left alone -- a re-sorted copy would count as a change
+  // and re-run the scroll effect (it yanked a just-arrived late reply away).
+  const setMessages = (next) =>
+    setMessagesRaw((prev) => {
+      const updated = typeof next === "function" ? next(prev) : next;
+      return updated === prev ? prev : orderTurns(updated);
+    });
+  // Unresolved background turns of the conversation on screen -- see the
+  // task-polling effect and renderTaskCard below.
+  const [tasks, setTasks] = useState([]);
+  const [taskBusyId, setTaskBusyId] = useState(null);
+  // A late reply lands mid-conversation, not at the bottom -- scroll there
+  // instead of to the end (see the scroll effect).
+  const scrollTargetRef = useRef(null);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
@@ -464,6 +504,7 @@ const CopilotPanel = () => {
         ? await ChatDataService.getConversationById(explicitConversationId)
         : await ChatDataService.getCurrent(pageContext);
       setMessages(resp.data.messages || []);
+      setTasks(resp.data.tasks || []);
       setConversationId(resp.data.conversation ? resp.data.conversation.id : null);
       setIsLoaded(true);
     } catch (e) {
@@ -537,10 +578,52 @@ const CopilotPanel = () => {
   };
 
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
+    const targetId = scrollTargetRef.current;
+    scrollTargetRef.current = null;
+    const target = targetId && document.querySelector(`.copilot-panel [data-message-id="${targetId}"]`);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+    else if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Follows every unresolved background turn while the panel is open: steps
+  // update in place, and a finished reply is slotted in under its question.
+  // (Closed panel: nothing to show; reopening reloads tasks with the
+  // conversation.)
+  const activeTaskKey = tasks
+    .filter(isTaskActive)
+    .map((t) => t.id)
+    .join(",");
+  useEffect(() => {
+    if (!isOpen || !activeTaskKey) return undefined;
+    let stopped = false;
+    const poll = async () => {
+      for (const id of activeTaskKey.split(",")) {
+        try {
+          const resp = await ChatDataService.getTask(id);
+          if (stopped) return;
+          const t = resp.data;
+          // Card first, reply second: outside an event handler React 16
+          // renders each update separately, and dropping the card *after*
+          // scrolling to the reply shifted the reply up out of view.
+          setTasks((prev) => (t.status === "done" || t.status === "cancelled" ? prev.filter((x) => x.id !== t.id) : prev.map((x) => (x.id === t.id ? t : x))));
+          if (t.assistantMessage) {
+            const reply = t.assistantMessage;
+            scrollTargetRef.current = reply.id;
+            setMessages((prev) => (prev.some((m) => m.id === reply.id) ? prev : [...prev, reply]));
+            announceChanges([reply]);
+          }
+        } catch (e) {
+          if (e?.response?.status === 404) setTasks((prev) => prev.filter((x) => String(x.id) !== String(id)));
+        }
+      }
+    };
+    const timer = setInterval(poll, TASK_POLL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, activeTaskKey]);
 
   // The input grows with what's typed (up to .copilot-input's max-height,
   // then scrolls) and shrinks back to one line once sent/cleared.
@@ -581,12 +664,14 @@ const CopilotPanel = () => {
       const resp = explicitConversationId
         ? await ChatDataService.sendMessageToConversation(explicitConversationId, content, attachmentIds)
         : await ChatDataService.sendMessage(content, pageContext, attachmentIds);
-      setMessages((prev) => {
-        const withoutPending = prev.filter((m) => !m._pending);
-        return [...withoutPending, resp.data.userMessage, resp.data.assistantMessage];
-      });
+      // Answered within the inline wait: the reply comes back with it.
+      // Otherwise it's a background task -- a progress card takes its place
+      // and the input is free again while it works.
+      const { userMessage, assistantMessage, task } = resp.data;
+      setMessages((prev) => [...prev.filter((m) => !m._pending), userMessage, ...(assistantMessage ? [assistantMessage] : [])]);
+      if (task) setTasks((prev) => [...prev, task]);
       if (resp.data.conversation) setConversationId(resp.data.conversation.id);
-      announceChanges([resp.data.assistantMessage]);
+      if (assistantMessage) announceChanges([assistantMessage]);
       sentAttachments.forEach((a) => a.previewUrl && URL.revokeObjectURL(a.previewUrl));
     } catch (err) {
       // 422 = rejected before anything was stored (e.g. an attachment that
@@ -762,6 +847,128 @@ const CopilotPanel = () => {
     }
   };
 
+  // 取消 / 重试 / 忽略 on a progress card. A running turn only stops at its
+  // next checkpoint, so 取消 can take a moment -- the card says so.
+  const taskAction = async (task, action) => {
+    if (taskBusyId) return;
+    setTaskBusyId(task.id);
+    setError("");
+    try {
+      const resp = action === "retry" ? await ChatDataService.retryTask(task.id) : await ChatDataService.cancelTask(task.id);
+      const t = resp.data;
+      // Card before reply -- see the polling effect.
+      setTasks((prev) =>
+        t.status === "done" || t.status === "cancelled"
+          ? prev.filter((x) => x.id !== t.id)
+          : prev.map((x) => (x.id === t.id ? { ...t, _cancelling: action === "cancel" && isTaskActive(t) } : x))
+      );
+      if (t.assistantMessage) {
+        const reply = t.assistantMessage;
+        setMessages((prev) => (prev.some((m) => m.id === reply.id) ? prev : [...prev, reply]));
+      }
+    } catch (err) {
+      setError(err?.response?.data?.message || "操作失败，请重试。");
+    } finally {
+      setTaskBusyId(null);
+    }
+  };
+
+  const renderTaskCard = (task) => {
+    const active = isTaskActive(task);
+    const steps = task.steps || [];
+    return (
+      <div key={`task-${task.id}`} className={`copilot-task-card copilot-task-${task.status}`}>
+        <div className="copilot-task-head">
+          {active ? (
+            <span key="spin" className="copilot-task-icon">
+              <i className="fas fa-circle-notch fa-spin"></i>
+            </span>
+          ) : (
+            <span key="warn" className="copilot-task-icon">
+              <i className="fas fa-exclamation-circle"></i>
+            </span>
+          )}
+          <span className="copilot-task-title">
+            {task.status === "queued"
+              ? `排队中${task.queuePosition ? `（第 ${task.queuePosition} 位）` : ""}…`
+              : task.status === "running"
+              ? task._cancelling
+                ? "正在取消…"
+                : `正在处理，已用时 ${elapsedLabel(task.startedAt || task.createdAt)}`
+              : task.status === "interrupted"
+              ? "处理被中断"
+              : "处理失败"}
+          </span>
+        </div>
+        {steps.length > 0 && (
+          <ul className="copilot-task-steps">
+            {steps.map((st, i) => (
+              <li key={i} className={`${st.status === "running" ? "running" : "done"}${st.sub ? " sub" : ""}`}>
+                {st.status === "running" ? (
+                  <span key="r">
+                    <i className="fas fa-ellipsis-h"></i>
+                  </span>
+                ) : (
+                  <span key="d">
+                    <i className="fas fa-check"></i>
+                  </span>
+                )}
+                {st.label}
+              </li>
+            ))}
+          </ul>
+        )}
+        {!active && task.error && <div className="copilot-task-error">{task.error}</div>}
+        {active && <div className="copilot-task-hint">您可以继续提问，完成后回复会显示在这里。</div>}
+        <div className="copilot-task-buttons">
+          {active ? (
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary"
+              disabled={taskBusyId === task.id || task._cancelling}
+              onClick={() => taskAction(task, "cancel")}
+            >
+              取消
+            </button>
+          ) : (
+            <>
+              <button type="button" className="btn btn-sm btn-primary" disabled={taskBusyId === task.id} onClick={() => taskAction(task, "retry")}>
+                重试
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary"
+                disabled={taskBusyId === task.id}
+                onClick={() => taskAction(task, "cancel")}
+              >
+                忽略
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // 新建为课程设计 on a draft_plan reply -- saves the draft as a new 草稿
+  // plan directly (backend chat.controller.js#createPlanFromDraft); the
+  // message comes back with the usual 打开《…》 link in place of the button.
+  const createPlanFromDraft = async (message, draft) => {
+    const busyKey = `${message.id}:draft:${draft.draftId}`;
+    if (actionBusyKey) return;
+    setActionBusyKey(busyKey);
+    setError("");
+    try {
+      const resp = await ChatDataService.createPlanFromDraft(message.id, draft.draftId);
+      setMessages((prev) => prev.map((m) => (m.id === resp.data.message.id ? resp.data.message : m)));
+      announceChanges([resp.data.message]);
+    } catch (err) {
+      setError(err?.response?.data?.message || "新建课程设计失败。");
+    } finally {
+      setActionBusyKey(null);
+    }
+  };
+
   // 下载 on a generate_document card -- rendered server-side on each click
   // (see chat.controller.js#downloadDocument); pdf arrives as HTML to print.
   const downloadDocument = async (message, doc) => {
@@ -810,6 +1017,23 @@ const CopilotPanel = () => {
                 onClick={() => downloadDocument(message, doc)}
               >
                 {busy ? "生成中..." : doc.format === "pdf" ? "打印 / 另存为 PDF" : "下载"}
+              </button>
+            </div>
+          </div>
+        );
+      }
+      if (o.draft && !o.draft.createdPlanId) {
+        const busy = actionBusyKey === `${message.id}:draft:${o.draft.draftId}`;
+        return (
+          <div key={`${e.name}-${i}`} className="copilot-action">
+            <div className="copilot-action-buttons">
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                disabled={!!actionBusyKey}
+                onClick={() => createPlanFromDraft(message, o.draft)}
+              >
+                {busy ? "新建中..." : "新建为课程设计"}
               </button>
             </div>
           </div>
@@ -868,6 +1092,7 @@ const CopilotPanel = () => {
       const resp = await ChatDataService.startNew(pageContext);
       setConversationId(resp.data.conversation ? resp.data.conversation.id : null);
       setMessages([]);
+      setTasks([]);
       setError("");
     } catch (err) {
       setError(err?.response?.data?.message || "新建对话失败。");
@@ -1061,9 +1286,11 @@ const CopilotPanel = () => {
                   const key = m.id || `pending-${i}`;
                   const selectable = isExportMode && exportScope === "selected" && m.id && !m._pending;
                   const selected = selectable && selectedMessageIds.has(m.id);
+                  const task = m.role === "user" && m.id ? tasks.find((t) => t.userMessageId === m.id) : null;
                   return (
+                    <React.Fragment key={key}>
                     <div
-                      key={key}
+                      data-message-id={m.id || undefined}
                       className={`copilot-bubble copilot-bubble-${m.role}${selectable ? " copilot-bubble-selectable" : ""}${
                         selected ? " copilot-bubble-selected" : ""
                       }`}
@@ -1108,6 +1335,8 @@ const CopilotPanel = () => {
                       {m.role === "assistant" && renderCitations(m)}
                       {m.role === "assistant" && renderWebSources(m)}
                     </div>
+                    {task && renderTaskCard(task)}
+                    </React.Fragment>
                   );
                 })}
                 {isSending && (

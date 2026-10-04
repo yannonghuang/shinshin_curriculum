@@ -296,6 +296,27 @@ async function run() {
     await page.waitForTimeout(300);
     await shoot(page.locator(".copilot-panel"), "copilot-export");
     await page.locator(".copilot-export-bar").getByRole("button", { name: "取消" }).click();
+
+    console.log("==> 欣欣小助手 耗时较长的请求：「正在处理」进度卡片 + 起草的课程设计草案");
+    // A real drafting request (draft_plan) -- long enough to outlast the
+    // inline wait, so its progress card appears; captured once the drafting
+    // sub-steps show, then left to finish so the draft's 新建为课程设计
+    // button can be captured too. The button is never clicked -- nothing is
+    // written.
+    await page.locator(".copilot-panel").getByRole("button", { name: "新对话" }).click();
+    await page.waitForTimeout(500);
+    await page.locator(".copilot-input-row textarea").fill("请帮我草拟一份为期5周的五年级乡土课程设计，主题与本课程相同。");
+    await page.locator(".copilot-input-row button[type=submit]").click();
+    const taskCard = page.locator(".copilot-task-card");
+    await taskCard.waitFor({ timeout: 30000 });
+    await page.waitForFunction(() => /并行撰写/.test(document.querySelector(".copilot-task-card")?.innerText || ""), null, { timeout: 90000 });
+    await page.waitForTimeout(500);
+    await shoot(page.locator(".copilot-panel"), "copilot-task");
+    await taskCard.waitFor({ state: "detached", timeout: 240000 });
+    await page.waitForTimeout(1000);
+    await page.locator(".copilot-panel").getByRole("button", { name: "新建为课程设计" }).scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+    await shoot(page.locator(".copilot-panel"), "copilot-draft");
     await page.locator(".copilot-toggle").click();
 
     // ---------------------------------------------------------------

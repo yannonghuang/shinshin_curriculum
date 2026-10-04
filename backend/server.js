@@ -88,6 +88,15 @@ const runChatRetentionSweep = () => {
 setTimeout(runChatRetentionSweep, 10 * 1000);
 setInterval(runChatRetentionSweep, CHAT_RETENTION_SWEEP_INTERVAL_MS);
 
+// Background 欣欣小助手 turns live in this process (chatTasks.js) -- any still
+// marked running/queued were cut off by this restart; say so, with 重试.
+require("./app/services/chatTasks")
+  .markInterruptedOnStartup()
+  .then((count) => {
+    if (count > 0) console.log(`Marked ${count} interrupted 欣欣小助手 task(s) from before this restart.`);
+  })
+  .catch((err) => console.error("Marking interrupted chat tasks failed:", err.message));
+
 // Keeps the published 教师使用手册 (the copy 欣欣小助手 actually reads, via the
 // knowledge base) in step with the manual text shipped in this build --
 // otherwise it only updated when an admin remembered to republish after a

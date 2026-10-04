@@ -24,6 +24,11 @@ module.exports = (sequelize, Sequelize) => {
       retrievedChunkIds: {
         type: Sequelize.JSON, // audit trail for a "参考资料" footer under assistant replies
       },
+      replyToMessageId: {
+        // the user message this assistant reply answers -- a slow (background)
+        // answer can arrive after newer messages; see chatTasks.js
+        type: Sequelize.BIGINT,
+      },
     },
     {
       tableName: "chat_messages",

@@ -8,6 +8,7 @@ const agentLoop = require("../services/agentLoop");
 const copilotActions = require("../services/copilotActions");
 const chatCompaction = require("../services/chatCompaction");
 const llmClient = require("../services/llmClient");
+const chatTasks = require("../services/chatTasks");
 const copilotAttachments = require("../services/copilotAttachments");
 const copilotExport = require("../services/copilotExport");
 const multer = require("multer");
@@ -56,6 +57,10 @@ const buildActionPrompt = ({ roles, labels, apiCount }) =>
   `\n\n当前用户角色：${roles.map((r) => ROLE_LABELS[r] || r).join("、") || "未知"}。` +
   `你可以通过工具直接代表用户执行系统操作，范围仅限于该用户自己的权限。专用工具：${labels.join("、")}；` +
   `此外还可通过 list_available_apis 查看、通过 call_api 调用该用户有权使用的全部 ${apiCount} 个系统接口。优先使用专用工具，没有合适的专用工具时再用 call_api。` +
+  // A profiled drafting request opened with a pointless list_available_apis
+  // round -- each extra round is a full model call.
+  "回答问题、提供建议或起草内容（如草拟课程设计）时不需要查询接口，不要调用 list_available_apis；只有要执行系统操作而专用工具又不够用时才查询。" +
+  "需要多项检索时（如学习资源库和联网检索），请在同一轮中一次性发出，它们会并行执行。" +
   "规则：" +
   "1. 用户明确要求执行某个操作时（如「把刚才的草案建成新的课程设计」「把第二课时的实施记录填上」），直接调用相应工具完成，不要让用户自己去手动操作；用户只是咨询或讨论时，不要擅自修改任何数据。" +
   "2. 新建或修改课程设计内容前，先调用 get_plan_template 获取字段清单，再把对话中的草案内容逐项填入对应字段 key（尽量完整保留草案原文，不要压缩成摘要）；分课时内容填入 lessons，不要放进其他字段；草案中没有对应内容的字段留空。" +
@@ -80,6 +85,10 @@ const buildActionPrompt = ({ roles, labels, apiCount }) =>
   "查找系统中是否有对应的页面、按钮或操作方法（检索词可用功能名称，如「导出对话」「上传附件」）；手册中有说明的，按手册告诉用户在哪里、如何操作。手册中也没有时，才说明暂不支持。" +
   // web_search (copilotActions.js) -- library first, web second, and web
   // content always labelled and sourced, never passed off as vetted.
+  // draft_plan (planDrafter.js) researches and writes in parallel and its
+  // result *is* the reply -- doing the same by hand in this loop took 2 min.
+  "11. 用户要求草拟/设计/写一份新的课程设计时，直接调用 draft_plan（它会自行检索资料并按模板撰写），不要自己先检索或自己撰写全文。" +
+  "修改已起草的内容或回答其中的问题时，则直接在对话中回复即可。" +
   "10. 需要资料时先用 search_knowledge_base 检索学习资源库；资源库没有相关内容，或用户明确要求上网查找、需要最新信息时，再调用 web_search 联网检索，不要直接回答「资源库中没有」就结束。" +
   "使用联网结果时须说明信息来自网络、建议教师自行核实，并以 Markdown 链接注明引用的来源；绝不编造网址。" +
   "你无法检索或显示网络图片，不要编造图片链接；用户想看图片时，可以给出来源网页链接，或给出百度图片搜索链接：[在百度图片中查看](https://image.baidu.com/search/index?tn=baiduimage&word=关键词)。" +
@@ -322,11 +331,12 @@ const safeLinkUrl = (url) => {
   return encodeURI(decoded).replace(/\(/g, "%28").replace(/\)/g, "%29");
 };
 
-// Shared by both sendMessage (current-scope-resolved) and
-// sendMessageToConversation (an explicitly-picked past thread) -- appends
-// the user/assistant turn to whichever conversation row and pageContext the
-// caller already resolved.
-const appendTurn = async (conversation, content, pageContext, attachmentIds) => {
+// A turn is two halves: recordUserTurn stores what the teacher sent (right
+// away, in the request), and answerUserTurn produces 欣欣小助手's reply --
+// run as a background task (chatTasks.js), so a slow answer never holds the
+// panel hostage. Shared by sendMessage (current-scope-resolved) and
+// sendMessageToConversation (an explicitly-picked past thread).
+const recordUserTurn = async (conversation, content, attachmentIds) => {
   await copilotAttachments.assertUsable(conversation.userId, attachmentIds);
   const userMessage = await ChatMessage.create({ conversationId: conversation.id, role: "user", content });
   const attachments = await copilotAttachments.linkToMessage(conversation.userId, attachmentIds, userMessage.id);
@@ -334,7 +344,38 @@ const appendTurn = async (conversation, content, pageContext, attachmentIds) => 
     const title = content || attachments.map((a) => a.name).join("、");
     await conversation.update({ title: title.slice(0, TITLE_MAX_LEN) });
   }
+  return { ...userMessage.toJSON(), attachments: attachments.map(copilotAttachments.publicMeta) };
+};
 
+// Display/replay order: each reply sits right after the question it answers
+// (replyToMessageId), even when it was written after newer messages -- a
+// background answer can finish after the teacher has moved on. Everything
+// else stays chronological.
+const orderTurns = (messages) =>
+  [...messages].sort((a, b) => {
+    const ka = Number(a.replyToMessageId || a.id);
+    const kb = Number(b.replyToMessageId || b.id);
+    return ka !== kb ? ka - kb : Number(a.id) - Number(b.id);
+  });
+
+// Earlier questions in this conversation still being worked on -- the model
+// is told about them so it doesn't answer them a second time, or act as if
+// their results already exist.
+const pendingNote = async (conversationId, beforeMessageId) => {
+  const tasks = await db.chatTask.findAll({
+    where: { conversationId, status: { [Op.in]: ["queued", "running"] }, userMessageId: { [Op.lt]: beforeMessageId } },
+    attributes: ["userMessageId"],
+  });
+  if (tasks.length === 0) return "";
+  const questions = await ChatMessage.findAll({ where: { id: { [Op.in]: tasks.map((t) => t.userMessageId) } }, attributes: ["content"] });
+  return (
+    "\n\n以下较早的请求仍在后台处理中（用户界面已显示其进度），完成后会另行回复。本轮只回答用户最新的消息：不要回答或复述这些请求，也不要主动提及它们；" +
+    "只有当最新消息依赖它们的结果时（如修改尚未生成的草案），才说明结果还在生成中、完成后再处理：\n" +
+    questions.map((q) => `- 「${(q.content || "（附件）").slice(0, 60)}」`).join("\n")
+  );
+};
+
+const answerUserTurn = async (conversation, userMessageId, pageContext, { onEvent, shouldStop } = {}) => {
   // Multi-level context compaction ("LCM") -- a no-op fast-path under the
   // threshold (see chatCompaction.js's RAW_WINDOW_MESSAGES/
   // COMPACTION_BATCH_MESSAGES), so this costs nothing on the common
@@ -344,19 +385,35 @@ const appendTurn = async (conversation, content, pageContext, attachmentIds) => 
   await chatCompaction.maybeCompact(conversation.id);
   await conversation.reload();
 
-  const priorMessages = await ChatMessage.findAll({
-    where: { conversationId: conversation.id },
-    order: [["id", "DESC"]],
-    limit: HISTORY_TURNS * 2,
+  // History up to *this* question -- a newer message the teacher sent while
+  // this one waited in the queue is its own turn, not part of this one.
+  const priorMessages = orderTurns(
+    (
+      await ChatMessage.findAll({
+        where: { conversationId: conversation.id, id: { [Op.lte]: userMessageId } },
+        order: [["id", "DESC"]],
+        limit: HISTORY_TURNS * 2,
+      })
+    ).reverse()
+  );
+  // A cancelled request is the teacher taking the question back -- left in,
+  // the model answered it anyway alongside the next one (tested), so both
+  // it and its （已取消） note stay out of what the model sees. The panel
+  // still shows them.
+  const cancelled = await db.chatTask.findAll({
+    where: { conversationId: conversation.id, status: "cancelled" },
+    attributes: ["userMessageId", "assistantMessageId"],
   });
-  priorMessages.reverse();
+  const dropped = new Set(cancelled.flatMap((t) => [t.userMessageId, t.assistantMessageId]).filter(Boolean).map(Number));
+  const replayed = priorMessages.filter((m) => !dropped.has(Number(m.id)));
+
   // A user turn's attachments ride along as text after its own words, for as
   // long as that turn stays in the window -- see copilotAttachments.js.
   const attachmentsByMessage = await copilotAttachments.loadForMessages(
-    priorMessages.filter((m) => m.role === "user").map((m) => m.id),
+    replayed.filter((m) => m.role === "user").map((m) => m.id),
     { withText: true }
   );
-  const history = priorMessages.map((m) => ({
+  const history = replayed.map((m) => ({
     role: m.role,
     content: (m.content || "") + copilotAttachments.renderForModel(attachmentsByMessage.get(m.id)),
   }));
@@ -367,8 +424,9 @@ const appendTurn = async (conversation, content, pageContext, attachmentIds) => 
   let systemPrompt =
     COPILOT_SYSTEM_PROMPT +
     buildActionPrompt(toolset) +
-    renderActionLog(priorMessages) +
-    chatCompaction.renderCompactedContext(conversation);
+    renderActionLog(replayed) +
+    chatCompaction.renderCompactedContext(conversation) +
+    (await pendingNote(conversation.id, userMessageId));
   try {
     systemPrompt += await buildContextAddition(pageContext);
   } catch (e) {
@@ -380,6 +438,9 @@ const appendTurn = async (conversation, content, pageContext, attachmentIds) => 
     messages: history,
     tools: toolset.tools,
     executors: toolset.executors,
+    isReadOnly: toolset.isReadOnly,
+    onEvent,
+    shouldStop,
     // An action usually takes a lookup first (get_plan_template / list_plans)
     // then the write itself, sometimes a follow-up fix after a validation
     // error -- 3 rounds (review's own cap) leaves no room for that.
@@ -395,18 +456,52 @@ const appendTurn = async (conversation, content, pageContext, attachmentIds) => 
     maxTokens: 8192,
     temperature: 0.3,
   });
+  // Cancelled (or timed out) mid-way: whatever the last model call produced
+  // is discarded -- chatTasks.js records the outcome instead.
+  if (result.stopped || (shouldStop && shouldStop())) return null;
 
-  const assistantMessage = await ChatMessage.create({
+  return ChatMessage.create({
     conversationId: conversation.id,
     role: "assistant",
     content: linkWebCitations(result.text, result.toolCallLog),
     retrievedChunkIds: result.toolCallLog.length > 0 ? result.toolCallLog : null,
+    replyToMessageId: userMessageId,
   });
+};
 
-  return {
-    userMessage: { ...userMessage.toJSON(), attachments: attachments.map(copilotAttachments.publicMeta) },
-    assistantMessage,
-  };
+// The background runner chatTasks.js calls: `context.pageContext` is the
+// page the teacher sent from; a retry (no live context) falls back to the
+// conversation's own scope.
+chatTasks.setRunner(async (task, { context, onEvent, shouldStop }) => {
+  const conversation = await ChatConversation.findByPk(task.conversationId);
+  if (!conversation) throw new Error("对话已删除。");
+  const pageContext = context && context.pageContext !== undefined ? context.pageContext : parseScopeKeyToPageContext(conversation.scopeKey);
+  return answerUserTurn(conversation, task.userMessageId, pageContext, { onEvent, shouldStop });
+});
+
+// How long a send waits for its answer before handing back a progress card
+// instead -- most answers (no long drafting, no web search) fit, and come
+// back inline exactly as before.
+const INLINE_WAIT_MS = 8000;
+
+// Records the turn, starts answering it, and waits up to INLINE_WAIT_MS:
+// { userMessage, assistantMessage } if it finished, else { userMessage,
+// task } for the panel to follow (see getTask).
+const submitTurn = async (conversation, content, attachmentIds, pageContext) => {
+  const userMessage = await recordUserTurn(conversation, content, attachmentIds);
+  const task = await chatTasks.submit({
+    conversationId: conversation.id,
+    userId: conversation.userId,
+    userMessageId: userMessage.id,
+    context: { pageContext },
+  });
+  await chatTasks.waitFor(task.id, INLINE_WAIT_MS);
+  await task.reload();
+  const taskView = await chatTasks.view(task);
+  if (task.status === "done" && taskView.assistantMessage) {
+    return { conversation: { id: conversation.id }, userMessage, assistantMessage: taskView.assistantMessage };
+  }
+  return { conversation: { id: conversation.id }, userMessage, task: taskView };
 };
 
 // Messages as the panel gets them -- each with its attachments' metadata
@@ -414,6 +509,15 @@ const appendTurn = async (conversation, content, pageContext, attachmentIds) => 
 const withAttachments = async (messages) => {
   const byMessage = await copilotAttachments.loadForMessages(messages.map((m) => m.id));
   return messages.map((m) => ({ ...m.toJSON(), attachments: (byMessage.get(m.id) || []).map(copilotAttachments.publicMeta) }));
+};
+
+// What loading a conversation returns: its messages in turn order (see
+// orderTurns), plus any tasks still unresolved, so a reopened panel puts its
+// progress / 重试 cards back where they were.
+const conversationPayload = async (conversation, newestFirst) => {
+  const messages = await withAttachments(orderTurns([...newestFirst].reverse()));
+  const tasks = await Promise.all((await chatTasks.unresolvedFor(conversation.id)).map(chatTasks.view));
+  return { conversation, messages, tasks };
 };
 
 // Accepts a bare message only if it says something or carries a file.
@@ -440,7 +544,7 @@ exports.getCurrent = async (req, res) => {
       order: [["id", "DESC"]],
       limit: HISTORY_TURNS * 2,
     });
-    return res.send({ conversation, messages: await withAttachments(messages.reverse()) });
+    return res.send(await conversationPayload(conversation, messages));
   } catch (err) {
     return res.status(err.status || 500).send({ message: err.message || "加载对话失败。" });
   }
@@ -475,8 +579,7 @@ exports.sendMessage = async (req, res) => {
     const scopeKey = deriveScopeKey(pageContext);
     const conversation = await getOrCreateCurrentConversation(req.userId, scopeKey);
 
-    const { userMessage, assistantMessage } = await appendTurn(conversation, content, pageContext, attachmentIds);
-    return res.send({ conversation: { id: conversation.id }, userMessage, assistantMessage });
+    return res.send(await submitTurn(conversation, content, attachmentIds, pageContext));
   } catch (err) {
     return res.status(err.status || 500).send({ message: err.message || "发送消息时发生错误。" });
   }
@@ -554,7 +657,7 @@ exports.getConversationById = async (req, res) => {
       order: [["id", "DESC"]],
       limit: HISTORY_VIEW_LIMIT,
     });
-    return res.send({ conversation, messages: await withAttachments(messages.reverse()) });
+    return res.send(await conversationPayload(conversation, messages));
   } catch (err) {
     return res.status(500).send({ message: err.message || "加载对话失败。" });
   }
@@ -574,8 +677,7 @@ exports.sendMessageToConversation = async (req, res) => {
     if (!conversation) return res.status(404).send({ message: "未找到该对话。" });
 
     const pageContext = parseScopeKeyToPageContext(conversation.scopeKey);
-    const { userMessage, assistantMessage } = await appendTurn(conversation, content, pageContext, attachmentIds);
-    return res.send({ conversation: { id: conversation.id }, userMessage, assistantMessage });
+    return res.send(await submitTurn(conversation, content, attachmentIds, pageContext));
   } catch (err) {
     return res.status(err.status || 500).send({ message: err.message || "发送消息时发生错误。" });
   }
@@ -945,5 +1047,89 @@ exports.downloadDocument = async (req, res) => {
     return sendExport(res, await renderTranscript(conversation, messages, format, title), format, title);
   } catch (err) {
     return res.status(500).send({ message: err.message || "生成文档失败。" });
+  }
+};
+
+// ------------------------------------------------------------------
+// Background turns -- see chatTasks.js
+// ------------------------------------------------------------------
+
+const loadOwnedTask = async (req) => {
+  const task = await chatTasks.findOwned(req.params.id, req.userId);
+  if (!task) {
+    const err = new Error("未找到该请求。");
+    err.status = 404;
+    throw err;
+  }
+  return task;
+};
+
+// GET /api/chat/tasks/:id -- what the panel polls while a card is showing:
+// status, live steps, and the reply (with its attachments field, like any
+// loaded message) once there is one.
+exports.getTask = async (req, res) => {
+  try {
+    const out = await chatTasks.view(await loadOwnedTask(req));
+    if (out.assistantMessage) [out.assistantMessage] = await withAttachments([out.assistantMessage]);
+    return res.send(out);
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "加载请求状态失败。" });
+  }
+};
+
+// POST /api/chat/tasks/:id/cancel -- 取消 on a running/queued card (stops at
+// the next checkpoint), or dismissing a failed/interrupted one.
+exports.cancelTask = async (req, res) => {
+  try {
+    const task = await loadOwnedTask(req);
+    await chatTasks.cancel(task);
+    await chatTasks.waitFor(task.id, 3000);
+    await task.reload();
+    const out = await chatTasks.view(task);
+    if (out.assistantMessage) [out.assistantMessage] = await withAttachments([out.assistantMessage]);
+    return res.send(out);
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "取消失败。" });
+  }
+};
+
+// POST /api/chat/tasks/:id/retry -- 重试 on a failed/interrupted card. Answers
+// within the conversation's own scope (the original page is gone).
+exports.retryTask = async (req, res) => {
+  try {
+    const task = await loadOwnedTask(req);
+    await chatTasks.retry(task);
+    return res.send(await chatTasks.view(task));
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "重试失败。" });
+  }
+};
+
+// POST /api/chat/messages/:messageId/drafts/:draftId/create -- 新建为课程设计
+// on a draft_plan reply: saves the draft's template-shaped content as a new
+// 草稿 plan in one step (no model round-trip -- it already has every field).
+// The draft's log entry then carries the usual link/changed markers, so the
+// panel shows 打开《…》 and opening that plan continues this conversation
+// (see findActionLinkedConversation).
+exports.createPlanFromDraft = async (req, res) => {
+  try {
+    const message = await ChatMessage.findByPk(req.params.messageId);
+    const conversation = message && (await ChatConversation.findOne({ where: { id: message.conversationId, userId: req.userId } }));
+    if (!conversation) return res.status(404).send({ message: "未找到该消息。" });
+    const log = Array.isArray(message.retrievedChunkIds) ? message.retrievedChunkIds : [];
+    const index = log.findIndex((e) => e && e.output && e.output.draft && e.output.draft.draftId === req.params.draftId);
+    if (index === -1) return res.status(404).send({ message: "未找到该草案。" });
+    const draft = log[index].output.draft;
+    if (draft.createdPlanId) return res.status(409).send({ message: "该草案已新建为课程设计。" });
+
+    const result = await copilotActions.createPlanFromDraft(req.userId, draft.planArgs);
+    const output = { ...log[index].output, draft: { ...draft, createdPlanId: result.planId }, link: result.link, changed: result.changed };
+    message.set("retrievedChunkIds", log.map((e, i) => (i === index ? { ...e, output } : e)));
+    message.changed("retrievedChunkIds", true);
+    await message.save();
+    const [withMeta] = await withAttachments([message]);
+    return res.send({ message: withMeta, planId: result.planId, title: result.title });
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "新建课程设计失败。" });
   }
 };

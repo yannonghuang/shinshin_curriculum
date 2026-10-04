@@ -335,6 +335,7 @@ async function route(subject, topics, sources, headerOpts) {
       messages: [{ role: "user", content: `任务：${subject}\n\n主题列表：\n${topicCatalog}` }],
       maxTokens: 512,
       temperature: 0,
+      thinking: false, // a pick from a list -- see llmClient.js#llmChat
     });
     const picked = new Set((parseJsonReply(r.text).topics || []).map((id) => String(id).replace(/^T/, "")));
     candidateTopics = topics.filter((t) => picked.has(String(t.id)));
@@ -348,6 +349,7 @@ async function route(subject, topics, sources, headerOpts) {
     messages: [{ role: "user", content: `任务：${subject}\n\n资源库目录：\n${catalog}` }],
     maxTokens: 1024,
     temperature: 0,
+    thinking: false, // a pick from a list -- see llmClient.js#llmChat
   });
   const parsed = parseJsonReply(result.text);
   const high = new Set();

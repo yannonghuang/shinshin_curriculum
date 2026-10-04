@@ -57,6 +57,26 @@ class ChatDataService {
     return http.get(`/chat/attachments/${id}/image`, { headers: authHeader(), responseType: "blob" });
   }
 
+  // 新建为课程设计 on a drafted plan (draft_plan) -- see backend
+  // chat.controller.js#createPlanFromDraft.
+  createPlanFromDraft(messageId, draftId) {
+    return http.post(`/chat/messages/${messageId}/drafts/${draftId}/create`, {}, { headers: authHeader() });
+  }
+
+  // Background turns (backend chatTasks.js): a reply that takes longer than
+  // a few seconds is a task -- polled for progress, cancellable, retryable.
+  getTask(id) {
+    return http.get(`/chat/tasks/${id}`, { headers: authHeader() });
+  }
+
+  cancelTask(id) {
+    return http.post(`/chat/tasks/${id}/cancel`, {}, { headers: authHeader() });
+  }
+
+  retryTask(id) {
+    return http.post(`/chat/tasks/${id}/retry`, {}, { headers: authHeader() });
+  }
+
   // A document 欣欣小助手 generated in a reply (generate_document) -- see
   // backend chat.controller.js#downloadDocument.
   downloadDocument(messageId, docId) {

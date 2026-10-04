@@ -85,6 +85,7 @@ async function compactConversationInner(conversationId) {
       messages: [{ role: "user", content: userContent }],
       maxTokens: 800,
       temperature: 0.2,
+      thinking: false, // a summary merge -- see llmClient.js#llmChat
     });
 
     let parsed;
