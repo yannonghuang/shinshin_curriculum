@@ -22,7 +22,18 @@ async function llmChat({ systemPrompt, messages, maxTokens = 1024, temperature =
   if (effectiveProvider !== "dashscope") {
     throw new Error(`Unsupported LLM_PROVIDER: ${effectiveProvider}`); // extend here if another provider is added later
   }
-  return dashscopeChat({ systemPrompt, messages, maxTokens, temperature, model: resolvedModel, tools, toolChoice, thinking });
+  const request = { systemPrompt, messages, maxTokens, temperature, model: resolvedModel, tools, toolChoice, thinking };
+  try {
+    return await dashscopeChat(request);
+  } catch (e) {
+    // An empty reply (no text, no tool call) is an occasional one-off from
+    // the model service -- seen failing a whole chat turn at its first step.
+    // One immediate retry; anything else (HTTP/network) was already retried
+    // in fetchWithRetry.
+    if (!/contained no content/.test(e.message)) throw e;
+    console.warn("DashScope 返回空回复，重试一次");
+    return dashscopeChat(request);
+  }
 }
 
 // Transient failures are retried: the app runs in Hong Kong against a

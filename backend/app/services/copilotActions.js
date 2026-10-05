@@ -6,6 +6,7 @@ const { buildPlanContentText } = require("./planContext");
 const planForm = require("./copilotPlanForm");
 const llmClient = require("./llmClient");
 const planDrafter = require("./planDrafter");
+const aiReviewStandard = require("./aiReviewStandard");
 const webImages = require("./webImages");
 const crypto = require("crypto");
 const { MANUAL_CATEGORY } = require("../constants/materialCategories");
@@ -303,6 +304,15 @@ const findWebPhotos = async (query, want, ctx) => {
   return stored;
 };
 
+// The teacher's school and region, for draft_plan -- same sources as
+// planContext.js's 学校/地区 line for existing plans. null when unknown.
+const teacherSchoolLine = async (userId) => {
+  const user = await db.user.findByPk(userId, { include: [{ model: db.school, as: "School", required: false }] }).catch(() => null);
+  const school = user && (user.School || user.school);
+  if (!school) return null;
+  return [school.name, school.address && school.address !== school.name ? `地址：${school.address}` : null].filter(Boolean).join("，");
+};
+
 // Shared by web_search and draft_plan's research step.
 const runWebSearch = async (query) => {
   const result = await llmClient.webSearch({
@@ -452,6 +462,9 @@ const TOOLS = [
         searchLibrary: (query) => searchKnowledgeTree(query, { excludeCategories: [MANUAL_CATEGORY], includeTopicMeta: false }),
         webSearch: runWebSearch,
         conversationDigest: ctx.conversationDigest,
+        school: await teacherSchoolLine(ctx.userId),
+        // The AI 点评标准 in effect -- the same one AI 打分 judges plans by.
+        standard: await aiReviewStandard.getLatestStandard().catch(() => null),
         emit: ctx.emit,
       });
       const draftId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -851,7 +864,11 @@ const isOffered = (tool, roles) =>
 const buildToolset = async (userId, extras = {}) => {
   const roles = await getUserRoles(userId);
   const ctx = { userId, roles, ...extras };
-  const offered = TOOLS.filter((t) => isOffered(t, roles));
+  // COPILOT_DISABLE_DRAFT_PLAN=true turns the drafting sub-agent off (the
+  // main assistant then drafts in its own loop, as before it existed) -- a
+  // kill switch, and the "before" arm of a quality comparison.
+  const draftPlanOff = process.env.COPILOT_DISABLE_DRAFT_PLAN === "true";
+  const offered = TOOLS.filter((t) => isOffered(t, roles) && !(draftPlanOff && t.def.function.name === "draft_plan"));
   const executors = {};
   let pendingCounter = 0;
   for (const tool of offered) {
@@ -918,4 +935,24 @@ const labelOf = (name) => {
   return tool ? tool.label : null;
 };
 
-module.exports = { buildToolset, runConfirmedAction, labelOf, createPlanFromDraft };
+// Drafting guidance for the main assistant when draft_plan isn't offered
+// (COPILOT_DISABLE_DRAFT_PLAN): the same inputs and rules the sub-agent
+// drafts with -- the AI 点评标准, the school, goals planned and assigned to
+// lessons up front -- so the fallback path drafts to the same bar. "" when
+// draft_plan is on (it brings its own).
+const draftingGuidance = async (userId, tools) => {
+  if (tools.some((t) => t.function.name === "draft_plan")) return "";
+  const [standard, school] = await Promise.all([
+    aiReviewStandard.getLatestStandard().catch(() => null),
+    teacherSchoolLine(userId),
+  ]);
+  const criteria = planDrafter.standardBrief(standard);
+  return (
+    "\n\n起草课程设计时：先确定 6-10 条具体可落实的总体学习目标，并为每条目标指定落实它的课时，每条目标至少由一个课时落实、每个课时至少落实一条目标；" +
+    "分课时设计中每个课时的教学目标和活动要具体落实分配给它的目标（跨学科目标要有具体的学科活动）；课程设计（HOW）各阶段的课时安排要与分课时设计完全一致。" +
+    (school ? `用户所在学校与地区：${school}（课程要立足当地；主题并非当地特产时，要设计与本地生活的联系或对比）。` : "") +
+    (criteria ? `\n本系统评价课程设计所依据的标准（起草时请按各维度最高等级的要求设计）：\n${criteria}` : "")
+  );
+};
+
+module.exports = { buildToolset, runConfirmedAction, labelOf, createPlanFromDraft, draftingGuidance };
