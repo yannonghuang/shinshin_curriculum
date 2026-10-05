@@ -263,15 +263,29 @@ const TOOLS = [
         loadTemplate: async () => template,
         searchLibrary: (query) => searchKnowledgeTree(query, { excludeCategories: [MANUAL_CATEGORY], includeTopicMeta: false }),
         webSearch: runWebSearch,
+        conversationDigest: ctx.conversationDigest,
         emit: ctx.emit,
       });
       const draftId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-      const intro = `以下是按系统课程设计模板起草的《${result.basic.title}》（共 ${result.basic.plannedLessonCount} 课时）。可直接点击下方「新建为课程设计」保存为草稿，或告诉我需要调整的地方。`;
+      // Shown, not just used: the teacher can see which of their earlier
+      // requirements the draft was written to (and spot a missed one).
+      const considered = result.teacherContext
+        ? `\n\n> **已参考您在对话中提到的背景与要求：**\n${result.teacherContext
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => `> ${line}`)
+            .join("\n")}`
+        : "";
+      const intro =
+        `以下是按系统课程设计模板起草的《${result.basic.title}》（共 ${result.basic.plannedLessonCount} 课时）。` +
+        `可直接点击下方「新建为课程设计」保存为草稿，或告诉我需要调整的地方。${considered}`;
       return {
         draft: {
           draftId,
           title: result.basic.title,
           planArgs: { ...result.basic, fields: result.fields, lessons: result.lessons },
+          teacherContext: result.teacherContext || undefined,
         },
         finalReply: `${intro}\n\n${result.markdown}`,
         sources: result.librarySources,
@@ -644,9 +658,11 @@ const isOffered = (tool, roles) =>
 // agentLoop.runAgentLoop. A confirm-tier call's executor never runs the
 // action -- it validates (precheck) and returns a pending descriptor; see
 // runConfirmedAction below.
-const buildToolset = async (userId) => {
+// extras: per-turn context some tools need beyond who's asking --
+// conversationDigest (chat.controller.js) for draft_plan's sub-agent.
+const buildToolset = async (userId, extras = {}) => {
   const roles = await getUserRoles(userId);
-  const ctx = { userId, roles };
+  const ctx = { userId, roles, ...extras };
   const offered = TOOLS.filter((t) => isOffered(t, roles));
   const executors = {};
   let pendingCounter = 0;

@@ -358,6 +358,22 @@ const orderTurns = (messages) =>
     return ka !== kb ? ka - kb : Number(a.id) - Number(b.id);
   });
 
+// The conversation as plain text for a sub-agent: the long-conversation
+// summary/fact sheet (chatCompaction.js) when there is one, then the recent
+// turns, each clipped -- a teacher's message (with its attachments' text)
+// keeps more than an assistant reply, since requirements come from the
+// teacher. Bounded overall; the newest turns win.
+const DIGEST_MAX_CHARS = 12000;
+const buildConversationDigest = (conversation, replayed, history) => {
+  const clip = (text, max) => (text.length > max ? `${text.slice(0, max)}……` : text);
+  const turns = replayed.map((m, i) =>
+    m.role === "user" ? `教师：${clip(history[i].content, 2000)}` : `助手：${clip(history[i].content, 800)}`
+  );
+  const compacted = chatCompaction.renderCompactedContext(conversation).trim();
+  const text = [compacted, turns.join("\n")].filter(Boolean).join("\n\n");
+  return text.length > DIGEST_MAX_CHARS ? text.slice(-DIGEST_MAX_CHARS) : text;
+};
+
 // Earlier questions in this conversation still being worked on -- the model
 // is told about them so it doesn't answer them a second time, or act as if
 // their results already exist.
@@ -418,8 +434,13 @@ const answerUserTurn = async (conversation, userMessageId, pageContext, { onEven
     content: (m.content || "") + copilotAttachments.renderForModel(attachmentsByMessage.get(m.id)),
   }));
 
-  // Only the actions this user's roles grant -- see copilotActions.js.
-  const toolset = await copilotActions.buildToolset(conversation.userId);
+  // Only the actions this user's roles grant -- see copilotActions.js. The
+  // digest is the conversation as text, for tools that hand work to a
+  // sub-agent (draft_plan) -- otherwise the sub-agent would only know the
+  // few arguments the model chose to pass, and lose e.g. "学校在长江边" or
+  // "不要做烹饪活动" said three turns earlier.
+  const conversationDigest = buildConversationDigest(conversation, replayed, history);
+  const toolset = await copilotActions.buildToolset(conversation.userId, { conversationDigest });
 
   let systemPrompt =
     COPILOT_SYSTEM_PROMPT +
