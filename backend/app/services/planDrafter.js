@@ -20,6 +20,8 @@ const llmClient = require("./llmClient");
 //   deps.loadTemplate()       -> get_plan_template's result
 //   deps.searchLibrary(query) -> { context, sources }
 //   deps.webSearch(query)     -> { summary, webSources } | null
+//   deps.conversationDigest   -- the chat so far as text (optional; see
+//                                distillConversation)
 //   deps.emit({ key, label, status })
 
 // All parts at once for a typical course (2 overall parts + up to 6
@@ -62,6 +64,35 @@ async function askJson(userContent, maxTokens) {
     }
   }
   throw new Error(`起草内容解析失败：${lastError.message}`);
+}
+
+// The teacher's own context from the conversation -- school and students,
+// stated requirements and preferences, things to avoid, points already
+// agreed -- boiled down to a few bullets every writer gets. The model's
+// draft_plan arguments carry only what it chose to pass; this is what keeps
+// e.g. "不要做烹饪活动" from three turns back. Runs alongside research, so it
+// adds no wait. "" when the conversation has nothing relevant.
+async function distillConversation(digest, title) {
+  if (!digest || !digest.trim()) return "";
+  const result = await llmClient.llmChat({
+    systemPrompt:
+      "你负责从教师与AI助手的对话中提炼起草课程设计所需的背景与要求。只写对话中实际出现的内容，不要推测或补充。" +
+      "助手提出的建议、附件里的内容，只有教师明确认可或要求时才算要求。",
+    messages: [
+      {
+        role: "user",
+        content:
+          `教师现在要起草《${title}》乡土课程设计。以下是此前的对话：\n\n${digest}\n\n` +
+          "请分条列出对起草有用的信息（学校与学生情况、教师明确提出的要求与偏好、需要避免的内容、已讨论确定的设计要点），" +
+          "每条一句，最多 10 条，不要编号以外的其他文字。如果没有任何相关信息，只回答「无」。",
+      },
+    ],
+    maxTokens: 600,
+    temperature: 0.1,
+    thinking: false,
+  });
+  const text = (result.text || "").trim();
+  return /^[「"]?无[」"。.]?$/.test(text) ? "" : text;
 }
 
 // Runs fn over items with at most `limit` in flight, results in input order.
@@ -125,11 +156,19 @@ async function draftPlan(args, deps) {
   const requirements = String(args.requirements || "").trim();
 
   // 1. research -----------------------------------------------------------
-  emit({ key: "research", label: "收集资料（模板 / 学习资源库 / 网络）", status: "running" });
-  const [template, library, web] = await Promise.all([
+  emit({
+    key: "research",
+    label: `收集资料（模板 / 学习资源库 / 网络${deps.conversationDigest ? " / 对话要点" : ""}）`,
+    status: "running",
+  });
+  const [template, library, web, teacherContext] = await Promise.all([
     deps.loadTemplate(),
     deps.searchLibrary(`「${title}」乡土课程设计（${grade || "小学"}）：主题背景、驱动问题与课程设计框架参考`).catch(() => null),
     deps.webSearch ? deps.webSearch(`${title} 历史 文化 特色 制作 习俗`).catch(() => null) : null,
+    distillConversation(deps.conversationDigest, title).catch((e) => {
+      console.error("起草课程设计：提炼对话要点失败（按无对话背景继续）:", e.message);
+      return "";
+    }),
   ]);
   emit({ key: "research", status: "done" });
 
@@ -144,7 +183,8 @@ async function draftPlan(args, deps) {
     .slice(0, RESEARCH_CHARS);
   const brief =
     `课程标题：${title}\n年级：${grade || "未指定（按小学中高年级）"}\n课时数：${lessonCount}` +
-    `${args.theme ? `\n乡土主题：${args.theme}` : ""}${requirements ? `\n教师的具体要求：${requirements}` : ""}`;
+    `${args.theme ? `\n乡土主题：${args.theme}` : ""}${requirements ? `\n教师的具体要求：${requirements}` : ""}` +
+    `${teacherContext ? `\n对话中教师提供的背景与要求（务必遵守，尤其是需要避免的内容）：\n${teacherContext}` : ""}`;
 
   // 2. outline ------------------------------------------------------------
   emit({ key: "outline", label: "拟定课程大纲", status: "running" });
@@ -227,6 +267,7 @@ async function draftPlan(args, deps) {
     fields,
     lessons,
     markdown: renderMarkdown({ basic, planFields, lessonFields, fields, lessons, lessonBreakdownLabel: template.lessonBreakdownLabel }),
+    teacherContext,
     librarySources: (library && library.sources) || [],
     webSources: (web && web.webSources) || [],
   };
