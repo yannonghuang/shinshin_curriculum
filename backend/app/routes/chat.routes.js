@@ -42,6 +42,8 @@ module.exports = function (app) {
   app.post("/api/chat/attachments", [authJwt.verifyToken], chat.uploadAttachment);
   app.delete("/api/chat/attachments/:id", [authJwt.verifyToken], chat.deleteAttachment);
   app.get("/api/chat/attachments/:id/image", [authJwt.verifyToken], chat.getAttachmentImage);
+  app.get("/api/chat/photos/library/:id", [authJwt.verifyToken], chat.getLibraryPhoto);
+  app.get("/api/chat/photos/web/:id", [authJwt.verifyToken], chat.getWebPhoto);
   app.post("/api/chat/conversations/:id/export", [authJwt.verifyToken], chat.exportConversation);
   app.post("/api/chat/messages/:messageId/documents/:docId", [authJwt.verifyToken], chat.downloadDocument);
   app.post("/api/chat/messages/:messageId/drafts/:draftId/create", [authJwt.verifyToken], chat.createPlanFromDraft);

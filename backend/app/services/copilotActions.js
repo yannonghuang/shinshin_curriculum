@@ -1,10 +1,13 @@
 const db = require("../models");
+const { Op } = db.Sequelize;
 const registry = require("./copilotRouteRegistry");
 const { searchKnowledgeTree, searchKnowledgeBaseToolDef } = require("./knowledgeRetrieve");
 const { buildPlanContentText } = require("./planContext");
 const planForm = require("./copilotPlanForm");
 const llmClient = require("./llmClient");
 const planDrafter = require("./planDrafter");
+const webImages = require("./webImages");
+const crypto = require("crypto");
 const { MANUAL_CATEGORY } = require("../constants/materialCategories");
 
 // 欣欣小助手's action layer: lets the co-pilot do on a user's behalf anything
@@ -158,6 +161,148 @@ const LESSONS_PROP = {
   },
 };
 
+// find_photos ------------------------------------------------------------------
+// How many photos one call aims to show -- a glance, not a gallery.
+const PHOTO_TARGET = 4;
+const WEB_PHOTO_PAGE_CONCURRENCY = 4;
+const LIBRARY_IMAGE_TYPES = ["jpg", "jpeg", "png", "gif", "webp", "bmp"];
+
+const photoTerms = (query) => {
+  const terms = query.split(/[\s,，、;；。.]+/).map((t) => t.trim()).filter((t) => t.length >= 2);
+  return terms.length > 0 ? terms : [query];
+};
+
+// Uploaded images in 学习资源库 whose name, description or topic mention the
+// query's terms, best matches first. The library is small (tens of files),
+// so scoring in memory beats a fuzzy SQL search.
+const findLibraryPhotos = async (query) => {
+  const terms = photoTerms(query);
+  const rows = await db.materialArtifact.findAll({
+    where: {
+      [Op.or]: [{ attachmentMime: { [Op.like]: "image/%" } }, { type: { [Op.in]: LIBRARY_IMAGE_TYPES } }],
+    },
+    attributes: ["id", "materialTopicId", "attachmentName", "description"],
+    limit: 500,
+  });
+  if (rows.length === 0) return [];
+  const topics = await db.materialTopic.findAll({
+    where: { id: { [Op.in]: [...new Set(rows.map((r) => r.materialTopicId))] } },
+    attributes: ["id", "category", "theme", "comment"],
+  });
+  const topicById = new Map(topics.map((t) => [Number(t.id), t]));
+  return rows
+    .map((r) => {
+      const topic = topicById.get(Number(r.materialTopicId));
+      const haystack = [r.attachmentName, r.description, topic && topic.theme, topic && topic.comment].filter(Boolean).join(" ");
+      return { r, topic, score: terms.filter((t) => haystack.includes(t)).length };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, PHOTO_TARGET)
+    .map(({ r, topic }) => ({
+      kind: "library",
+      id: r.id,
+      title: r.description || r.attachmentName.replace(/\.[^.]+$/, ""),
+      source: topic ? `学习资源库 · ${topic.theme}` : "学习资源库",
+    }));
+};
+
+// Is this candidate actually a photo *of the subject*? A page's lead image
+// is often something else entirely (a city skyline atop a food article, a
+// promo poster, a person) -- tested: about 1 in 4 raw candidates fit. The
+// vision model (the one used for pasted images) judges each, and writes the
+// caption shown under the kept ones. People-centred photos are rejected:
+// they're real people who never agreed to appear in a classroom.
+const judgePhoto = async (photo, query) => {
+  const result = await llmClient.llmChat({
+    model: process.env.COPILOT_VISION_MODEL || "qwen-vl-max",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: `data:${photo.mime};base64,${photo.buffer.toString("base64")}` } },
+          {
+            type: "text",
+            text:
+              `教师想看「${query}」的照片。这张图片是否清楚地展示了「${query}」本身（实物、场景或制作过程）？` +
+              "以下情况一律判为不合适：主要内容是其他事物（如城市风景、无关菜品）；海报、广告、宣传页或以文字为主；截图、地图、标志；以人物（尤其是面部）为主体。" +
+              '严格只输出 JSON：{"fit": true或false, "caption": "合适时用15字以内描述照片内容，否则留空"}',
+          },
+        ],
+      },
+    ],
+    maxTokens: 120,
+    temperature: 0,
+  });
+  const raw = String(result.text || "");
+  const json = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+  return { fit: json.fit === true, caption: String(json.caption || "").slice(0, 40) };
+};
+
+// Candidates gathered per call, ahead of the relevance check -- enough that
+// rejections still leave a few to show.
+const WEB_PHOTO_CANDIDATES = 8;
+
+// Photos from the pages a web search finds (webImages.js): downloaded and
+// size-checked, de-duplicated, judged for relevance, and the fitting ones
+// stored against the conversation for serving.
+const findWebPhotos = async (query, want, ctx) => {
+  const { webSources } = await runWebSearch(`${query} 图片`);
+  // A few pages at a time, in search-rank order, stopping once there are
+  // enough candidates -- bounds memory (pages can be MBs) and skips
+  // needless fetches.
+  const seen = new Set();
+  const candidates = [];
+  let next = 0;
+  const worker = async () => {
+    while (candidates.length < WEB_PHOTO_CANDIDATES && next < webSources.length) {
+      const rank = next;
+      const src = webSources[next++];
+      const photo = await webImages.fetchPagePhoto(src.url).catch(() => null);
+      if (!photo) continue;
+      const fingerprint = crypto.createHash("sha1").update(photo.buffer).digest("hex");
+      if (seen.has(photo.imageUrl) || seen.has(fingerprint)) continue;
+      seen.add(photo.imageUrl);
+      seen.add(fingerprint);
+      candidates.push({ rank, src, photo });
+    }
+  };
+  await Promise.all(Array.from({ length: WEB_PHOTO_PAGE_CONCURRENCY }, worker));
+
+  const judged = await Promise.all(
+    candidates.map(async (c) => ({ ...c, verdict: await judgePhoto(c.photo, query).catch(() => ({ fit: false })) }))
+  );
+  const kept = judged
+    .filter((c) => c.verdict.fit)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, want);
+
+  const stored = [];
+  for (const { src, photo, verdict } of kept) {
+    const row = await db.chatWebImage.create({
+      conversationId: ctx.conversationId,
+      userId: ctx.userId,
+      pageUrl: src.url.slice(0, 2048),
+      pageTitle: (src.title || "").slice(0, 255),
+      site: (src.site || "").slice(0, 128),
+      imageUrl: photo.imageUrl.slice(0, 2048),
+      mime: photo.mime,
+      data: photo.buffer,
+      width: photo.width,
+      height: photo.height,
+    });
+    stored.push({
+      kind: "web",
+      id: row.id,
+      title: verdict.caption || src.title || "网络图片",
+      source: src.site || new URL(src.url).hostname,
+      pageTitle: src.title || "",
+      pageUrl: src.url,
+    });
+  }
+  return stored;
+};
+
 // Shared by web_search and draft_plan's research step.
 const runWebSearch = async (query) => {
   const result = await llmClient.webSearch({
@@ -229,6 +374,49 @@ const TOOLS = [
         note:
           "以上内容来自互联网检索，未经学习资源库审核。回复时：说明这些信息来自网络；只使用以上摘要和来源，不要编造链接或图片网址；" +
           "引用时把 [ref_n] 换成对应来源的 Markdown 链接，如 [百度百科·黄陂三合](https://…)。系统会在回复下方另行列出全部来源。",
+      };
+    },
+  },
+
+  // ---- Photos -------------------------------------------------------------------
+  {
+    label: "查找图片",
+    readOnly: true, // stores found web photos for display, changes no user data
+    routes: [],
+    def: fn(
+      "find_photos",
+      "查找与某个主题相关的照片并显示在回复下方：优先使用学习资源库中已上传、经过审核的图片；不足时再从联网检索到的网页中获取图片（标注来源，未经审核）。" +
+        "用户想看照片/图片时调用。照片会由系统自动展示，回复中不要插入图片链接或 Markdown 图片。",
+      {
+        query: { type: "string", description: "要查找的照片内容，用中文关键词，如「黄陂三鲜 鱼丸 肉糕」" },
+      },
+      ["query"]
+    ),
+    run: async (ctx, args) => {
+      const query = String(args.query || "").trim().slice(0, 100);
+      if (!query) throw new Error("请提供要查找的照片内容。");
+      const emit = ctx.emit || (() => {});
+      emit({ key: "library", label: "查找学习资源库图片", status: "running" });
+      const library = await findLibraryPhotos(query);
+      emit({ key: "library", status: "done" });
+      let web = [];
+      if (library.length < PHOTO_TARGET && ctx.conversationId) {
+        emit({ key: "web", label: "联网查找图片", status: "running" });
+        web = await findWebPhotos(query, PHOTO_TARGET - library.length, ctx).catch((e) => {
+          console.error("联网查找图片失败:", e.message);
+          return [];
+        });
+        emit({ key: "web", status: "done" });
+      }
+      const photos = [...library, ...web];
+      return {
+        query,
+        photos,
+        note:
+          photos.length === 0
+            ? "没有找到合适的照片。请如实告诉用户，并可提供百度图片搜索链接。"
+            : "照片会由系统随回复一起显示（每张注明来源）。回复中简要说明找到了哪些照片：学习资源库的图片已经审核；网络图片未经审核、版权归原网站，" +
+              "仅供参考，用于教学材料前请核实来源与授权。不要说明照片显示在什么位置（上方/下方），不要插入图片链接或 Markdown 图片。",
       };
     },
   },

@@ -1742,6 +1742,46 @@
   color: var(--pl-muted);
 }
 
+/* find_photos results under a reply -- see copilot-panel.component.js's PhotoStrip. */
+.copilot-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.copilot-photo {
+  margin: 0;
+  border: 1px solid var(--pl-line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.copilot-photo-img {
+  display: block;
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  background: var(--pl-line);
+}
+.copilot-photo figcaption {
+  padding: 4px 6px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.copilot-photo-title {
+  color: var(--pl-text);
+  font-weight: 600;
+}
+.copilot-photo-source {
+  color: var(--pl-muted);
+}
+.copilot-photo-source a {
+  color: var(--pl-accent);
+}
+.copilot-photo-vetted {
+  color: var(--pl-accent);
+}
+
 .copilot-web-sources a {
   color: var(--pl-accent);
   word-break: break-all;
