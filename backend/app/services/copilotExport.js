@@ -57,7 +57,9 @@ const citationLine = (message) => {
 
 // Normalizes what every format renders from: { title, subtitle, exportedAt,
 // entries: [{ role, time, content, attachments, actions, citations }] }.
-function buildTranscript({ title, subtitle, messages, attachmentsByMessage }) {
+// photosByMessage: find_photos results per message (chat.controller.js#
+// loadPhotosForExport) -- { title, source, kind, pageUrl, imageData?, mime? }.
+function buildTranscript({ title, subtitle, messages, attachmentsByMessage, photosByMessage = new Map() }) {
   return {
     title,
     subtitle,
@@ -69,11 +71,19 @@ function buildTranscript({ title, subtitle, messages, attachmentsByMessage }) {
         time: formatTime(m.createdAt),
         content: m.content || "",
         attachments: attachmentsByMessage.get(m.id) || [],
+        photos: photosByMessage.get(m.id) || [],
         actions: m.role === "assistant" ? actionLines(m) : [],
         citations: m.role === "assistant" ? citationLine(m) : null,
       })),
   };
 }
+
+// One line naming a find_photos photo and where it's from -- web photos
+// carry their source page and the 未经审核 note into the document too.
+const photoCaption = (ph) =>
+  ph.kind === "web"
+    ? `${ph.title}（来源：${ph.source}${ph.pageUrl ? ` ${ph.pageUrl}` : ""}；网络图片，未经审核）`
+    : `${ph.title}（${ph.source}，已审核）`;
 
 // ------------------------------------------------------------------
 // Markdown
@@ -88,6 +98,8 @@ function toMarkdown(t) {
     out.push(e.role === "user" ? e.content.split("\n").join("  \n") : e.content, "");
     for (const a of e.attachments) out.push(`> 📎 附件${a.kind === "image" ? "图片" : "文件"}：${a.name}`);
     if (e.attachments.length) out.push("");
+    for (const ph of e.photos) out.push(`> 🖼 图片：${photoCaption(ph)}`);
+    if (e.photos.length) out.push("");
     for (const line of e.actions) out.push(`> ${line}`);
     if (e.citations) e.citations.split("\n").forEach((line) => out.push(`> ${line}`));
     if (e.actions.length || e.citations) out.push("");
@@ -138,6 +150,9 @@ const HTML_STYLE = `
   .entry-attachment { font-size: 12px; color: #555; margin-top: 6px; }
   .entry-attachment img { display: block; max-width: 100%; max-height: 360px; margin-top: 4px; border: 1px solid #ddd; }
   .entry-note { font-size: 12px; color: #777; margin-top: 4px; }
+  .entry-photo { display: inline-block; vertical-align: top; width: 220px; margin: 8px 8px 0 0; }
+  .entry-photo img { width: 100%; max-height: 180px; object-fit: cover; border: 1px solid #ddd; }
+  .entry-photo figcaption { font-size: 11px; color: #666; }
   @media print { body { margin: 0 auto; } }
 `;
 
@@ -154,13 +169,21 @@ function toHtml(t) {
           return `<div class="entry-attachment">📎 附件${a.kind === "image" ? "图片" : "文件"}：${escapeHtml(a.name)}${img}</div>`;
         })
         .join("");
+      const photos = e.photos
+        .map(
+          (ph) =>
+            `<figure class="entry-photo">${
+              ph.imageData ? `<img src="data:${escapeHtml(ph.mime)};base64,${Buffer.from(ph.imageData).toString("base64")}" alt="">` : ""
+            }<figcaption>${escapeHtml(photoCaption(ph))}</figcaption></figure>`
+        )
+        .join("");
       const notes = [...e.actions, ...(e.citations ? e.citations.split("\n") : [])]
         .map((line) => `<div class="entry-note">${escapeHtml(line)}</div>`)
         .join("");
       return (
         `<section class="entry entry-${e.role}">` +
         `<div class="entry-head">${ROLE_NAMES[e.role]} · ${escapeHtml(e.time)}</div>` +
-        `<div class="entry-body">${body}</div>${attachments}${notes}</section>`
+        `<div class="entry-body">${body}</div>${attachments}${photos}${notes}</section>`
       );
     })
     .join("\n");
@@ -443,6 +466,10 @@ async function toDocx(t) {
     for (const a of e.attachments) {
       children.push(noteParagraph(`📎 附件${a.kind === "image" ? "图片" : "文件"}：${a.name}`));
       if (a.kind === "image") children.push(...imageParagraphs(a));
+    }
+    for (const ph of e.photos) {
+      if (ph.imageData) children.push(...imageParagraphs(ph));
+      children.push(noteParagraph(`🖼 ${photoCaption(ph)}`));
     }
     for (const line of e.actions) children.push(noteParagraph(line));
     if (e.citations) e.citations.split("\n").forEach((line) => children.push(noteParagraph(line)));

@@ -52,6 +52,7 @@ db.chatConversation = require("./chat-conversation.model.js")(sequelize, Sequeli
 db.chatMessage = require("./chat-message.model.js")(sequelize, Sequelize);
 db.chatAttachment = require("./chat-attachment.model.js")(sequelize, Sequelize);
 db.chatTask = require("./chat-task.model.js")(sequelize, Sequelize);
+db.chatWebImage = require("./chat-web-image.model.js")(sequelize, Sequelize);
 db.aiReviewStandard = require("./ai-review-standard.model.js")(sequelize, Sequelize);
 db.aiPlanScore = require("./ai-plan-score.model.js")(sequelize, Sequelize);
 

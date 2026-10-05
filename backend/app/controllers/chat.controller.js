@@ -1,3 +1,4 @@
+const fs = require("fs");
 const db = require("../models");
 const ChatConversation = db.chatConversation;
 const ChatMessage = db.chatMessage;
@@ -9,6 +10,7 @@ const copilotActions = require("../services/copilotActions");
 const chatCompaction = require("../services/chatCompaction");
 const llmClient = require("../services/llmClient");
 const chatTasks = require("../services/chatTasks");
+const webImages = require("../services/webImages");
 const copilotAttachments = require("../services/copilotAttachments");
 const copilotExport = require("../services/copilotExport");
 const multer = require("multer");
@@ -91,7 +93,10 @@ const buildActionPrompt = ({ roles, labels, apiCount }) =>
   "修改已起草的内容或回答其中的问题时，则直接在对话中回复即可。" +
   "10. 需要资料时先用 search_knowledge_base 检索学习资源库；资源库没有相关内容，或用户明确要求上网查找、需要最新信息时，再调用 web_search 联网检索，不要直接回答「资源库中没有」就结束。" +
   "使用联网结果时须说明信息来自网络、建议教师自行核实，并以 Markdown 链接注明引用的来源；绝不编造网址。" +
-  "你无法检索或显示网络图片，不要编造图片链接；用户想看图片时，可以给出来源网页链接，或给出百度图片搜索链接：[在百度图片中查看](https://image.baidu.com/search/index?tn=baiduimage&word=关键词)。" +
+  // find_photos shows real photos below the reply (library first, then web
+  // pages' share images) -- the model must never write image URLs itself.
+  "用户想看照片/图片时调用 find_photos，照片会由系统显示在回复下方并注明来源；绝不编造图片链接，也不要在回复中插入 Markdown 图片。" +
+  "没有找到合适的照片时，可给出百度图片搜索链接：[在百度图片中查看](https://image.baidu.com/search/index?tn=baiduimage&word=关键词)。" +
   // Attachments arrive as text blocks appended to the user's message (see
   // copilotAttachments.js#renderForModel) -- the model has to know they're
   // the teacher's material, not the teacher's instructions.
@@ -440,7 +445,7 @@ const answerUserTurn = async (conversation, userMessageId, pageContext, { onEven
   // few arguments the model chose to pass, and lose e.g. "学校在长江边" or
   // "不要做烹饪活动" said three turns earlier.
   const conversationDigest = buildConversationDigest(conversation, replayed, history);
-  const toolset = await copilotActions.buildToolset(conversation.userId, { conversationDigest });
+  const toolset = await copilotActions.buildToolset(conversation.userId, { conversationDigest, conversationId: conversation.id });
 
   let systemPrompt =
     COPILOT_SYSTEM_PROMPT +
@@ -1003,18 +1008,57 @@ exports.exportConversation = async (req, res) => {
   }
 };
 
+// find_photos results of each assistant message, with the image bytes when
+// the format embeds them (Word/PDF): library files read from disk, web
+// photos from chat_web_images (this user's only). A photo that's gone since
+// (library file removed) is listed without its image.
+const loadPhotosForExport = async (messages, userId, withData) => {
+  const map = new Map();
+  for (const m of messages) {
+    const photos = (Array.isArray(m.retrievedChunkIds) ? m.retrievedChunkIds : []).flatMap((e) =>
+      e && e.output && Array.isArray(e.output.photos) ? e.output.photos : []
+    );
+    if (photos.length === 0) continue;
+    const loaded = [];
+    for (const p of photos) {
+      const out = { kind: p.kind, title: p.title, source: p.source, pageUrl: p.pageUrl };
+      if (withData) {
+        try {
+          let buffer = null;
+          if (p.kind === "web") {
+            const row = await db.chatWebImage.findOne({ where: { id: p.id, userId }, attributes: ["data"] });
+            buffer = row && row.data;
+          } else {
+            const artifact = await db.materialArtifact.findByPk(p.id, { attributes: ["attachmentPath"] });
+            buffer = artifact && fs.existsSync(artifact.attachmentPath) ? fs.readFileSync(artifact.attachmentPath) : null;
+          }
+          const info = buffer && webImages.sniffImage(buffer);
+          if (info) Object.assign(out, { imageData: buffer, mime: info.mime, width: info.width, height: info.height });
+        } catch (e) {
+          // listed without its image
+        }
+      }
+      loaded.push(out);
+    }
+    map.set(m.id, loaded);
+  }
+  return map;
+};
+
 // Shared by 导出 (above) and generate_document's source=conversation (below).
 const renderTranscript = async (conversation, messages, format, title) => {
   const attachmentsByMessage = await copilotAttachments.loadForMessages(
     messages.map((m) => m.id),
     { withImage: format !== "md" }
   );
+  const photosByMessage = await loadPhotosForExport(messages, conversation.userId, format !== "md");
   const label = await conversationLabel(conversation);
   const transcript = copilotExport.buildTranscript({
     title,
     subtitle: conversation.title ? `${label} · ${conversation.title}` : label,
     messages,
     attachmentsByMessage,
+    photosByMessage,
   });
   if (format === "docx") return copilotExport.toDocx(transcript);
   if (format === "md") return copilotExport.toMarkdown(transcript);
@@ -1152,5 +1196,45 @@ exports.createPlanFromDraft = async (req, res) => {
     return res.send({ message: withMeta, planId: result.planId, title: result.title });
   } catch (err) {
     return res.status(err.status || 500).send({ message: err.message || "新建课程设计失败。" });
+  }
+};
+
+// ------------------------------------------------------------------
+// Photos -- find_photos results (copilotActions.js), served for the panel's
+// photo strip. Fetched by the panel with the auth header (as blobs), like
+// attachment images.
+// ------------------------------------------------------------------
+
+const LIBRARY_IMAGE_MIME = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
+
+// GET /api/chat/photos/library/:id -- an image in 学习资源库 (any signed-in
+// user can browse the library). Raster images only, typed by extension.
+exports.getLibraryPhoto = async (req, res) => {
+  try {
+    const artifact = await db.materialArtifact.findByPk(req.params.id, { attributes: ["attachmentPath", "attachmentName"] });
+    const ext = artifact ? (artifact.attachmentName.split(".").pop() || "").toLowerCase() : "";
+    const mime = LIBRARY_IMAGE_MIME[ext];
+    if (!artifact || !mime || !fs.existsSync(artifact.attachmentPath)) return res.status(404).send({ message: "未找到该图片。" });
+    res.set("Content-Type", mime);
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set("Cache-Control", "private, max-age=86400");
+    return fs.createReadStream(artifact.attachmentPath).pipe(res);
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "加载图片失败。" });
+  }
+};
+
+// GET /api/chat/photos/web/:id -- a web photo found for one of this user's
+// conversations. Its type was taken from the bytes when stored.
+exports.getWebPhoto = async (req, res) => {
+  try {
+    const image = await db.chatWebImage.findOne({ where: { id: req.params.id, userId: req.userId }, attributes: ["mime", "data"] });
+    if (!image) return res.status(404).send({ message: "未找到该图片。" });
+    res.set("Content-Type", image.mime);
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set("Cache-Control", "private, max-age=86400");
+    return res.send(image.data);
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "加载图片失败。" });
   }
 };

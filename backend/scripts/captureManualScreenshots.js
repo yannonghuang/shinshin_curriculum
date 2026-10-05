@@ -317,6 +317,26 @@ async function run() {
     await page.locator(".copilot-panel").getByRole("button", { name: "新建为课程设计" }).scrollIntoViewIfNeeded();
     await page.waitForTimeout(500);
     await shoot(page.locator(".copilot-panel"), "copilot-draft");
+
+    console.log("==> 欣欣小助手 照片：回复下方显示的照片");
+    // A real photo request (find_photos): library photos if any, otherwise
+    // relevance-checked web photos with their sources -- captured once the
+    // images have loaded.
+    await page.locator(".copilot-panel").getByRole("button", { name: "新对话" }).click();
+    await page.waitForTimeout(500);
+    await page.locator(".copilot-input-row textarea").fill("能显示几张本课程主题的照片吗？");
+    await page.locator(".copilot-input-row button[type=submit]").click();
+    await page.waitForFunction(
+      () => {
+        const imgs = [...document.querySelectorAll(".copilot-photo-img")];
+        return imgs.length > 0 && imgs.every((i) => i.tagName === "IMG" && i.complete && i.naturalWidth > 0);
+      },
+      null,
+      { timeout: 240000 }
+    );
+    await page.locator(".copilot-photos").last().scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+    await shoot(page.locator(".copilot-panel"), "copilot-photos");
     await page.locator(".copilot-toggle").click();
 
     // ---------------------------------------------------------------

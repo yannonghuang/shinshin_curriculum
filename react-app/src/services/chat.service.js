@@ -53,6 +53,12 @@ class ChatDataService {
     return http.delete(`/chat/attachments/${id}`, { headers: authHeader() });
   }
 
+  // find_photos results -- kind "library" (学习资源库) or "web" (stored copy
+  // of a web photo); see backend chat.controller.js#getLibraryPhoto/#getWebPhoto.
+  getPhoto(kind, id) {
+    return http.get(`/chat/photos/${kind === "library" ? "library" : "web"}/${id}`, { headers: authHeader(), responseType: "blob" });
+  }
+
   getAttachmentImage(id) {
     return http.get(`/chat/attachments/${id}/image`, { headers: authHeader(), responseType: "blob" });
   }

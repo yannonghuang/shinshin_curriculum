@@ -290,16 +290,17 @@ const printHtml = (html) =>
 const formatFileSize = (bytes) =>
   bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`;
 
-// Thumbnail of a sent image attachment -- fetched with the auth header as a
-// blob (a bare <img src> can't carry it). `localUrl` short-circuits the fetch
-// for the optimistic bubble, which still has the teacher's own local copy.
-const AttachmentImage = ({ id, name, localUrl }) => {
+// An image fetched with the auth header as a blob (a bare <img src> can't
+// carry it) -- attachment thumbnails and find_photos results alike. `load`
+// returns the axios blob request; `localUrl` short-circuits the fetch (the
+// optimistic bubble still has the teacher's own local copy).
+const AuthImage = ({ load, cacheKey, alt, className, localUrl, linkTitle }) => {
   const [url, setUrl] = useState(localUrl || null);
   useEffect(() => {
-    if (localUrl || !id) return undefined;
+    if (localUrl || !cacheKey) return undefined;
     let objectUrl = null;
     let cancelled = false;
-    ChatDataService.getAttachmentImage(id)
+    load()
       .then((resp) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(resp.data);
@@ -310,12 +311,64 @@ const AttachmentImage = ({ id, name, localUrl }) => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [id, localUrl]);
-  if (!url) return <div className="copilot-attachment-thumb copilot-attachment-thumb-loading"></div>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheKey, localUrl]);
+  if (!url) return <div className={`${className} copilot-attachment-thumb-loading`}></div>;
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" title={name}>
-      <img className="copilot-attachment-thumb" src={url} alt={name} />
+    <a href={url} target="_blank" rel="noopener noreferrer" title={linkTitle || alt}>
+      <img className={className} src={url} alt={alt} />
     </a>
+  );
+};
+
+const AttachmentImage = ({ id, name, localUrl }) => (
+  <AuthImage
+    load={() => ChatDataService.getAttachmentImage(id)}
+    cacheKey={id ? `attachment-${id}` : null}
+    alt={name}
+    className="copilot-attachment-thumb"
+    localUrl={localUrl}
+  />
+);
+
+// find_photos results under a reply (backend copilotActions.js): library
+// photos are vetted and say so; web photos name and link their source page
+// and are marked 未经审核. Every find_photos call this turn, in order.
+const photosOf = (message) =>
+  (Array.isArray(message.retrievedChunkIds) ? message.retrievedChunkIds : []).flatMap((call) =>
+    call && call.output && Array.isArray(call.output.photos) ? call.output.photos : []
+  );
+
+const PhotoStrip = ({ photos }) => {
+  if (!photos || photos.length === 0) return null;
+  return (
+    <div className="copilot-photos">
+      {photos.map((p) => (
+        <figure key={`${p.kind}-${p.id}`} className="copilot-photo">
+          <AuthImage
+            load={() => ChatDataService.getPhoto(p.kind, p.id)}
+            cacheKey={`${p.kind}-${p.id}`}
+            alt={p.title}
+            className="copilot-photo-img"
+            linkTitle="点击查看大图"
+          />
+          <figcaption>
+            <div className="copilot-photo-title">{p.title}</div>
+            {p.kind === "library" ? (
+              <div className="copilot-photo-source copilot-photo-vetted">{p.source} · 已审核</div>
+            ) : (
+              <div className="copilot-photo-source">
+                来源：
+                <a href={p.pageUrl} target="_blank" rel="noopener noreferrer" title={p.pageTitle || p.pageUrl}>
+                  {p.source}
+                </a>
+                · 网络图片，未经审核
+              </div>
+            )}
+          </figcaption>
+        </figure>
+      ))}
+    </div>
   );
 };
 
@@ -1331,6 +1384,7 @@ const CopilotPanel = () => {
                           <MessageAttachments attachments={m.attachments} />
                         </>
                       )}
+                      {m.role === "assistant" && <PhotoStrip photos={photosOf(m)} />}
                       {m.role === "assistant" && renderActions(m)}
                       {m.role === "assistant" && renderCitations(m)}
                       {m.role === "assistant" && renderWebSources(m)}
