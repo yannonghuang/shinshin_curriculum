@@ -55,7 +55,7 @@ const COPILOT_SYSTEM_PROMPT =
 // template's own fields, and that confirm-tier actions aren't done until the
 // user clicks.
 const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员", super: "超级管理员" };
-const buildActionPrompt = ({ roles, labels, apiCount }) =>
+const buildActionPrompt = ({ roles, labels, apiCount, tools }) =>
   `\n\n当前用户角色：${roles.map((r) => ROLE_LABELS[r] || r).join("、") || "未知"}。` +
   `你可以通过工具直接代表用户执行系统操作，范围仅限于该用户自己的权限。专用工具：${labels.join("、")}；` +
   `此外还可通过 list_available_apis 查看、通过 call_api 调用该用户有权使用的全部 ${apiCount} 个系统接口。优先使用专用工具，没有合适的专用工具时再用 call_api。` +
@@ -89,8 +89,10 @@ const buildActionPrompt = ({ roles, labels, apiCount }) =>
   // content always labelled and sourced, never passed off as vetted.
   // draft_plan (planDrafter.js) researches and writes in parallel and its
   // result *is* the reply -- doing the same by hand in this loop took 2 min.
-  "11. 用户要求草拟/设计/写一份新的课程设计时，直接调用 draft_plan（它会自行检索资料并按模板撰写），不要自己先检索或自己撰写全文。" +
-  "修改已起草的内容或回答其中的问题时，则直接在对话中回复即可。" +
+  (tools.some((t) => t.function.name === "draft_plan")
+    ? "11. 用户要求草拟/设计/写一份新的课程设计时，直接调用 draft_plan（它会自行检索资料并按模板撰写），不要自己先检索或自己撰写全文。" +
+      "修改已起草的内容或回答其中的问题时，则直接在对话中回复即可。"
+    : "") +
   "10. 需要资料时先用 search_knowledge_base 检索学习资源库；资源库没有相关内容，或用户明确要求上网查找、需要最新信息时，再调用 web_search 联网检索，不要直接回答「资源库中没有」就结束。" +
   "使用联网结果时须说明信息来自网络、建议教师自行核实，并以 Markdown 链接注明引用的来源；绝不编造网址。" +
   // find_photos shows real photos below the reply (library first, then web
@@ -452,7 +454,8 @@ const answerUserTurn = async (conversation, userMessageId, pageContext, { onEven
     buildActionPrompt(toolset) +
     renderActionLog(replayed) +
     chatCompaction.renderCompactedContext(conversation) +
-    (await pendingNote(conversation.id, userMessageId));
+    (await pendingNote(conversation.id, userMessageId)) +
+    (await copilotActions.draftingGuidance(conversation.userId, toolset.tools));
   try {
     systemPrompt += await buildContextAddition(pageContext);
   } catch (e) {

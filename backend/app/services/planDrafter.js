@@ -7,10 +7,20 @@ const llmClient = require("./llmClient");
 // 125s). Here the work is split so most of it runs side by side:
 //
 //   1. research   -- template, 学习资源库 and web search, in parallel
-//   2. outline    -- one short call: theme + the lesson-by-lesson plan
-//   3. write      -- the overall fields and every lesson, in parallel
+//   2. outline    -- one short call: theme, the overall goals, and the
+//                    lesson-by-lesson plan with each goal assigned to the
+//                    lesson(s) that deliver it (completed in code -- see
+//                    planGoals), so goals and lessons agree by construction
+//   3. write      -- the overall fields and every lesson, in parallel;
+//                    any field a part left out is asked for again
 //   4. assemble   -- template-shaped content (ready for create_plan) and a
 //                    Markdown rendering for the chat
+//
+// No whole-draft "consistency pass" after writing: one was built and
+// measured (3 topics, AI 打分 standard) -- ~30s more per draft, no score
+// gain, and it corrupted a draft by writing a lesson's fixes over another
+// lesson. The robustness fixes below (per-section parts, re-asking for
+// missing fields, the school's locality) are what raised scores.
 //
 // The result goes straight back as the reply (see agentLoop.js's
 // finalReply), so the main model never re-types the whole draft.
@@ -22,6 +32,11 @@ const llmClient = require("./llmClient");
 //   deps.webSearch(query)     -> { summary, webSources } | null
 //   deps.conversationDigest   -- the chat so far as text (optional; see
 //                                distillConversation)
+//   deps.standard             -- the AI 点评标准 in effect (optional; see
+//                                standardBrief) -- what plans are judged by
+//   deps.school               -- the teacher's school and region (optional):
+//                                a course is judged on how local it is, so
+//                                the drafter must know where "local" is
 //   deps.emit({ key, label, status })
 
 // All parts at once for a typical course (2 overall parts + up to 6
@@ -95,6 +110,59 @@ async function distillConversation(digest, title) {
   return /^[「"]?无[」"。.]?$/.test(text) ? "" : text;
 }
 
+// What the drafter is told about the AI 点评标准: the overview and, per
+// dimension, its criteria and the top level's description -- the bar to
+// write to. Score ranges are left out (no use to a writer). Read from the
+// standard in effect each time, so an admin's revision of the standard
+// reaches drafting with no code change. Before this, drafts met the
+// standard's specifics (e.g. naming which 五根 a course cultivates) only when
+// a library search happened to surface the source material -- 目标设计 lost
+// the same points in every scored draft.
+function standardBrief(standard) {
+  const c = standard && standard.content;
+  if (!c || !Array.isArray(c.dimensions) || c.dimensions.length === 0) return "";
+  const lines = [];
+  if (c.overview) lines.push(String(c.overview).trim());
+  for (const d of c.dimensions) {
+    const top = (Array.isArray(d.levels) ? d.levels : [])[0];
+    lines.push(`【${d.name}】${d.description ? `${d.description}` : ""}`);
+    for (const k of Array.isArray(d.criteria) ? d.criteria : []) lines.push(`- ${k}`);
+    if (top && top.descriptor) lines.push(`- 「${top.label || "最高等级"}」要求：${top.descriptor}`);
+  }
+  return lines.join("\n");
+}
+
+// Goal categories the outline tags its goals with -- the template's own WHY
+// fields (认知思维目标 / 实践技能目标 / ...); the goals writer files each goal
+// under the matching field.
+const GOAL_CATEGORIES = ["认知思维", "实践技能", "社会情感", "跨学科融合", "其它"];
+
+// The outline's goals, with lesson assignments made complete in code -- not
+// left to the model: every goal must be delivered by some lesson (an
+// unassigned one goes to the lesson carrying the fewest goals), and each
+// lesson's goalIds only name goals that exist. Mutates outlineLessons'
+// goalIds; returns the goals.
+function planGoals(outline, outlineLessons) {
+  const goals = (Array.isArray(outline.goals) ? outline.goals : [])
+    .map((g, i) => ({
+      id: Number(g && g.id) || i + 1,
+      category: GOAL_CATEGORIES.includes(g && g.category) ? g.category : "其它",
+      text: asText(g && g.text),
+    }))
+    .filter((g) => g.text);
+  const ids = new Set(goals.map((g) => g.id));
+  for (const l of outlineLessons) {
+    l.goalIds = (Array.isArray(l.goalIds) ? l.goalIds : []).map(Number).filter((id) => ids.has(id));
+  }
+  if (outlineLessons.length === 0) return goals;
+  for (const g of goals) {
+    if (outlineLessons.some((l) => l.goalIds.includes(g.id))) continue;
+    const lightest = outlineLessons.reduce((a, b) => (b.goalIds.length < a.goalIds.length ? b : a));
+    lightest.goalIds.push(g.id);
+  }
+  return goals;
+}
+
 // Runs fn over items with at most `limit` in flight, results in input order.
 async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
@@ -154,6 +222,7 @@ async function draftPlan(args, deps) {
   const lessonCount = Math.min(Math.max(Math.round(Number(args.lessonCount) || 5), 2), 12);
   const grade = String(args.grade || "").trim();
   const requirements = String(args.requirements || "").trim();
+  const criteria = standardBrief(deps.standard);
 
   // 1. research -----------------------------------------------------------
   emit({
@@ -183,17 +252,24 @@ async function draftPlan(args, deps) {
     .slice(0, RESEARCH_CHARS);
   const brief =
     `课程标题：${title}\n年级：${grade || "未指定（按小学中高年级）"}\n课时数：${lessonCount}` +
+    `${deps.school ? `\n学校与地区：${deps.school}（课程要立足当地；主题并非当地特产时，要设计与本地生活的联系或对比，而不是当作本地文化来写）` : ""}` +
     `${args.theme ? `\n乡土主题：${args.theme}` : ""}${requirements ? `\n教师的具体要求：${requirements}` : ""}` +
-    `${teacherContext ? `\n对话中教师提供的背景与要求（务必遵守，尤其是需要避免的内容）：\n${teacherContext}` : ""}`;
+    `${teacherContext ? `\n对话中教师提供的背景与要求（务必遵守，尤其是需要避免的内容）：\n${teacherContext}` : ""}` +
+    `${criteria ? `\n\n本系统评价课程设计所依据的标准（请按各维度最高等级的要求设计，各部分都要体现）：\n${criteria}` : ""}`;
 
   // 2. outline ------------------------------------------------------------
   emit({ key: "outline", label: "拟定课程大纲", status: "running" });
   const outline = await askJson(
     `${brief}\n\n可选乡土主题：${(template.themeOptions || []).join("、")}\n\n参考资料：\n${research || "（无）"}\n\n` +
-      `请为这门课拟定大纲，按 PBL 流程（入项 → 探究 → 制作与迭代 → 出项）把 ${lessonCount} 个课时依次分配好。严格只输出 JSON：` +
+      `请为这门课拟定大纲，按 PBL 流程（入项 → 探究 → 制作与迭代 → 出项）把 ${lessonCount} 个课时依次分配好。` +
+      `同时确定 6-10 条总体学习目标（类别为：${GOAL_CATEGORIES.join("、")}），每条一句话、具体可落实，并为每条目标指定落实它的课时（goalIds）：` +
+      "每条目标至少由一个课时落实，每个课时至少落实一条目标；只写这些课时确实能做到的目标——跨学科目标要对应课时里具体的学科活动（如某课时用称重计算配比），不要写课时里没有安排的内容。" +
+      (criteria ? "目标的表述（包括需要标注的维度等）要满足评价标准中对目标设计的要求。" : "") +
+      "严格只输出 JSON：" +
       `{"theme":"从可选乡土主题中选一个最贴切的，没有合适的留空","drivingQuestion":"儿童视角的驱动问题","finalProducts":"个人成果与团队成果，一句话",` +
-      `"lessons":[{"index":1,"stage":"入项","title":"课时标题","focus":"本课时要做什么，一两句话"}]}`,
-    1500
+      `"goals":[{"id":1,"category":"${GOAL_CATEGORIES[0]}","text":"目标"}],` +
+      `"lessons":[{"index":1,"stage":"入项","title":"课时标题","focus":"本课时要做什么，一两句话","goalIds":[1]}]}`,
+    2200
   );
   const outlineLessons = (Array.isArray(outline.lessons) ? outline.lessons : []).slice(0, lessonCount);
   while (outlineLessons.length < lessonCount) {
@@ -202,21 +278,32 @@ async function draftPlan(args, deps) {
   outlineLessons.forEach((l, i) => {
     l.index = i + 1;
   });
+  const goals = planGoals(outline, outlineLessons);
   emit({ key: "outline", status: "done" });
 
+  const goalText = (g) => `目标${g.id}【${g.category}】${g.text}`;
   const outlineText =
-    `驱动问题：${outline.drivingQuestion || ""}\n最终成果：${outline.finalProducts || ""}\n课时安排：\n` +
-    outlineLessons.map((l) => `第${l.index}课时【${l.stage || ""}】${l.title}：${l.focus || ""}`).join("\n");
+    `驱动问题：${outline.drivingQuestion || ""}\n最终成果：${outline.finalProducts || ""}\n` +
+    `${goals.length ? `总体学习目标：\n${goals.map(goalText).join("\n")}\n` : ""}课时安排：\n` +
+    outlineLessons
+      .map((l) => `第${l.index}课时【${l.stage || ""}】${l.title}：${l.focus || ""}${l.goalIds.length ? `（落实目标 ${l.goalIds.join("、")}）` : ""}`)
+      .join("\n");
   const shared = `${brief}\n\n课程大纲：\n${outlineText}\n\n参考资料：\n${research || "（无）"}`;
 
   // 3. write, in parallel --------------------------------------------------
   // Overall fields split in two (goals + intro / the HOW stages) so neither
   // call is the long pole; each lesson is its own call.
-  const whyWhat = planFields.filter((f) => !/^s2\./.test(f.key) && !/HOW/i.test(f.section || ""));
-  const how = planFields.filter((f) => !whyWhat.includes(f));
+  // One part per template section (WHY / WHAT / HOW ...): asking for all
+  // the goals and the project intro in one reply ran past its output limit
+  // and silently lost 9 of 10 fields (seen in a scored comparison).
+  const sections = [];
+  for (const f of planFields) {
+    let sec = sections.find((x) => x.name === (f.section || ""));
+    if (!sec) sections.push((sec = { name: f.section || "", fields: [] }));
+    sec.fields.push(f);
+  }
   const jobs = [
-    { kind: "fields", label: "目标与项目简介", fields: whyWhat },
-    { kind: "fields", label: "课程设计（入项 / 探究 / 制作与迭代 / 出项）", fields: how },
+    ...sections.map((sec) => ({ kind: "fields", label: sec.name, fields: sec.fields })),
     ...outlineLessons.map((l) => ({ kind: "lesson", label: `第 ${l.index} 课时：${l.title}`, lesson: l })),
   ].filter((j) => j.kind === "lesson" || j.fields.length > 0);
 
@@ -226,19 +313,52 @@ async function draftPlan(args, deps) {
   const results = await mapLimit(jobs, WRITE_CONCURRENCY, async (job) => {
     let result;
     if (job.kind === "fields") {
-      result = await askJson(
-        `${shared}\n\n请按大纲撰写以下课程设计字段的内容（每个字段 60-200 字，条理清楚，可分点；各字段内容互相衔接、与大纲一致）。` +
-          `严格只输出 JSON，键为字段 key，值为字段内容（字符串）：\n${fieldLines(job.fields)}`,
-        2500
-      );
+      const isGoalSection = goals.length > 0 && job.fields.some((f) => /目标/.test(f.label)) && !job.fields.some((f) => f.group);
+      const hasLessonPlan = job.fields.some((f) => f.group || /课时/.test(f.label + (f.hint || "")));
+      // The goals section restates the outline's goals -- no new ones: a
+      // goal added here is one no lesson was told to carry out (measured:
+      // ~2 of ~18 goal items per draft went undelivered that way).
+      const goalRule = isGoalSection
+        ? `\n总体学习目标必须且只能是大纲中的这些目标（可以展开表述，但不要新增目标，也不要遗漏）；按类别写入对应字段，没有对应类别字段的写入「其它目标」：\n${goals.map(goalText).join("\n")}`
+        : "";
+      // Stage plans (课时安排) name the actual lessons, as numbered here.
+      const lessonRule = hasLessonPlan
+        ? `\n各阶段的课时安排必须与以下分课时完全一致（课时序号、标题与所属阶段）：\n${outlineLessons
+            .map((l) => `第${l.index}课时【${l.stage || ""}】${l.title}`)
+            .join("\n")}`
+        : "";
+      const ask = (fields) =>
+        askJson(
+          `${shared}\n\n请按大纲撰写以下课程设计字段的内容（每个字段 60-200 字，条理清楚，可分点；各字段内容互相衔接、与大纲一致）。${goalRule}${lessonRule}\n` +
+            `严格只输出 JSON，键为字段 key，值为字段内容（字符串）：\n${fieldLines(fields)}`,
+          3000
+        );
+      result = await ask(job.fields);
+      // A reply cut short or keyed differently loses fields without any
+      // error -- ask again for exactly what's missing.
+      const missing = job.fields.filter((f) => !asText(result[f.key]));
+      if (missing.length > 0) result = { ...result, ...(await ask(missing).catch(() => ({}))) };
     } else {
       const l = job.lesson;
+      const assigned = goals.filter((g) => l.goalIds.includes(g.id));
+      // What this lesson must deliver -- the other half of goal coverage.
+      const assignedRule = assigned.length
+        ? `本课时须落实以下总体目标：\n${assigned.map(goalText).join("\n")}\n教学目标要逐条体现这些目标在本课时的具体化，教学活动流程中要有落实每条目标的具体活动（跨学科目标要有具体的学科活动）。\n`
+        : "";
       result = await askJson(
-        `${shared}\n\n请详细撰写第 ${l.index} 课时（${l.stage ? `${l.stage}阶段，` : ""}「${l.title}」：${l.focus || ""}）的分课时设计。` +
+        `${shared}\n\n请详细撰写第 ${l.index} 课时（${l.stage ? `${l.stage}阶段，` : ""}「${l.title}」：${l.focus || ""}）的分课时设计。${assignedRule}` +
           `教学活动流程要分步骤并标注大致时长（共约 40 分钟）。严格只输出 JSON，键为字段 key，值为字段内容（字符串）：\n` +
           `${fieldLines(lessonFields)}\n其中 ${lessonFields[0] ? lessonFields[0].key : "f0"} 填「${l.title}（${l.stage || "PBL步骤"}）」。`,
-        1800
+        2200
       );
+      const missing = lessonFields.filter((f) => !asText(result[f.key]));
+      if (missing.length > 0) {
+        const again = await askJson(
+          `${shared}\n\n请为第 ${l.index} 课时（「${l.title}」）补写以下字段。严格只输出 JSON，键为字段 key，值为字段内容（字符串）：\n${fieldLines(missing)}`,
+          1500
+        ).catch(() => ({}));
+        result = { ...result, ...again };
+      }
     }
     doneCount += 1;
     emit({ key: "write", label: progressLabel(), status: doneCount === jobs.length ? "done" : "running" });
@@ -273,4 +393,4 @@ async function draftPlan(args, deps) {
   };
 }
 
-module.exports = { draftPlan };
+module.exports = { draftPlan, standardBrief };
