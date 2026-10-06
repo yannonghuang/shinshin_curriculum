@@ -37,8 +37,8 @@ const PLAN_PAGE_RE = /^\/plans\/(\d+)/;
 // top-left-anchored version could grow height a little but not width at
 // all, because its default left position was deliberately placed with zero
 // slack to the right).
-const PANEL_DEFAULT_WIDTH = 600;
-const PANEL_DEFAULT_HEIGHT = 680;
+const PANEL_DEFAULT_WIDTH = 780;
+const PANEL_DEFAULT_HEIGHT = 884;
 const PANEL_MIN_WIDTH = 300;
 const PANEL_MIN_HEIGHT = 360;
 const PANEL_MARGIN = 20;
