@@ -2379,3 +2379,37 @@
   border-top: none;
   padding: 0 12px 12px;
 }
+
+/* An AI 点评: the same two-row shape as a draft, tinted in the AI tag's own
+   indigo (.pl-tag-ai). */
+.pl-review-ai-row > td {
+  background: #f6f7ff;
+  vertical-align: middle;
+}
+
+.pl-review-ai-meta > td {
+  border-bottom: none;
+}
+
+.pl-review-ai-body > td {
+  border-top: none;
+  padding: 0 12px 12px;
+}
+
+.pl-review-ai-content {
+  white-space: pre-wrap;
+  line-height: 1.7;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid #dfe3fa;
+  border-left: 3px solid #8f97e0;
+  border-radius: 6px;
+}
+
+/* First ~6 lines, fading out into "展开全文". */
+.pl-review-ai-content.is-collapsed {
+  max-height: calc(1.7em * 6 + 20px);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 65%, transparent);
+  mask-image: linear-gradient(to bottom, #000 65%, transparent);
+}
