@@ -32,8 +32,8 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
   const [verbatim, setVerbatim] = useState({}); // key -> chunks
   const [collapsed, setCollapsed] = useState({}); // source key -> hide its inventory
 
-  const load = useCallback(() => {
-    return MaterialTopicDataService.getKnowledgeTree(topicId)
+  const load = useCallback((opts) => {
+    return MaterialTopicDataService.getKnowledgeTree(topicId, opts)
       .then((res) => {
         setData(res.data);
         setError("");
@@ -51,7 +51,7 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
   const rebuilding = !!(data && data.rebuilding);
   useEffect(() => {
     if (!rebuilding) return undefined;
-    const timer = setInterval(load, POLL_INTERVAL_MS);
+    const timer = setInterval(() => load({ background: true }), POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [rebuilding, load]);
 

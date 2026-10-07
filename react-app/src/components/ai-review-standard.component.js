@@ -433,8 +433,8 @@ const AiReviewStandard = () => {
     });
   }, []);
 
-  const refresh = useCallback(() => {
-    return AiReviewDataService.getStandard()
+  const refresh = useCallback((opts) => {
+    return AiReviewDataService.getStandard(opts)
       .then((res) => {
         const { standard: latest, generating: running, lastError } = res.data;
         // Reload history only when a new version appeared (first load, or a
@@ -465,7 +465,7 @@ const AiReviewStandard = () => {
 
   useEffect(() => {
     if (!generating) return undefined;
-    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    const timer = setInterval(() => refresh({ background: true }), POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [generating, refresh]);
 

@@ -1,5 +1,5 @@
 import http from "../http-common";
-import authHeader from "./auth-header";
+import authHeader, { backgroundAuthHeader } from "./auth-header";
 
 class MaterialTopicDataService {
   getAll() {
@@ -54,14 +54,15 @@ class MaterialTopicDataService {
     return http.post(`/material-topics/${topicId}/skill/regenerate`, null, { headers: authHeader() });
   }
 
-  getSkillGenerating(topicId) {
-    return http.get(`/material-topics/${topicId}/skill/generating`, { headers: authHeader() });
+  // background: a timer-driven poll -- see auth-header.js#backgroundAuthHeader.
+  getSkillGenerating(topicId, { background } = {}) {
+    return http.get(`/material-topics/${topicId}/skill/generating`, { headers: background ? backgroundAuthHeader() : authHeader() });
   }
 
   // Knowledge tree below the topic card: each source's summary + contents
   // inventory ({ sources, rebuilding, kindLabels }).
-  getKnowledgeTree(topicId) {
-    return http.get(`/material-topics/${topicId}/knowledge-tree`, { headers: authHeader() });
+  getKnowledgeTree(topicId, { background } = {}) {
+    return http.get(`/material-topics/${topicId}/knowledge-tree`, { headers: background ? backgroundAuthHeader() : authHeader() });
   }
 
   // Verbatim chunks of one source, optionally just chunk range [from, to].

@@ -47,6 +47,12 @@ class AuthService {
       });
   }
 
+  // Renews the session (see authJwt.js#verifyToken) -- the response's
+  // x-access-token is picked up by the renewal interceptor like any other.
+  ping() {
+    return axios.post(API_URL + "ping", {}, { headers: authHeader() });
+  }
+
   reset(email, password) {
     return axios.post(API_URL + "reset", {
       email,

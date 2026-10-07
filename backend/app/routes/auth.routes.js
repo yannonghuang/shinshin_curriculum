@@ -3,7 +3,7 @@ const controller = require("../controllers/auth.controller");
 
 module.exports = function (app) {
   app.use(function (req, res, next) {
-    res.header("Access-Control-Allow-Headers", "x-access-token, Origin, Content-Type, Accept");
+    res.header("Access-Control-Allow-Headers", "x-access-token, x-background-request, Origin, Content-Type, Accept");
     next();
   });
 
@@ -30,6 +30,11 @@ module.exports = function (app) {
   app.post("/api/auth/signin", controller.signin);
 
   app.post("/api/auth/signout", controller.signout);
+
+  // Renews the caller's session (verifyToken does that) and nothing else --
+  // session-watchdog.js calls it when the user is active on the page (typing,
+  // clicking, scrolling) without that activity sending any request itself.
+  app.post("/api/auth/ping", [authJwt.verifyToken], (req, res) => res.status(204).end());
 
   app.post("/api/auth/reset", controller.reset);
 

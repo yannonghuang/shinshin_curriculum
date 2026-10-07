@@ -10,8 +10,8 @@ const User = db.user;
 // clustering, see docker-compose.prod.yml), so a plain in-memory Map is safe
 // here and needs no external store. Losing this cache on a restart just
 // means the next request per user writes again -- not a correctness issue,
-// only ever adds writes, never skips one that matters (1800s/60s = comfortably
-// within the 30-minute inactivity window either way).
+// only ever adds writes, never skips one that matters (60s is comfortably
+// within the 2-hour inactivity window either way).
 const ACTIVITY_PERSIST_THROTTLE_MS = 60 * 1000;
 const lastPersistedActivity = new Map();
 
@@ -46,6 +46,14 @@ const renewAndTrackActivity = (userId, res) => {
   }
 };
 
+// A request the frontend fires on its own timer (a status poll while some
+// job runs -- see react-app's auth-header.js#backgroundAuthHeader) rather
+// than because the user did something. Still authenticated, but it doesn't
+// count as activity: renewing on it kept an idle tab's session alive for as
+// long as a poll ran (materials-library's 技能 tab polls the whole time it's
+// open), so the inactivity timeout never fired.
+const isBackgroundRequest = (req) => req.headers["x-background-request"] === "1";
+
 verifyToken = (req, res, next) => {
   let token = req.headers["x-access-token"];
 
@@ -62,7 +70,7 @@ verifyToken = (req, res, next) => {
       });
     }
     req.userId = decoded.id;
-    renewAndTrackActivity(decoded.id, res);
+    if (!isBackgroundRequest(req)) renewAndTrackActivity(decoded.id, res);
     next();
   });
 };
@@ -81,7 +89,7 @@ attachUserIfPresent = (req, res, next) => {
   jwt.verify(token, config.secret, (err, decoded) => {
     if (!err) {
       req.userId = decoded.id;
-      renewAndTrackActivity(decoded.id, res);
+      if (!isBackgroundRequest(req)) renewAndTrackActivity(decoded.id, res);
     } else {
       // The request itself still succeeds (see above), but the caller's
       // cached "logged in" session is stale/expired -- unlike verifyToken's

@@ -1,10 +1,11 @@
 import http from "../http-common";
-import authHeader from "./auth-header";
+import authHeader, { backgroundAuthHeader } from "./auth-header";
 
 class AiReviewDataService {
   // { standard: <newest AI 点评标准 or null>, generating, lastError }
-  getStandard() {
-    return http.get("/ai-review/standard", { headers: authHeader() });
+  // background: a timer-driven poll -- see auth-header.js#backgroundAuthHeader.
+  getStandard({ background } = {}) {
+    return http.get("/ai-review/standard", { headers: background ? backgroundAuthHeader() : authHeader() });
   }
 
   // Starts a background (re)generation from 学习资源库 -- poll getStandard()
@@ -35,8 +36,8 @@ class AiReviewDataService {
   // AI 打分加点评 (experts read, admins run): { plans: [...submitted plans
   // with their current AI score/review and needsScore/needsReview], job,
   // standard }
-  getScoreReview() {
-    return http.get("/ai-review/score-review", { headers: authHeader() });
+  getScoreReview({ background } = {}) {
+    return http.get("/ai-review/score-review", { headers: background ? backgroundAuthHeader() : authHeader() });
   }
 
   // Starts the background AI 打分加点评 batch over `planIds` (the plans the

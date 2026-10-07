@@ -256,7 +256,7 @@ const MaterialsLibrary = () => {
     let wasGenerating = false;
     const poll = async () => {
       try {
-        const resp = await MaterialTopicDataService.getSkillGenerating(topicId);
+        const resp = await MaterialTopicDataService.getSkillGenerating(topicId, { background: true });
         if (cancelled) return;
         const generating = !!(resp.data && resp.data.generating);
         setIsSkillGenerating(generating);
