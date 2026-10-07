@@ -36,6 +36,10 @@ const PlansList = (props) => {
   // hierarchy tree, since a template-filtered list is naturally small and
   // flat, same reasoning as effectiveMineOnly.
   const templateVersionIdFilter = queryParams.get("templateVersionId") || "";
+  // An expert's 我的点评 (/plans?reviewed=mine): the plans they've reviewed,
+  // most recent first -- also the flat view, each card carrying the
+  // expert's own review counts (see plan-card.component.js's myReviews).
+  const reviewedByMe = queryParams.get("reviewed") === "mine";
 
   const [plans, setPlans] = useState([]);
   const [message, setMessage] = useState("");
@@ -87,6 +91,7 @@ const PlansList = (props) => {
   // since that's a small, non-hierarchical set by nature.
   const isManagerOrExpertView =
     !templateVersionIdFilter &&
+    !reviewedByMe &&
     (excellentOnly || ((AuthService.isAdmin() || AuthService.isExpert() || AuthService.isTeacher()) && !effectiveMineOnly));
   // stylishPublic (green pl-hero header, KPI cards, search/filter bar,
   // pagination) is the flat view's own chrome -- never shown alongside the
@@ -123,6 +128,7 @@ const PlansList = (props) => {
         status: statusFilter || undefined,
         isExcellentCase: excellentOnly ? true : undefined,
         templateVersionId: templateVersionIdFilter || undefined,
+        reviewedByMe: reviewedByMe ? true : undefined,
       });
       setPlans(resp.data.rows || []);
       setTotalPages(resp.data.totalPages || 0);
@@ -143,6 +149,7 @@ const PlansList = (props) => {
     excellentOnly,
     isManagerOrExpertView,
     templateVersionIdFilter,
+    reviewedByMe,
   ]);
 
   useEffect(() => {
@@ -305,6 +312,8 @@ const PlansList = (props) => {
 
   const heading = excellentOnly
     ? "课程案例库"
+    : reviewedByMe
+    ? "我的点评"
     : templateVersionIdFilter
     ? "相关课程计划"
     : effectiveMineOnly

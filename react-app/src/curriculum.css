@@ -2361,3 +2361,21 @@
   font-size: 12px;
   color: var(--pl-accent);
 }
+
+/* An expert's own 已保存·未提交 review draft, open for editing in its table
+   row (review-list.component.js's EditableDraftRow). */
+.pl-review-draft-row > td {
+  background: var(--pl-accent-soft);
+  vertical-align: middle;
+}
+
+/* Its two rows read as one: no rule between the column-aligned details
+   and the full-width editor below them. */
+.pl-review-draft-meta > td {
+  border-bottom: none;
+}
+
+.pl-review-draft-editor > td {
+  border-top: none;
+  padding: 0 12px 12px;
+}
