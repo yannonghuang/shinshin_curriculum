@@ -29,6 +29,11 @@ module.exports = (sequelize, Sequelize) => {
         // answer can arrive after newer messages; see chatTasks.js
         type: Sequelize.BIGINT,
       },
+      focus: {
+        // user messages only: the plan field/section the question is about,
+        // as normalized by copilotFocus.js#normalizeFocus
+        type: Sequelize.JSON,
+      },
     },
     {
       tableName: "chat_messages",

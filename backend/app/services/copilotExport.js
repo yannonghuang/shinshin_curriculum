@@ -16,6 +16,7 @@ const {
   LevelFormat,
 } = require("docx");
 const { Marked } = require("marked");
+const { replayPrefix } = require("./copilotFocus");
 
 // On-the-fly export of a 欣欣小助手 transcript (all of a conversation, or the
 // messages the teacher ticked) as Word (.docx), Markdown (.md), or a
@@ -69,7 +70,9 @@ function buildTranscript({ title, subtitle, messages, attachmentsByMessage, phot
       .map((m) => ({
         role: m.role,
         time: formatTime(m.createdAt),
-        content: m.content || "",
+        // A question asked from a plan field's menu reads "这一栏…" -- the
+        // tag naming that field keeps it intelligible on paper.
+        content: (m.role === "user" ? replayPrefix(m.focus) : "") + (m.content || ""),
         attachments: attachmentsByMessage.get(m.id) || [],
         photos: photosByMessage.get(m.id) || [],
         actions: m.role === "assistant" ? actionLines(m) : [],

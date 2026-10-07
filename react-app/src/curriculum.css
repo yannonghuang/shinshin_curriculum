@@ -2221,3 +2221,143 @@
 .copilot-action-link {
   font-size: 13px;
 }
+
+/* 问欣欣小助手 hover menu on the plan page's fields and section headings
+   (ask-ai-menu.component.js) -- the trigger sits inline after the label,
+   invisible (but still laid out, so nothing shifts) until the pointer is
+   over that field/heading or the caret is in it. */
+/* App.css makes every <label> a block -- here the label stays on one line
+   with its trigger instead of the trigger adding a line under each field. */
+.ai-ask-host > label {
+  display: inline-block;
+}
+.ai-ask {
+  position: relative;
+  display: inline-block;
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: normal;
+}
+.ai-ask-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px 1px 6px;
+  font-size: 12px;
+  line-height: 20px;
+  border: 1px solid var(--pl-accent);
+  border-radius: 12px;
+  background: var(--pl-panel);
+  color: var(--pl-accent);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.ai-ask-host:hover .ai-ask-trigger,
+.ai-ask-host:focus-within .ai-ask-trigger,
+.ai-ask.is-open .ai-ask-trigger,
+.ai-ask-trigger:focus {
+  opacity: 1;
+}
+.ai-ask-trigger:hover,
+.ai-ask.is-open .ai-ask-trigger {
+  background: var(--pl-accent-soft);
+}
+/* No hover on touch screens -- keep the trigger faintly visible instead. */
+@media (hover: none) {
+  .ai-ask-trigger {
+    opacity: 0.6;
+  }
+}
+.ai-ask-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 1050;
+  min-width: 190px;
+  padding: 6px 0;
+  background: var(--pl-panel);
+  border: 1px solid var(--pl-line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  font-size: 13px;
+  white-space: nowrap;
+}
+/* Bridges the 4px gap so moving down from trigger to menu doesn't close it. */
+.ai-ask-menu::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -6px;
+  height: 6px;
+}
+.ai-ask-menu-title {
+  padding: 2px 12px 6px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--pl-muted);
+  font-size: 12px;
+  border-bottom: 1px solid var(--pl-line);
+  margin-bottom: 4px;
+}
+.ai-ask-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--pl-text);
+  text-align: left;
+  cursor: pointer;
+}
+.ai-ask-item:hover,
+.ai-ask-item:focus {
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+  outline: none;
+}
+.ai-ask-item-icon {
+  width: 16px;
+  text-align: center;
+  color: var(--pl-accent);
+}
+.ai-ask-item-free {
+  border-top: 1px solid var(--pl-line);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+/* The plan part the co-pilot's questions are about (copilot-panel's
+   focusTarget) -- above the input, and as a tag on each such sent bubble. */
+.copilot-focus-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 12px 0;
+  padding: 3px 4px 3px 8px;
+  font-size: 12px;
+  border: 1px solid var(--pl-accent);
+  border-radius: 14px;
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+}
+.copilot-focus-chip-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.copilot-focus-chip-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.copilot-bubble-focus {
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--pl-accent);
+}

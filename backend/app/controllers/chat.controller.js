@@ -13,6 +13,7 @@ const chatTasks = require("../services/chatTasks");
 const webImages = require("../services/webImages");
 const copilotAttachments = require("../services/copilotAttachments");
 const copilotExport = require("../services/copilotExport");
+const copilotFocus = require("../services/copilotFocus");
 const multer = require("multer");
 const util = require("util");
 
@@ -211,7 +212,21 @@ const getOrCreateCurrentConversation = async (userId, scopeKey) => {
 // injects the review's own (short, already-generated) text directly, since
 // unlike a whole plan's content there's no reason to make the model fetch
 // something 200-500 characters long on demand.
-const buildContextAddition = async (pageContext) => {
+// `user` ({ userId, roles }) adds who the user is to the plan (author /
+// reviewing expert / browsing teacher), and `focus` -- the turn's question
+// was asked from a specific field or section's 问欣欣小助手 menu -- adds that
+// part's template hint and current content (see copilotFocus.js).
+const buildContextAddition = async (pageContext, { user, focus } = {}) => {
+  if (focus) {
+    await copilotActions.assertPlanVisible(user.userId, user.roles, focus.planId);
+    const plan = await Plan.findByPk(focus.planId, {
+      include: [
+        { model: db.templateVersion, as: "PlanTemplateVersion" },
+        { model: db.templateVersion, as: "ExecutionTemplateVersion" },
+      ],
+    });
+    if (plan) return copilotFocus.describeFocus(plan, focus) + copilotFocus.describeRelationship(plan, user.userId, user.roles);
+  }
   if (!pageContext) return "";
   if (pageContext.reviewId) {
     const review = await Review.findByPk(pageContext.reviewId);
@@ -234,9 +249,12 @@ const buildContextAddition = async (pageContext) => {
     );
   }
   if (pageContext.planId) {
-    const plan = await Plan.findByPk(pageContext.planId, { attributes: ["id", "title"] });
+    const plan = await Plan.findByPk(pageContext.planId, { attributes: ["id", "title", "teacherId"] });
     if (!plan) return "";
-    return `\n\n教师当前正在查看课程设计《${plan.title}》(planId: ${plan.id})，如与问题相关，可调用 get_plan_details 工具查看详细内容。`;
+    return (
+      `\n\n用户当前正在查看课程设计《${plan.title}》(planId: ${plan.id})，如与问题相关，可调用 get_plan_details 工具查看详细内容。` +
+      (user ? copilotFocus.describeRelationship(plan, user.userId, user.roles) : "")
+    );
   }
   return "";
 };
@@ -343,12 +361,12 @@ const safeLinkUrl = (url) => {
 // run as a background task (chatTasks.js), so a slow answer never holds the
 // panel hostage. Shared by sendMessage (current-scope-resolved) and
 // sendMessageToConversation (an explicitly-picked past thread).
-const recordUserTurn = async (conversation, content, attachmentIds) => {
+const recordUserTurn = async (conversation, content, attachmentIds, focus) => {
   await copilotAttachments.assertUsable(conversation.userId, attachmentIds);
-  const userMessage = await ChatMessage.create({ conversationId: conversation.id, role: "user", content });
+  const userMessage = await ChatMessage.create({ conversationId: conversation.id, role: "user", content, focus: focus || null });
   const attachments = await copilotAttachments.linkToMessage(conversation.userId, attachmentIds, userMessage.id);
   if (!conversation.title) {
-    const title = content || attachments.map((a) => a.name).join("、");
+    const title = (focus ? `${copilotFocus.focusLabel(focus)}：` : "") + (content || attachments.map((a) => a.name).join("、"));
     await conversation.update({ title: title.slice(0, TITLE_MAX_LEN) });
   }
   return { ...userMessage.toJSON(), attachments: attachments.map(copilotAttachments.publicMeta) };
@@ -436,10 +454,17 @@ const answerUserTurn = async (conversation, userMessageId, pageContext, { onEven
     replayed.filter((m) => m.role === "user").map((m) => m.id),
     { withText: true }
   );
+  // An earlier question asked from a field's menu keeps a short tag naming
+  // that field, so its "这一栏" still means what it meant then; the turn
+  // being answered gets the full focus block in the system prompt instead.
   const history = replayed.map((m) => ({
     role: m.role,
-    content: (m.content || "") + copilotAttachments.renderForModel(attachmentsByMessage.get(m.id)),
+    content:
+      (m.role === "user" ? copilotFocus.replayPrefix(m.focus) : "") +
+      (m.content || "") +
+      copilotAttachments.renderForModel(attachmentsByMessage.get(m.id)),
   }));
+  const currentQuestion = replayed.find((m) => Number(m.id) === Number(userMessageId));
 
   // Only the actions this user's roles grant -- see copilotActions.js. The
   // digest is the conversation as text, for tools that hand work to a
@@ -457,7 +482,10 @@ const answerUserTurn = async (conversation, userMessageId, pageContext, { onEven
     (await pendingNote(conversation.id, userMessageId)) +
     (await copilotActions.draftingGuidance(conversation.userId, toolset.tools));
   try {
-    systemPrompt += await buildContextAddition(pageContext);
+    systemPrompt += await buildContextAddition(pageContext, {
+      user: { userId: conversation.userId, roles: toolset.roles },
+      focus: currentQuestion && currentQuestion.focus,
+    });
   } catch (e) {
     console.error("加载当前课程设计/点评上下文失败（不影响消息发送）:", e.message);
   }
@@ -516,8 +544,8 @@ const INLINE_WAIT_MS = 8000;
 // Records the turn, starts answering it, and waits up to INLINE_WAIT_MS:
 // { userMessage, assistantMessage } if it finished, else { userMessage,
 // task } for the panel to follow (see getTask).
-const submitTurn = async (conversation, content, attachmentIds, pageContext) => {
-  const userMessage = await recordUserTurn(conversation, content, attachmentIds);
+const submitTurn = async (conversation, content, attachmentIds, pageContext, focus) => {
+  const userMessage = await recordUserTurn(conversation, content, attachmentIds, focus);
   const task = await chatTasks.submit({
     conversationId: conversation.id,
     userId: conversation.userId,
@@ -595,7 +623,9 @@ exports.startNew = async (req, res) => {
 };
 
 // POST /api/chat/conversations/current/messages
-// body: { content, pageContext?: { planId?, reviewId? } } -- pageContext is
+// body: { content, pageContext?: { planId?, reviewId? }, focus? } -- focus is
+// the plan field/section the question was asked from (copilotFocus.js),
+// only taken on a plan page. pageContext is
 // looked up server-side (not trusted verbatim from the client) so the system
 // prompt reflects the plan/review's actual current data, not whatever the
 // client claims.
@@ -607,8 +637,9 @@ exports.sendMessage = async (req, res) => {
     if (pageContext && pageContext.reviewId) await assertReviewOwnership(req.userId, pageContext.reviewId);
     const scopeKey = deriveScopeKey(pageContext);
     const conversation = await getOrCreateCurrentConversation(req.userId, scopeKey);
+    const focus = copilotFocus.normalizeFocus(req.body.focus, pageContext && !pageContext.reviewId ? pageContext.planId : null);
 
-    return res.send(await submitTurn(conversation, content, attachmentIds, pageContext));
+    return res.send(await submitTurn(conversation, content, attachmentIds, pageContext, focus));
   } catch (err) {
     return res.status(err.status || 500).send({ message: err.message || "发送消息时发生错误。" });
   }
