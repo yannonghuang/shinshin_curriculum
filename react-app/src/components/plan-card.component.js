@@ -60,13 +60,25 @@ const PlanCard = ({ item, canEdit, canDelete, onDelete, onToggleExcellent, onTog
       </span>
     </div>
 
+    {/* item.myReviews: set only by an expert's 我的点评 list (plan.controller.js
+        #findAll's reviewedByMe) -- the requester's own reviews on this plan. */}
+    {item.myReviews && (
+      <div className="pl-plan-card-meta mt-1">
+        <span>
+          <i className="fas fa-comment-dots"></i> 已提交 {item.myReviews.submitted} 条
+          {item.myReviews.saved > 0 && ` · 未提交 ${item.myReviews.saved} 条`}
+        </span>
+        {item.myReviews.lastAt && <span>最近 {new Date(item.myReviews.lastAt).toLocaleDateString("zh-cn")}</span>}
+      </div>
+    )}
+
     <div className="pl-plan-card-footer">
       {/* Basic-info editing now lives entirely on the plan detail page's own
           基本信息 leaf -- this link is the sole entry point into a plan, so
           it reads "编辑" for the owner (same destination either way) rather
           than offering a separate list-level edit action. */}
-      <Link className="btn btn-link p-0" to={`/plans/${item.id}`}>
-        {canEdit ? "编辑" : "查看详情"}
+      <Link className="btn btn-link p-0" to={item.myReviews ? `/plans/${item.id}?view=reviews` : `/plans/${item.id}`}>
+        {canEdit ? "编辑" : item.myReviews ? "查看点评" : "查看详情"}
       </Link>
       <div>
         {AuthService.isAdmin() && (

@@ -251,7 +251,7 @@ exports.create = async (req, res) => {
 
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, theme, grade, year, season, teacherId, isExcellentCase, status, mine, templateVersionId, schoolCode } =
+    const { page, size, keyword, theme, grade, year, season, teacherId, isExcellentCase, status, mine, templateVersionId, schoolCode, reviewedByMe } =
       req.query;
     const { limit, offset } = getPagination(page, size);
 
@@ -274,6 +274,38 @@ exports.findAll = async (req, res) => {
       }
       effectiveTeacherId = req.userId;
     }
+
+    // ?reviewedByMe=true backs an expert's 我的点评: the plans the caller has
+    // written a review on -- submitted or still a saved draft (their own
+    // drafts are theirs to see) -- most recently reviewed first, each with
+    // its myReviews counts. Resolved from req.userId, never a client id.
+    let myReviewStats = null;
+    if (reviewedByMe === "true" || reviewedByMe === true) {
+      if (!req.userId) {
+        return res.status(401).send({ message: "查看“我的点评”需要先登录。" });
+      }
+      const rows = await Review.findAll({
+        where: { reviewerId: req.userId, reviewerType: { [Op.ne]: "ai" } },
+        attributes: [
+          "planId",
+          "status",
+          [db.sequelize.fn("COUNT", db.sequelize.col("id")), "count"],
+          [db.sequelize.fn("MAX", db.sequelize.col("updated_at")), "lastAt"],
+        ],
+        group: [db.sequelize.col("plan_id"), "status"],
+        raw: true,
+      });
+      myReviewStats = new Map();
+      for (const r of rows) {
+        const stat = myReviewStats.get(r.planId) || { submitted: 0, saved: 0, lastAt: null };
+        stat[r.status] = Number(r.count);
+        if (!stat.lastAt || new Date(r.lastAt) > new Date(stat.lastAt)) stat.lastAt = r.lastAt;
+        myReviewStats.set(r.planId, stat);
+      }
+    }
+    const myReviewedIds = myReviewStats
+      ? [...myReviewStats.entries()].sort((a, b) => new Date(b[1].lastAt) - new Date(a[1].lastAt)).map(([id]) => Number(id))
+      : null;
 
     // Suspended plans are hidden from the public gallery and from other
     // teachers' lists, but stay visible to admin (always) and to the owning
@@ -310,6 +342,7 @@ exports.findAll = async (req, res) => {
     const condition = {
       [Op.and]: [
         hideSuspended ? { suspended: false } : null,
+        myReviewedIds ? { id: { [Op.in]: myReviewedIds } } : null,
         keyword
           ? {
               [Op.or]: [
@@ -364,7 +397,12 @@ exports.findAll = async (req, res) => {
       distinct: true,
       limit,
       offset,
-      order: [["id", "DESC"]],
+      // 我的点评 lists most recently reviewed first (myReviewedIds' order;
+      // the ids are integers straight from the DB, safe to inline).
+      order:
+        myReviewedIds && myReviewedIds.length
+          ? [[db.sequelize.literal(`FIELD(\`${Plan.name}\`.\`id\`, ${myReviewedIds.join(",")})`), "ASC"]]
+          : [["id", "DESC"]],
     });
 
     // aiReviewed/expertReviewed are derived, not stored -- "has this plan
@@ -387,6 +425,7 @@ exports.findAll = async (req, res) => {
       const plain = row.get({ plain: true });
       plain.aiReviewed = aiReviewedIds.has(plain.id);
       plain.expertReviewed = expertReviewedIds.has(plain.id);
+      if (myReviewStats) plain.myReviews = myReviewStats.get(plain.id) || null;
       return plain;
     });
 

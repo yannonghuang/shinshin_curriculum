@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReviewDataService from "../services/review.service";
 import AuthService from "../services/auth.service";
 import { takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
@@ -157,48 +157,73 @@ const draftValues = (draft) => ({
   score: draft.score === null || draft.score === undefined ? "" : String(Number(draft.score)),
 });
 
+// Grows with its content (between minRows and a cap, scrolling beyond
+// it), so a long review is readable in full while it's being edited.
+const MAX_EDITOR_HEIGHT_PX = 480;
+const AutoGrowTextarea = ({ value, minRows = 6, ...rest }) => {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight + 2, MAX_EDITOR_HEIGHT_PX)}px`;
+  }, [value]);
+  return <textarea ref={ref} rows={minRows} value={value} {...rest} />;
+};
+
 // The requester's own 已保存·未提交 draft, shown as an editor right in its
 // table row -- a saved draft is still being written, so it opens editable
 // rather than as a read-only row the expert has to find a way back into.
-// Holds no state of its own: the form's text/score come from whoever owns
-// them (ReviewList's own form for its spot, OtherSpotDraftRow below for a
-// draft from another spot).
-const EditableDraftRow = ({ cells, showScore, text, score, setText, setScore, isDirty, onSave, onSubmit, onDelete }) => (
-  <tr className="pl-review-draft-row">
-    {cells.type}
-    {cells.module}
-    {showScore && (
-      <td>
-        <input
-          className="form-control form-control-sm"
-          style={{ minWidth: 70 }}
-          type="number"
-          min="0"
-          max="100"
-          step="0.5"
-          value={score}
-          onChange={(e) => setScore(e.target.value)}
-        />
+// Two rows: the first keeps every value under its own column header
+// (tags under 类型, score input under 评分, buttons under 操作, ...); the
+// second gives the content editor the table's full width (colSpan) instead
+// of squeezing it into the 内容 column. Holds no state of its own:
+// text/score come from whoever owns them (ReviewList's own form for its
+// spot, OtherSpotDraftRow below for a draft from another spot).
+const EditableDraftRow = ({ meta, colSpan, showModule, showScore, text, score, setText, setScore, isDirty, onSave, onSubmit, onDelete }) => (
+  <>
+    <tr className="pl-review-draft-row pl-review-draft-meta">
+      <td style={{ whiteSpace: "nowrap" }}>{meta.tags}</td>
+      {showModule && <td>{meta.module}</td>}
+      {showScore && (
+        <td>
+          <input
+            className="form-control form-control-sm"
+            style={{ width: 80 }}
+            type="number"
+            min="0"
+            max="100"
+            step="0.5"
+            placeholder="可选"
+            value={score}
+            onChange={(e) => setScore(e.target.value)}
+          />
+        </td>
+      )}
+      {/* The 已保存·未提交 tag under 类型 already says the rest. */}
+      <td className="text-muted small" style={{ whiteSpace: "nowrap" }}>
+        {isDirty ? "有未保存的修改" : "已保存"}
       </td>
-    )}
-    <td>
-      <textarea rows="3" className="form-control form-control-sm mb-1" style={{ minWidth: 240 }} value={text} onChange={(e) => setText(e.target.value)} />
-      <small className="text-muted">{isDirty ? "有未保存的修改" : "已保存，尚未提交（仅自己可见）"}</small>
-    </td>
-    {cells.reviewer}
-    {cells.time}
-    <td style={{ whiteSpace: "nowrap" }}>
-      <button className="btn btn-outline-primary btn-sm mr-1" type="button" onClick={onSave} disabled={!isDirty}>
-        保存
-      </button>
-      <button className="btn btn-primary btn-sm mr-1" type="button" onClick={onSubmit}>
-        提交
-      </button>
-      <button className="btn btn-link btn-sm p-0 text-danger" type="button" onClick={onDelete}>
-        删除
-      </button>
-    </td>
-  </tr>
+      <td style={{ whiteSpace: "nowrap" }}>{meta.reviewer}</td>
+      <td>{meta.time}</td>
+      <td style={{ whiteSpace: "nowrap" }}>
+        <button className="btn btn-outline-primary btn-sm mr-1" type="button" onClick={onSave} disabled={!isDirty}>
+          保存
+        </button>
+        <button className="btn btn-primary btn-sm mr-1" type="button" onClick={onSubmit}>
+          提交
+        </button>
+        <button className="btn btn-link btn-sm p-0 text-danger" type="button" onClick={onDelete}>
+          删除
+        </button>
+      </td>
+    </tr>
+    <tr className="pl-review-draft-row pl-review-draft-editor">
+      <td colSpan={colSpan}>
+        <AutoGrowTextarea className="form-control" value={text} onChange={(e) => setText(e.target.value)} />
+      </td>
+    </tr>
+  </>
 );
 
 // The requester's own saved draft for a *different* spot than this widget's
@@ -581,6 +606,10 @@ const ReviewList = (props) => {
     }
   };
 
+  // 类型/内容/点评人/时间/操作 + the optional 模块 and 评分 -- what a draft's
+  // full-width editor row spans (see EditableDraftRow).
+  const columnCount = 5 + (isAggregateView ? 1 : 0) + (showScore ? 1 : 0);
+
   const headerLabel = sectionKey
     ? `点评（${sectionLabel(sectionKey, lessonIndex, sectionLabels)}）`
     : aggregateScope === "implementation"
@@ -617,8 +646,8 @@ const ReviewList = (props) => {
               />
             </div>
           </div>
-          <textarea
-            rows="3"
+          <AutoGrowTextarea
+            minRows={4}
             className="form-control mb-2"
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -672,8 +701,8 @@ const ReviewList = (props) => {
                   内容已更新
                 </span>
               );
-              const typeCell = (
-                <td>
+              const typeTags = (
+                <>
                   {review.reviewerType === "ai" ? (
                     <span className="pl-tag-ai" title={[review.aiModel && `模型：${review.aiModel}`, review.standardId && `依据 AI 点评标准 #${review.standardId}`].filter(Boolean).join(" · ") || undefined}>
                       AI点评
@@ -690,14 +719,14 @@ const ReviewList = (props) => {
                   )}
                   {newIds.has(review.id) && <span className="pl-tag pl-tag-new ml-1">新</span>}
                   {!isAggregateView && updatedBadge}
-                </td>
+                </>
               );
-              const moduleTd =
+              const moduleContent =
                 isAggregateView &&
                 (() => {
                   const { label, navKey, clickable } = moduleCell(review);
                   return (
-                    <td>
+                    <>
                       {clickable && onSelectSection ? (
                         <button type="button" className="btn btn-link p-0" onClick={() => onSelectSection(navKey, review.lessonIndex)}>
                           {label}
@@ -706,20 +735,20 @@ const ReviewList = (props) => {
                         label
                       )}
                       {updatedBadge}
-                    </td>
+                    </>
                   );
                 })();
-              const reviewerTd = (
-                <td>{review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-"}</td>
-              );
-              const timeTd = <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>;
-              const cells = { type: typeCell, module: moduleTd, reviewer: reviewerTd, time: timeTd };
+              const reviewerName = review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-";
+              const timeText = review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-";
+              const meta = { tags: typeTags, module: moduleContent, reviewer: reviewerName, time: timeText };
 
               if (isExpertReviewer && isOwnDraft(review)) {
                 return (
                   <EditableDraftRow
                     key={review.id}
-                    cells={cells}
+                    meta={meta}
+                    colSpan={columnCount}
+                    showModule={isAggregateView}
                     showScore={showScore}
                     text={text}
                     score={score}
@@ -740,7 +769,9 @@ const ReviewList = (props) => {
                     userId={userId}
                     onPersisted={retrieveReviews}
                     onMessage={setMessage}
-                    cells={cells}
+                    meta={meta}
+                    colSpan={columnCount}
+                    showModule={isAggregateView}
                     showScore={showScore}
                     onDelete={() => deleteReview(review)}
                   />
@@ -749,8 +780,8 @@ const ReviewList = (props) => {
 
               return (
                 <tr key={review.id}>
-                  {typeCell}
-                  {moduleTd}
+                  <td style={{ whiteSpace: "nowrap" }}>{typeTags}</td>
+                  {isAggregateView && <td>{moduleContent}</td>}
                   {showScore && (
                     <td>
                       {review.aiScore ? (
@@ -787,8 +818,8 @@ const ReviewList = (props) => {
                       </button>
                     )}
                   </td>
-                  {reviewerTd}
-                  {timeTd}
+                  <td style={{ whiteSpace: "nowrap" }}>{reviewerName}</td>
+                  <td>{timeText}</td>
                   <td>
                     {/* Continuing an AI review's discussion with 欣欣小助手 is
                         reserved to the plan's owning teacher (canDiscussAi

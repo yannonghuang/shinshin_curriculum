@@ -107,6 +107,13 @@ class App extends Component {
                     </Link>
                   </li>
                 )}
+                {AuthService.isExpert() && (
+                  <li className="nav-item">
+                    <Link to="/plans?reviewed=mine" className="nav-link">
+                      我的点评
+                    </Link>
+                  </li>
+                )}
                 {(AuthService.isAdmin() || AuthService.isTeacher()) && (
                   <li className="nav-item">
                     <Link to="/plans" className="nav-link">
