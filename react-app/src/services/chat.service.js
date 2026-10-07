@@ -1,5 +1,5 @@
 import http from "../http-common";
-import authHeader from "./auth-header";
+import authHeader, { backgroundAuthHeader } from "./auth-header";
 
 class ChatDataService {
   // pageContext ({ planId?, reviewId? }) picks which scoped conversation
@@ -72,8 +72,9 @@ class ChatDataService {
 
   // Background turns (backend chatTasks.js): a reply that takes longer than
   // a few seconds is a task -- polled for progress, cancellable, retryable.
-  getTask(id) {
-    return http.get(`/chat/tasks/${id}`, { headers: authHeader() });
+  // background: a timer-driven poll -- see auth-header.js#backgroundAuthHeader.
+  getTask(id, { background } = {}) {
+    return http.get(`/chat/tasks/${id}`, { headers: background ? backgroundAuthHeader() : authHeader() });
   }
 
   cancelTask(id) {

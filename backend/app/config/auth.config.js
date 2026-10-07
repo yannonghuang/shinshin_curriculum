@@ -13,7 +13,8 @@ module.exports = {
   // (re)issued -- but authJwt.js#verifyToken reissues a fresh token on every
   // authenticated request, so in practice this is a *sliding* inactivity
   // window, not a fixed session length: staying active keeps renewing it,
-  // and it only actually expires after this many seconds with no request at
-  // all. 1800s = 30 minutes of inactivity.
-  validity: Number(process.env.JWT_VALIDITY || 1800),
+  // and it only actually expires after this many seconds with no user
+  // activity at all (background polls don't count -- see authJwt.js's
+  // isBackgroundRequest). 7200s = 2 hours of inactivity.
+  validity: Number(process.env.JWT_VALIDITY || 7200),
 };

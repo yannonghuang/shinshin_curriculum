@@ -132,8 +132,8 @@ const AiScoreReview = () => {
   }, [filters, sortKey, sortDir]);
 
   const refresh = useCallback(
-    () =>
-      AiReviewDataService.getScoreReview()
+    (opts) =>
+      AiReviewDataService.getScoreReview(opts)
         .then((res) => {
           setPlans(res.data.plans);
           setJob(res.data.job);
@@ -154,7 +154,7 @@ const AiScoreReview = () => {
   const running = !!(job && job.running);
   useEffect(() => {
     if (!running) return undefined;
-    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    const timer = setInterval(() => refresh({ background: true }), POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [running, refresh]);
 

@@ -657,7 +657,7 @@ const CopilotPanel = () => {
     const poll = async () => {
       for (const id of activeTaskKey.split(",")) {
         try {
-          const resp = await ChatDataService.getTask(id);
+          const resp = await ChatDataService.getTask(id, { background: true });
           if (stopped) return;
           const t = resp.data;
           // Card first, reply second: outside an event handler React 16

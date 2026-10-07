@@ -37,20 +37,20 @@ import { getPendingReviewEdit, setPendingReviewEdit, clearPendingReviewEdit, rev
 //  - An aggregate (sectionKey unset, i.e. 整体点评 itself -- 设计's own via aggregateScope="design"
 //    (the default) or 实施's via aggregateScope="implementation"): shows every review in that
 //    aggregate's scope together -- genuine whole-section comments (and AI reviews) written here
-//    directly, tagged null for 设计 / "IMPLEMENTATION_OVERALL" for 实施, plus, read-only, every
-//    segment review that falls under this aggregate's scope (tagged in a "模块" column) so a
-//    reviewer sees the complete picture without clicking into each tab. 设计's aggregate covers
-//    WHY/WHAT/HOW + LESSON_DESIGN; 实施's aggregate covers those PLUS EXECUTION_RECORD, since its
-//    AI review is generated over combined design+execution content ("both sections" per the
-//    comment-scoping spec). A segment-tagged row has no delete button here even for its own
-//    author -- it's edited/deleted at its origin (the segment's own mini-widget), never from the
-//    aggregate, so nothing you see on a section's own tab can vanish out from under it via an
-//    edit made somewhere else.
+//    directly, tagged null for 设计 / "IMPLEMENTATION_OVERALL" for 实施, plus every segment review
+//    that falls under this aggregate's scope (tagged in a "模块" column) so a reviewer sees the
+//    complete picture without clicking into each tab. 设计's aggregate covers WHY/WHAT/HOW +
+//    LESSON_DESIGN; 实施's aggregate covers EXECUTION_RECORD only -- each segment review appears
+//    in exactly one of the two (see scopeReviews). A submitted segment row is read-only here,
+//    edited/deleted only at its origin (the segment's own mini-widget); the requester's own
+//    saved segment draft is the exception -- editable and deletable here too (OtherSpotDraftRow),
+//    as the same server draft and the same unsaved-edit entry as at its origin.
 //
 // Saved reviews (review.model.js's status), borrowed from a teacher's 保存草稿/提交待点评 on a
 // plan: an expert/admin can 保存点评 instead of 提交点评, keeping a draft only they can see --
-// one per spot (this widget's own write sectionKey + lessonIndex), loaded back into the form
-// whenever they return, and listed with a 已保存·未提交 tag until submitted. Unsaved form edits
+// one per spot (this widget's own write sectionKey + lessonIndex), listed with a 已保存·未提交 tag
+// until submitted -- and listed already open for editing (EditableDraftRow): once a spot has a
+// draft, its form lives in that draft's row instead of above the table. Unsaved form edits
 // live in utils/pendingReviewEdits.js, so they survive switching sidebar sections, and are
 // guarded like a plan's: PlanDetail's leave prompts, and a session-timeout auto-save to that
 // draft, with a local stash restored on the next visit when even that couldn't reach the server.
@@ -147,8 +147,112 @@ const writeSectionKeyFor = (sectionKey, aggregateScope) =>
   sectionKey || (aggregateScope === "implementation" ? "IMPLEMENTATION_OVERALL" : null);
 const lessonIndexFor = (lessonIndex) =>
   lessonIndex !== undefined && lessonIndex !== null && lessonIndex !== "" ? Number(lessonIndex) : null;
+const draftKey = (planId, writeKey, lessonIdx, userId) => `reviewDraft:${planId}:${writeKey || "OVERALL"}:${lessonIdx ?? ""}:${userId}`;
 const spotKey = ({ planId, sectionKey, aggregateScope, lessonIndex }, userId) =>
-  `reviewDraft:${planId}:${writeSectionKeyFor(sectionKey, aggregateScope) || "OVERALL"}:${lessonIndexFor(lessonIndex) ?? ""}:${userId}`;
+  draftKey(planId, writeSectionKeyFor(sectionKey, aggregateScope), lessonIndexFor(lessonIndex), userId);
+// A saved draft's spot key -- the same one that spot's own form uses.
+const draftKeyOf = (review, userId) => draftKey(review.planId, review.sectionKey || null, lessonIndexFor(review.lessonIndex), userId);
+const draftValues = (draft) => ({
+  text: draft.content || "",
+  score: draft.score === null || draft.score === undefined ? "" : String(Number(draft.score)),
+});
+
+// The requester's own 已保存·未提交 draft, shown as an editor right in its
+// table row -- a saved draft is still being written, so it opens editable
+// rather than as a read-only row the expert has to find a way back into.
+// Holds no state of its own: the form's text/score come from whoever owns
+// them (ReviewList's own form for its spot, OtherSpotDraftRow below for a
+// draft from another spot).
+const EditableDraftRow = ({ cells, showScore, text, score, setText, setScore, isDirty, onSave, onSubmit, onDelete }) => (
+  <tr className="pl-review-draft-row">
+    {cells.type}
+    {cells.module}
+    {showScore && (
+      <td>
+        <input
+          className="form-control form-control-sm"
+          style={{ minWidth: 70 }}
+          type="number"
+          min="0"
+          max="100"
+          step="0.5"
+          value={score}
+          onChange={(e) => setScore(e.target.value)}
+        />
+      </td>
+    )}
+    <td>
+      <textarea rows="3" className="form-control form-control-sm mb-1" style={{ minWidth: 240 }} value={text} onChange={(e) => setText(e.target.value)} />
+      <small className="text-muted">{isDirty ? "有未保存的修改" : "已保存，尚未提交（仅自己可见）"}</small>
+    </td>
+    {cells.reviewer}
+    {cells.time}
+    <td style={{ whiteSpace: "nowrap" }}>
+      <button className="btn btn-outline-primary btn-sm mr-1" type="button" onClick={onSave} disabled={!isDirty}>
+        保存
+      </button>
+      <button className="btn btn-primary btn-sm mr-1" type="button" onClick={onSubmit}>
+        提交
+      </button>
+      <button className="btn btn-link btn-sm p-0 text-danger" type="button" onClick={onDelete}>
+        删除
+      </button>
+    </td>
+  </tr>
+);
+
+// The requester's own saved draft for a *different* spot than this widget's
+// form -- in an 整体点评 view, a segment's draft listed beside the
+// aggregate's own reviews. Edited in place with the same unsaved-edit
+// tracking (utils/pendingReviewEdits.js, under that segment's own key) as
+// the segment's form, so leave prompts and the session-timeout auto-save
+// cover it too, and the segment's form picks the edits up if opened next.
+const OtherSpotDraftRow = ({ review, userId, onPersisted, onMessage, ...rowProps }) => {
+  const key = draftKeyOf(review, userId);
+  const sectionKey = review.sectionKey || null;
+  const lessonIdx = lessonIndexFor(review.lessonIndex);
+  const baseline = draftValues(review);
+  const [initial] = useState(() => getPendingReviewEdit(key) || baseline);
+  const [text, setText] = useState(initial.text);
+  const [score, setScore] = useState(initial.score);
+  const isDirty = text !== baseline.text || score !== baseline.score;
+
+  useEffect(() => {
+    if (isDirty) {
+      setPendingReviewEdit(key, { planId: review.planId, sectionKey, lessonIndex: lessonIdx, text, score });
+    } else {
+      clearPendingReviewEdit(key);
+    }
+  }, [key, review.planId, sectionKey, lessonIdx, isDirty, text, score]);
+
+  const persist = async (status) => {
+    if (!text.trim()) {
+      onMessage("请填写点评内容。");
+      return;
+    }
+    try {
+      await ReviewDataService.create(review.planId, reviewPayload({ sectionKey, lessonIndex: lessonIdx, text, score }, status));
+      clearPendingReviewEdit(key);
+      onMessage(status === "saved" ? "点评已保存（尚未提交，仅自己可见）。" : "");
+      onPersisted();
+    } catch (e) {
+      onMessage(e?.response?.data?.message || (status === "saved" ? "保存点评失败。" : "提交点评失败。"));
+    }
+  };
+
+  return (
+    <EditableDraftRow
+      {...rowProps}
+      text={text}
+      score={score}
+      setText={setText}
+      setScore={setScore}
+      isDirty={isDirty}
+      onSave={() => persist("saved")}
+      onSubmit={() => persist("submitted")}
+    />
+  );
+};
 
 const ReviewList = (props) => {
   const {
@@ -249,7 +353,10 @@ const ReviewList = (props) => {
       const list = Array.isArray(resp.data) ? resp.data : resp.data.rows || resp.data.reviews || [];
       // See scopeReviews above.
       const scoped = scopeReviews(list, { sectionKey, aggregateScope, sectionLabels });
-      const sorted = [...scoped].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      // Newest first, except the requester's own saved drafts, which lead --
+      // they're still being written (see EditableDraftRow).
+      const isMineSaved = (r) => r.status === "saved" && !!userId && String(r.reviewerId) === String(userId);
+      const sorted = [...scoped].sort((a, b) => isMineSaved(b) - isMineSaved(a) || new Date(b.createdAt) - new Date(a.createdAt));
       setReviews(sorted);
       if (isExpertReviewer) {
         const draft = sorted.find(isOwnDraft);
@@ -257,9 +364,7 @@ const ReviewList = (props) => {
         // (React < 18) each one re-renders synchronously, and the first
         // (setBaseline) would already make the untouched form look dirty.
         const wasDirty = formRef.current.isDirty;
-        const saved = draft
-          ? { text: draft.content || "", score: draft.score === null || draft.score === undefined ? "" : String(Number(draft.score)) }
-          : { text: "", score: "" };
+        const saved = draft ? draftValues(draft) : { text: "", score: "" };
         setBaseline(saved);
         setHasDraft(!!draft);
         // Never overwrite edits in progress; otherwise show what's saved.
@@ -295,7 +400,7 @@ const ReviewList = (props) => {
       console.log(e);
       setMessage("加载点评列表失败。");
     }
-  }, [planId, lessonIndex, sectionKey, aggregateScope, sectionLabels, trackSeen, onSeen, isExpertReviewer, isOwnDraft, localDraftKey]);
+  }, [planId, lessonIndex, sectionKey, aggregateScope, sectionLabels, trackSeen, onSeen, isExpertReviewer, isOwnDraft, localDraftKey, userId]);
 
   // Also reruns whenever aiLoading flips (in either direction) -- when
   // aiPending is lifted to a parent that outlives this widget's own mount
@@ -437,42 +542,39 @@ const ReviewList = (props) => {
     review.status !== "saved" && isContentUpdated(review) && latestIdByGroup.get(reviewGroupKey(review)) === review.id;
   // A review is "this aggregate's own" iff it's tagged with this aggregate's
   // writeSectionKey and has no lessonIndex -- everything else shown in an
-  // aggregate (a segment review, or, in 实施's aggregate, 设计's own AI
-  // review) was written/generated elsewhere and is read-only here, never
-  // editable/deletable from this aggregate (see the file header comment).
+  // aggregate is a segment review, written at that segment's own tab and
+  // read-only here once submitted (see the file header comment).
   const isOwnAggregateRow = (review) =>
     review.sectionKey === writeSectionKey && (review.lessonIndex === null || review.lessonIndex === undefined);
   const isSectionOrigin = (review) => isAggregateView && !isOwnAggregateRow(review);
 
   // What the 模块 column shows for a row, and whether/where clicking it
-  // should navigate. A tagged segment row uses its own sectionKey as the
-  // navigation target; an untagged (sectionKey null) row is normally this
-  // aggregate's own genuine comment ("整体", not clickable) -- except inside
-  // 实施's aggregate, where writeSectionKey is "IMPLEMENTATION_OVERALL", so a
-  // null-sectionKey row there is never this aggregate's own -- it's always
-  // 设计's own AI review, borrowed for visibility (see the file header
-  // comment), so it's labeled distinctly and links back to 设计's aggregate.
+  // should navigate. A segment row links to its own section's tab; this
+  // aggregate's own rows aren't clickable -- 实施's are tagged
+  // "IMPLEMENTATION_OVERALL" (labeled 实施整体), 设计's untagged (整体).
   const moduleCell = (review) => {
     if (review.sectionKey) {
       return { label: sectionLabel(review.sectionKey, review.lessonIndex, sectionLabels), navKey: review.sectionKey, clickable: !isOwnAggregateRow(review) };
     }
-    if (aggregateScope === "implementation") {
-      return { label: "设计整体", navKey: "DESIGN_OVERALL", clickable: true };
-    }
     return { label: "整体", clickable: false };
   };
 
-  // A saved draft is outside the history lock (review.controller.js#delete).
+  const isMine = (review) => !!review.reviewerId && !!currentUser && String(review.reviewerId) === String(currentUser.id);
+  // The requester's own saved draft for another spot (see OtherSpotDraftRow).
+  const isMyOtherDraft = (review) => isExpertReviewer && review.status === "saved" && isMine(review) && !isOwnDraft(review);
+  // A saved draft is outside the history lock (review.controller.js#delete),
+  // and its author may delete it wherever it's shown -- it's edited in place
+  // there too (see EditableDraftRow).
   const canDelete = (review) =>
-    !isSectionOrigin(review) &&
-    (review.status === "saved" || isCurrentVersion(review)) &&
-    (AuthService.isAdmin() || (review.reviewerId && currentUser && String(review.reviewerId) === String(currentUser.id)));
+    (review.status === "saved" && isMine(review)) ||
+    (!isSectionOrigin(review) && (review.status === "saved" || isCurrentVersion(review)) && (AuthService.isAdmin() || isMine(review)));
 
   const deleteReview = async (review) => {
     if (!canDelete(review)) return;
     if (!window.confirm(review.status === "saved" ? "确定要删除该已保存的点评吗？" : "确定要删除该点评吗？")) return;
     try {
       await ReviewDataService.delete(review.id);
+      if (isMyOtherDraft(review)) clearPendingReviewEdit(draftKeyOf(review, userId));
       retrieveReviews();
     } catch (e) {
       setMessage(e?.response?.data?.message || "删除失败。");
@@ -496,7 +598,10 @@ const ReviewList = (props) => {
         )}
       </div>
 
-      {isExpertReviewer && (
+      {/* Once this spot has a saved draft, the form moves into that draft's
+          own table row (see EditableDraftRow) -- same state, just shown
+          where the draft is listed. */}
+      {isExpertReviewer && !hasDraft && (
         <form onSubmit={submit} className="mb-3">
           <div className="form-row">
             <div className="form-group col-md-2">
@@ -525,9 +630,7 @@ const ReviewList = (props) => {
           <button className="btn btn-primary btn-sm" type="submit">
             提交点评
           </button>
-          <small className="text-muted ml-2">
-            {isDirty ? "有未保存的修改" : hasDraft ? "已保存，尚未提交（仅自己可见）" : null}
-          </small>
+          <small className="text-muted ml-2">{isDirty ? "有未保存的修改" : null}</small>
         </form>
       )}
 
@@ -569,42 +672,85 @@ const ReviewList = (props) => {
                   内容已更新
                 </span>
               );
+              const typeCell = (
+                <td>
+                  {review.reviewerType === "ai" ? (
+                    <span className="pl-tag-ai" title={[review.aiModel && `模型：${review.aiModel}`, review.standardId && `依据 AI 点评标准 #${review.standardId}`].filter(Boolean).join(" · ") || undefined}>
+                      AI点评
+                    </span>
+                  ) : review.reviewerType === "admin" ? (
+                    <span className="pl-tag-admin">管理员点评</span>
+                  ) : (
+                    <span className="pl-tag-expert">专家点评</span>
+                  )}
+                  {review.status === "saved" && (
+                    <span className="pl-tag ml-1" title="仅自己可见，提交后教师与其他人才能看到">
+                      已保存·未提交
+                    </span>
+                  )}
+                  {newIds.has(review.id) && <span className="pl-tag pl-tag-new ml-1">新</span>}
+                  {!isAggregateView && updatedBadge}
+                </td>
+              );
+              const moduleTd =
+                isAggregateView &&
+                (() => {
+                  const { label, navKey, clickable } = moduleCell(review);
+                  return (
+                    <td>
+                      {clickable && onSelectSection ? (
+                        <button type="button" className="btn btn-link p-0" onClick={() => onSelectSection(navKey, review.lessonIndex)}>
+                          {label}
+                        </button>
+                      ) : (
+                        label
+                      )}
+                      {updatedBadge}
+                    </td>
+                  );
+                })();
+              const reviewerTd = (
+                <td>{review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-"}</td>
+              );
+              const timeTd = <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>;
+              const cells = { type: typeCell, module: moduleTd, reviewer: reviewerTd, time: timeTd };
+
+              if (isExpertReviewer && isOwnDraft(review)) {
+                return (
+                  <EditableDraftRow
+                    key={review.id}
+                    cells={cells}
+                    showScore={showScore}
+                    text={text}
+                    score={score}
+                    setText={setText}
+                    setScore={setScore}
+                    isDirty={isDirty}
+                    onSave={() => persist("saved")}
+                    onSubmit={() => persist("submitted")}
+                    onDelete={() => deleteReview(review)}
+                  />
+                );
+              }
+              if (isMyOtherDraft(review)) {
+                return (
+                  <OtherSpotDraftRow
+                    key={review.id}
+                    review={review}
+                    userId={userId}
+                    onPersisted={retrieveReviews}
+                    onMessage={setMessage}
+                    cells={cells}
+                    showScore={showScore}
+                    onDelete={() => deleteReview(review)}
+                  />
+                );
+              }
+
               return (
                 <tr key={review.id}>
-                  <td>
-                    {review.reviewerType === "ai" ? (
-                      <span className="pl-tag-ai" title={[review.aiModel && `模型：${review.aiModel}`, review.standardId && `依据 AI 点评标准 #${review.standardId}`].filter(Boolean).join(" · ") || undefined}>
-                        AI点评
-                      </span>
-                    ) : review.reviewerType === "admin" ? (
-                      <span className="pl-tag-admin">管理员点评</span>
-                    ) : (
-                      <span className="pl-tag-expert">专家点评</span>
-                    )}
-                    {review.status === "saved" && (
-                      <span className="pl-tag ml-1" title="仅自己可见，提交后教师与其他人才能看到">
-                        已保存·未提交
-                      </span>
-                    )}
-                    {newIds.has(review.id) && <span className="pl-tag pl-tag-new ml-1">新</span>}
-                    {!isAggregateView && updatedBadge}
-                  </td>
-                  {isAggregateView &&
-                    (() => {
-                      const { label, navKey, clickable } = moduleCell(review);
-                      return (
-                        <td>
-                          {clickable && onSelectSection ? (
-                            <button type="button" className="btn btn-link p-0" onClick={() => onSelectSection(navKey, review.lessonIndex)}>
-                              {label}
-                            </button>
-                          ) : (
-                            label
-                          )}
-                          {updatedBadge}
-                        </td>
-                      );
-                    })()}
+                  {typeCell}
+                  {moduleTd}
                   {showScore && (
                     <td>
                       {review.aiScore ? (
@@ -641,8 +787,8 @@ const ReviewList = (props) => {
                       </button>
                     )}
                   </td>
-                  <td>{review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-"}</td>
-                  <td>{review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-"}</td>
+                  {reviewerTd}
+                  {timeTd}
                   <td>
                     {/* Continuing an AI review's discussion with 欣欣小助手 is
                         reserved to the plan's owning teacher (canDiscussAi

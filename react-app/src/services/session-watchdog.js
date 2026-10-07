@@ -16,10 +16,23 @@ import { hasUnsavedWork, saveUnsavedWork, stashUnsavedWork } from "../utils/sess
 // interceptor on every request that *does* happen) against the clock, and
 // redirects to /login the moment it lapses -- no network round-trip needed,
 // since the whole point is this fires even when no request would otherwise
-// go out. CHECK_INTERVAL_MS trades precision (how close to the true 15-
-// minute mark the redirect actually happens) for polling overhead; 30s is
-// comfortably precise for a 900s window at effectively zero cost.
+// go out. CHECK_INTERVAL_MS trades precision (how close to the true expiry
+// the redirect actually happens) for polling overhead; 30s is comfortably
+// precise for a 2-hour window at effectively zero cost.
 const CHECK_INTERVAL_MS = 30 * 1000;
+
+// The session times out after *inactivity*, and activity is the user doing
+// something on the page -- but typing a long review or reading a plan sends
+// no request, so the token (only renewed by requests, see authJwt.js) used
+// to run out under a user who was busy the whole time: the auto-save below
+// then saved their half-typed review and logged them out mid-sentence.
+// User input now counts: on any keystroke/click/scroll/touch, the session
+// is renewed with a ping once the token is at least this old -- often
+// enough that an active user never gets near the auto-save window, rarely
+// enough that typing doesn't send a request per keystroke. Timer-driven
+// polls deliberately don't count (see auth-header.js#backgroundAuthHeader).
+const RENEW_AFTER_SECONDS = 5 * 60;
+const ACTIVITY_EVENTS = ["keydown", "pointerdown", "wheel", "touchstart"];
 
 // How long before expiry to auto-save unsaved edits (see
 // utils/sessionExpiryGuard.js) -- has to be comfortably wider than the check
@@ -67,6 +80,21 @@ const startSessionWatchdog = () => {
       clearSessionAndRedirectToLogin();
     }
   };
+
+  let renewing = false;
+  const onActivity = () => {
+    if (renewing || autoSaving) return;
+    const user = AuthService.getCurrentUser();
+    if (!user || !AuthService.isValid() || !user.thisLogin) return;
+    if (Math.floor(Date.now() / 1000) - user.thisLogin < RENEW_AFTER_SECONDS) return;
+    renewing = true;
+    AuthService.ping()
+      .catch(() => {}) // a 401 is already handled by the renewal interceptor
+      .finally(() => {
+        renewing = false;
+      });
+  };
+  ACTIVITY_EVENTS.forEach((type) => window.addEventListener(type, onActivity, { capture: true, passive: true }));
 
   setInterval(check, CHECK_INTERVAL_MS);
   // Background tabs get their timers heavily throttled, so the interval
