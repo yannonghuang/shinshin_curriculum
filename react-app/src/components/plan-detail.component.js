@@ -7,6 +7,7 @@ import AuthService from "../services/auth.service";
 import ReviewList, { scopeReviews } from "./review-list.component";
 import ReviewDataService from "../services/review.service";
 import LessonFileManager from "./lesson-file-manager.component";
+import AskAiMenu, { askAiPresets } from "./ask-ai-menu.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, PLAN_STATUSES, EMPTY_LESSON, currentSeason } from "../constants/plan-options";
 import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
 import { registerSessionExpiryHandler, writeLocalDraft, takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
@@ -93,6 +94,34 @@ const anchorSections = (schema) => {
 // one) only ever has `fields`, which is already direct-only by construction.
 const directFields = (section) => (section.ownFields !== undefined ? section.ownFields : section.fields || []);
 
+// Template labels often end in a colon ("认知思维目标：") -- dropped where a
+// label is quoted as a name, as in 就「认知思维目标」提问.
+const bareLabel = (label) => String(label || "").replace(/[：:]\s*$/, "");
+
+// A whole section/subsection's answers as one text block for 欣欣小助手's
+// focus (see AskAiMenu) -- "【label】value" per field, outline order, with
+// untouched fields marked rather than showing their template hint.
+const partDraftText = (fields, subsections, values) => {
+  const lines = [];
+  const walk = (fs, subs, prefix) => {
+    (fs || []).forEach((f) => {
+      const label = [...prefix, f.group, f.label].filter(Boolean).join(" · ");
+      const v = values && values[f.key];
+      lines.push(v != null && String(v).trim() ? `【${label}】\n${v}` : `【${label}】（未填写）`);
+    });
+    (subs || []).forEach((sub) => walk(sub.fields, sub.subsections, [...prefix, sub.label]));
+  };
+  walk(fields, subsections, []);
+  return lines.join("\n\n");
+};
+
+// The freeform 分课时设计 form's two fields (no lessonSchema), in the same
+// shape as a schema's fields -- for partDraftText.
+const FREEFORM_LESSON_FIELDS = [
+  { key: "title", label: "课时标题" },
+  { key: "content", label: "课时设计内容" },
+];
+
 // Renders one schema section's fields as labeled textareas, grouping
 // consecutive same-`group` fields under one sub-heading and repeating
 // "{group} · {label}" on each (same convention as HOW's own nested fields
@@ -110,8 +139,14 @@ const directFields = (section) => (section.ownFields !== undefined ? section.own
 // depth -- field keys are globally unique across the whole schema (see
 // onFormFieldChange/mergeFormData), so no per-depth answer namespacing is
 // needed.
-const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldChange, depth = 0 }) => {
+//
+// `askAi`, when given, puts a 问欣欣小助手 hover menu (AskAiMenu) on every
+// field and subsection heading: { kind, basePath (labels of the enclosing
+// page), sectionKey?, lessonIndex?, presets, getValues } -- getValues()
+// returns this part's *live* answers, so a question sees unsaved edits.
+const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldChange, askAi, depth = 0 }) => {
   let lastGroup;
+  const focusBase = askAi && { kind: askAi.kind, sectionKey: askAi.sectionKey, lessonIndex: askAi.lessonIndex };
   return (
     <>
       {(fields || []).map((field) => {
@@ -120,8 +155,23 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
         return (
           <React.Fragment key={field.key}>
             {isNewGroup && <h6 className="mt-3 mb-2">{field.group}</h6>}
-            <div className="form-group">
+            <div className={`form-group${askAi ? " ai-ask-host" : ""}`}>
               <label>{field.group ? `${field.group} · ${field.label}` : field.label}</label>
+              {askAi && (
+                <AskAiMenu
+                  presets={askAi.presets}
+                  target={{
+                    ...focusBase,
+                    fieldKey: field.key,
+                    labelPath: [...askAi.basePath, ...(field.group ? [bareLabel(field.group)] : []), bareLabel(field.label)],
+                    // Same text the textarea shows (hint while untouched).
+                    getDraft: () => {
+                      const v = (askAi.getValues() || {})[field.key];
+                      return v != null ? String(v) : field.hint || "";
+                    },
+                  }}
+                />
+              )}
               <textarea
                 className="form-control"
                 rows="4"
@@ -143,13 +193,27 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
       })}
       {(subsections || []).map((sub) => (
         <div key={sub.key} style={{ marginLeft: depth * 16 }}>
-          <h6 className="mt-3 mb-2">{sub.label}</h6>
+          <h6 className={`mt-3 mb-2${askAi ? " ai-ask-host" : ""}`}>
+            {sub.label}
+            {askAi && (
+              <AskAiMenu
+                presets={askAi.presets}
+                unit="这一部分"
+                target={{
+                  ...focusBase,
+                  labelPath: [...askAi.basePath, bareLabel(sub.label)],
+                  getDraft: () => partDraftText(sub.fields, sub.subsections, askAi.getValues()),
+                }}
+              />
+            )}
+          </h6>
           <DynamicSectionFields
             fields={sub.fields}
             subsections={sub.subsections}
             values={values}
             canEdit={canEdit}
             onFieldChange={onFieldChange}
+            askAi={askAi && { ...askAi, basePath: [...askAi.basePath, bareLabel(sub.label)] }}
             depth={depth + 1}
           />
         </div>
@@ -797,6 +861,11 @@ const PlanDetail = (props) => {
     planDirty,
     executionDirty,
   };
+  // The forms' live (possibly unsaved) answers, for 欣欣小助手's 问欣欣 menus
+  // (AskAiMenu) -- read when a question is sent, not when the menu rendered,
+  // so a follow-up question sees edits made in between.
+  const liveFormRef = useRef({});
+  liveFormRef.current = { formData, executionFormData };
   useEffect(() => {
     const unsavedParts = () => {
       const s = expiryStateRef.current;
@@ -1108,6 +1177,14 @@ const PlanDetail = (props) => {
   // review.model.js's own comment on why those stay distinct).
   const planReviews = plan.Reviews || [];
   const expertReviews = planReviews.filter((r) => r.reviewerType === "expert");
+  // 问欣欣小助手 menu entries by the user's relationship to this plan -- its
+  // author gets writing help, an expert reviewing it gets review help (the
+  // backend gets the same relationship, see copilotFocus.js).
+  const askAiPresetList = askAiPresets({ isAuthor: isOwner, isExpert: AuthService.isExpert(), isAdmin });
+  const sectionHeadingAskAi = (kind, label, extra, getDraft) => (
+    <AskAiMenu presets={askAiPresetList} unit="这一部分" target={{ kind, ...extra, labelPath: [label], getDraft }} />
+  );
+
   const reviewFlags = {
     aiReviewed: planReviews.some((r) => r.reviewerType === "ai"),
     expertReviewed: expertReviews.length > 0,
@@ -1253,15 +1330,25 @@ const PlanDetail = (props) => {
       const section = planAnchorSections.find((s) => s.key === selected.key);
       if (!section) return null;
       const values = planSchemaMultiSection ? formData[section.key] || {} : formData;
+      const getValues = () => {
+        const live = liveFormRef.current.formData || {};
+        return planSchemaMultiSection ? live[section.key] || {} : live;
+      };
       return (
         <div className="pl-card pl-why-what-how">
-          <h6>{section.label}</h6>
+          <h6 className="ai-ask-host">
+            {section.label}
+            {sectionHeadingAskAi("planSection", section.label, { sectionKey: section.key }, () =>
+              partDraftText(directFields(section), section.subsections, getValues())
+            )}
+          </h6>
           <DynamicSectionFields
             fields={directFields(section)}
             subsections={section.subsections}
             values={values}
             canEdit={canEditPlan}
             onFieldChange={(field, value) => onFormFieldChange(section.key, field, value)}
+            askAi={{ kind: "planSection", sectionKey: section.key, basePath: [section.label], presets: askAiPresetList, getValues }}
           />
           <hr />
           <ReviewList
@@ -1360,9 +1447,18 @@ const PlanDetail = (props) => {
       // ignored by DynamicSectionFields, which only reads its own field keys).
       const lesson = formData.lessons.find((l) => Number(l.index) === n) || EMPTY_LESSON;
       const lessonSchema = planTemplateSchema.lessonSchema;
+      const lessonLabel = `分课时设计 · 课时 ${n}`;
+      const getLessonValues = () => ((liveFormRef.current.formData || {}).lessons || []).find((l) => Number(l.index) === n) || {};
       return (
         <div className="pl-card pl-why-what-how">
-          <h6>分课时设计 · 课时 {n}</h6>
+          <h6 className="ai-ask-host">
+            {lessonLabel}
+            {sectionHeadingAskAi("planLesson", lessonLabel, { lessonIndex: n }, () =>
+              lessonSchema
+                ? partDraftText(lessonSchema.fields, lessonSchema.subsections, getLessonValues())
+                : partDraftText(FREEFORM_LESSON_FIELDS, null, getLessonValues())
+            )}
+          </h6>
           {lessonSchema ? (
             // Schema-driven: a reusable per-课时 field template extracted
             // from the source template itself (see templateParser.js#
@@ -1374,6 +1470,7 @@ const PlanDetail = (props) => {
               values={lesson}
               canEdit={canEditPlan}
               onFieldChange={(field, value) => onLessonFieldChange(n, field, value)}
+              askAi={{ kind: "planLesson", lessonIndex: n, basePath: [lessonLabel], presets: askAiPresetList, getValues: getLessonValues }}
             />
           ) : (
             // Freeform fallback -- every template with no detectable
@@ -1422,15 +1519,23 @@ const PlanDetail = (props) => {
       const n = selected.key;
       const record = executionFormData.find((r) => Number(r.index) === n) || {};
       const section = executionTemplateSchema.sections[0] || { fields: [] };
+      const recordLabel = `实施记录 · 课时 ${n}`;
+      const getRecordValues = () => (liveFormRef.current.executionFormData || []).find((r) => Number(r.index) === n) || {};
       return (
         <div className="pl-card pl-why-what-how">
-          <h6>实施记录 · 课时 {n}</h6>
+          <h6 className="ai-ask-host">
+            {recordLabel}
+            {sectionHeadingAskAi("executionRecord", recordLabel, { lessonIndex: n }, () =>
+              partDraftText(directFields(section), section.subsections, getRecordValues())
+            )}
+          </h6>
           <DynamicSectionFields
             fields={directFields(section)}
             subsections={section.subsections}
             values={record}
             canEdit={canEditPlan}
             onFieldChange={(field, value) => onExecutionFieldChange(n, field, value)}
+            askAi={{ kind: "executionRecord", lessonIndex: n, basePath: [recordLabel], presets: askAiPresetList, getValues: getRecordValues }}
           />
           <hr />
           <ReviewList

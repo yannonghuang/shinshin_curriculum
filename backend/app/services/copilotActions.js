@@ -955,4 +955,11 @@ const draftingGuidance = async (userId, tools) => {
   );
 };
 
-module.exports = { buildToolset, runConfirmedAction, labelOf, createPlanFromDraft, draftingGuidance };
+// Throws unless this user may view the plan -- the same GET /api/plans/:id
+// guard get_plan_details goes through. For chat.controller.js's focus
+// context (copilotFocus.js), which reads the plan's saved field values.
+const assertPlanVisible = async (userId, roles, planId) => {
+  await loadVisiblePlan({ userId, roles }, planId);
+};
+
+module.exports = { buildToolset, runConfirmedAction, labelOf, createPlanFromDraft, draftingGuidance, assertPlanVisible };

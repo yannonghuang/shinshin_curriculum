@@ -14,9 +14,10 @@ class ChatDataService {
   }
 
   // attachmentIds: uploads from uploadAttachment below, claimed by this
-  // message server-side (see chat.controller.js#appendTurn).
-  sendMessage(content, pageContext, attachmentIds) {
-    return http.post("/chat/conversations/current/messages", { content, pageContext, attachmentIds }, { headers: authHeader() });
+  // message server-side (see chat.controller.js#appendTurn). focus: the plan
+  // field/section the question is about (ask-ai-menu.component.js), or null.
+  sendMessage(content, pageContext, attachmentIds, focus) {
+    return http.post("/chat/conversations/current/messages", { content, pageContext, attachmentIds, focus }, { headers: authHeader() });
   }
 
   // "Revisit all threads" -- list every retained conversation, open one by

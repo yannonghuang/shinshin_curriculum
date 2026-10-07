@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import ChatDataService from "../services/chat.service";
+import AiLetterIcon from "./ai-letter-icon.component";
 import AuthService from "../services/auth.service";
 import "../curriculum.css";
 
@@ -21,7 +22,10 @@ import "../curriculum.css";
 // contribute context later. reviewId, on the other hand, can't come from the
 // URL (there's no /reviews/:id route) -- any component can request it via a
 // "copilot:open" window event (see the listener below), e.g. a "与欣欣小助手
-// 讨论这条点评" button in review-list.component.js.
+// 讨论这条点评" button in review-list.component.js. The same event carries a
+// `focus` from the plan page's 问欣欣 menus (ask-ai-menu.component.js) --
+// the field/section a question is about, sent along with every message
+// until the teacher removes it (see focusTarget below).
 const PLAN_PAGE_RE = /^\/plans\/(\d+)/;
 
 // Default size and clamping bounds. The panel itself stays anchored via
@@ -132,34 +136,6 @@ const announceChanges = (messages) => {
 };
 
 const ACTION_STATUS_LABELS = { pending: "待确认", confirmed: "已执行", cancelled: "已取消", failed: "执行失败" };
-
-// An "Ai" lettermark -- thin-stroke letters with a swooping crossbar on the
-// "A" and a four-pointed sparkle as the dot of the "i". Spelling out "AI"
-// reads at a glance in a way an abstract sparkles mark alone didn't. Inline
-// SVG (FontAwesome 5's free set has nothing like it) in currentColor, so it
-// takes the surrounding text color.
-const AiLetterIcon = ({ size = 24 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.7"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M2.8 20L8.8 4.5L14.8 20" />
-    <path d="M4.6 15.6Q9.6 11.4 13.4 17.6" />
-    <path d="M19 11V20" />
-    <path
-      d="M19 3.2Q19.35 6 22.1 6.35Q19.35 6.7 19 9.5Q18.65 6.7 15.9 6.35Q18.65 6 19 3.2Z"
-      fill="currentColor"
-      stroke="none"
-    />
-  </svg>
-);
 
 // Import -- what the file picker offers. The old binary Office formats are
 // listed on purpose: the server rejects them with a "save as .docx/.pptx"
@@ -479,6 +455,16 @@ const CopilotPanel = () => {
   const displayName = currentUser && (currentUser.chineseName || currentUser.username);
 
   const [overrideReviewId, setOverrideReviewId] = useState(null);
+  // The plan part questions are about -- { focus, getDraft } from a 问欣欣
+  // menu: `focus` is what's sent (copilotFocus.js#normalizeFocus's shape),
+  // getDraft() re-reads that part's on-screen text at each send. Shown as a
+  // chip above the input; × removes it, leaving the page ends it.
+  const [focusTarget, setFocusTarget] = useState(null);
+  // A menu question waiting to be sent once the conversation it belongs to
+  // has loaded -- sending earlier would race the load (see the effect below).
+  const [queuedPrompt, setQueuedPrompt] = useState(null);
+  // Read by the (mount-once) copilot:open listener.
+  const panelStateRef = useRef({});
   // Set when the user explicitly picks a past thread from "历史" (see
   // openThread below) -- takes priority over scope-derived "current" for
   // both loading and sending: that thread's own stored context is what
@@ -519,7 +505,21 @@ const CopilotPanel = () => {
   // of (not replacing) whatever planId the URL already contributes.
   useEffect(() => {
     const onOpenRequest = (e) => {
-      if (e.detail && e.detail.reviewId) setOverrideReviewId(e.detail.reviewId);
+      const detail = e.detail || {};
+      if (detail.reviewId) setOverrideReviewId(detail.reviewId);
+      if (detail.focus) {
+        // A plan-part question belongs to this plan's current conversation,
+        // not a review discussion or a past thread picked from 历史 -- leave
+        // those, and hold the question until that conversation has loaded.
+        const { isOpen: wasOpen, explicitConversationId: pickedId, overrideReviewId: reviewId } = panelStateRef.current;
+        if (!wasOpen || pickedId || reviewId) setIsLoaded(false);
+        setOverrideReviewId(null);
+        setExplicitConversationId(null);
+        setViewMode("chat");
+        setFocusTarget({ focus: detail.focus, getDraft: detail.getDraft });
+        if (detail.prompt) setQueuedPrompt(detail.prompt);
+        else setTimeout(() => inputRef.current && inputRef.current.focus(), 0);
+      }
       setIsOpen(true);
     };
     window.addEventListener("copilot:open", onOpenRequest);
@@ -527,9 +527,12 @@ const CopilotPanel = () => {
   }, []);
 
   // Leaving the page (any navigation) ends that specific review discussion --
-  // the override doesn't follow the user to an unrelated page.
+  // the override doesn't follow the user to an unrelated page. Same for a
+  // plan-part focus.
   useEffect(() => {
     setOverrideReviewId(null);
+    setFocusTarget(null);
+    setQueuedPrompt(null);
   }, [location.pathname]);
 
   const pageContext = (() => {
@@ -582,6 +585,7 @@ const CopilotPanel = () => {
       setExplicitConversationId(null);
         setViewMode("chat");
       setIsExportMode(false);
+      setIsLoaded(false); // reopening reloads -- see the queued-prompt effect
     }
   }, [isOpen]);
 
@@ -606,6 +610,7 @@ const CopilotPanel = () => {
   };
 
   const openThread = (id) => {
+    setFocusTarget(null); // a past thread keeps its own context
     setExplicitConversationId(id);
     setViewMode("chat");
   };
@@ -693,30 +698,52 @@ const CopilotPanel = () => {
     if (!isSending && isOpen && inputRef.current) inputRef.current.focus();
   }, [isSending, isOpen]);
 
+  panelStateRef.current = { isOpen, explicitConversationId, overrideReviewId };
+
+  // Sends a 问欣欣 menu question once the conversation is on screen.
+  useEffect(() => {
+    if (!queuedPrompt || !isOpen || !isLoaded || isSending || viewMode !== "chat") return;
+    const prompt = queuedPrompt;
+    setQueuedPrompt(null);
+    send(null, prompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queuedPrompt, isOpen, isLoaded, isSending, viewMode]);
+
   if (!isLoggedIn) return null;
 
   const isUploading = pendingAttachments.some((a) => a.status === "uploading");
   const readyAttachments = pendingAttachments.filter((a) => a.status === "ready");
 
-  const send = async (e) => {
-    e.preventDefault();
-    const content = input.trim();
-    if ((!content && readyAttachments.length === 0) || isSending || isUploading) return;
-    const sentAttachments = readyAttachments;
+  // `presetContent`: a 问欣欣 menu question (see the queued-prompt effect)
+  // -- sent as-is, leaving whatever the teacher has typed or attached alone.
+  const send = async (e, presetContent) => {
+    if (e) e.preventDefault();
+    const isPreset = presetContent !== undefined;
+    const content = (isPreset ? presetContent : input).trim();
+    const sentAttachments = isPreset ? [] : readyAttachments;
+    if ((!content && sentAttachments.length === 0) || isSending || isUploading) return;
     const keptAttachments = pendingAttachments;
-    setInput("");
-    setPendingAttachments([]);
+    if (!isPreset) {
+      setInput("");
+      setPendingAttachments([]);
+    }
     setError("");
+    // The focused part's text as it is *now* -- the teacher may have kept
+    // editing since opening the menu.
+    const focus =
+      focusTarget && !explicitConversationId
+        ? { ...focusTarget.focus, ...(focusTarget.getDraft ? { draftText: focusTarget.getDraft() } : {}) }
+        : null;
     // Optimistic append -- the real row (with its real id/timestamp) replaces
     // this once the request returns; a failure just leaves it in place with
     // an error message below rather than silently discarding what was typed.
-    setMessages((prev) => [...prev, { role: "user", content, attachments: sentAttachments, _pending: true }]);
+    setMessages((prev) => [...prev, { role: "user", content, attachments: sentAttachments, focus, _pending: true }]);
     setIsSending(true);
     const attachmentIds = sentAttachments.map((a) => a.id);
     try {
       const resp = explicitConversationId
         ? await ChatDataService.sendMessageToConversation(explicitConversationId, content, attachmentIds)
-        : await ChatDataService.sendMessage(content, pageContext, attachmentIds);
+        : await ChatDataService.sendMessage(content, pageContext, attachmentIds, focus);
       // Answered within the inline wait: the reply comes back with it.
       // Otherwise it's a background task -- a progress card takes its place
       // and the input is free again while it works.
@@ -731,8 +758,10 @@ const CopilotPanel = () => {
       // expired) -- hand the draft back instead of leaving a ghost bubble.
       if (err?.response?.status === 422) {
         setMessages((prev) => prev.filter((m) => !m._pending));
-        setInput(content);
-        setPendingAttachments(keptAttachments);
+        if (!isPreset) {
+          setInput(content);
+          setPendingAttachments(keptAttachments);
+        }
       }
       setError(err?.response?.data?.message || "发送失败，请重试。");
     } finally {
@@ -1380,6 +1409,11 @@ const CopilotPanel = () => {
                         </div>
                       ) : (
                         <>
+                          {m.focus && m.focus.labelPath && (
+                            <div className="copilot-bubble-focus" title="这条消息针对课程设计中的这一部分">
+                              针对：{m.focus.labelPath.join(" › ")}
+                            </div>
+                          )}
                           {m.content && <div className="copilot-bubble-content">{m.content}</div>}
                           <MessageAttachments attachments={m.attachments} />
                         </>
@@ -1458,6 +1492,17 @@ const CopilotPanel = () => {
                 </div>
               ) : (
                 <div className="copilot-composer">
+                  {focusTarget && !explicitConversationId && (
+                    <div className="copilot-focus-chip" title="提问会附带这一部分的当前内容（含未保存的修改）">
+                      <span className="copilot-focus-chip-icon">
+                        <AiLetterIcon size={14} />
+                      </span>
+                      <span className="copilot-focus-chip-label">针对：{focusTarget.focus.labelPath.join(" › ")}</span>
+                      <button type="button" className="copilot-chip-remove" title="不再针对这一部分" onClick={() => setFocusTarget(null)}>
+                        ×
+                      </button>
+                    </div>
+                  )}
                   {pendingAttachments.length > 0 && (
                     <div className="copilot-pending-attachments">
                       {pendingAttachments.map((a) => (
@@ -1520,7 +1565,11 @@ const CopilotPanel = () => {
                       rows={1}
                       className="form-control copilot-input"
                       placeholder={
-                        pendingAttachments.length > 0 ? "说明需要如何处理附件（可不填）..." : "输入问题，或粘贴截图（Shift+Enter 换行）..."
+                        pendingAttachments.length > 0
+                          ? "说明需要如何处理附件（可不填）..."
+                          : focusTarget && !explicitConversationId
+                          ? `就「${focusTarget.focus.labelPath[focusTarget.focus.labelPath.length - 1]}」提问（Shift+Enter 换行）...`
+                          : "输入问题，或粘贴截图（Shift+Enter 换行）..."
                       }
                       value={input}
                       onChange={(e) => setInput(e.target.value)}

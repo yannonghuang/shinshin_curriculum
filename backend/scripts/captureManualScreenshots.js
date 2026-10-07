@@ -64,6 +64,7 @@ const TEACHER_ID = 8; // yannonghuang / 黄教师 -- a real existing teacher acc
 // own comment on how these were picked).
 const REVIEW_PLAN_TITLE = "小小菜农 —— 萝卜种植乡土实践课"; // real 设计 content + a real review pair
 const MANUAL_MIGRATION_PLAN_TITLE = "童心探敦煌，巧手汇非遗"; // real leftover 手动迁移内容 from an actual past migration
+const FOCUS_PLAN_TITLE = "黄陂三鲜"; // real online WHY/WHAT/HOW content, for the 问欣欣 hover menu
 
 // 学习资源库 content is sourced from PRODUCTION instead of dev -- see this
 // file's header comment on why, and on why only 材料内容 (never 基本信息, which
@@ -152,6 +153,50 @@ const shoot = async (locatorOrPage, name, options) => {
   await locatorOrPage.screenshot({ path: target, ...options });
   console.log(`    saved ${name}.png`);
 };
+
+// 欣欣小助手's per-field 问欣欣 hover menu (ask-ai-menu.component.js) on a
+// real plan's WHY page, then the panel it opens: the 针对：… chip and a real
+// reply to the 帮我完善 question (a live LLM round-trip -- read-only, the
+// question only asks for suggestions, nothing is written). Runs with the
+// panel closed and leaves it closed.
+async function captureFocusShots(page) {
+  console.log("==> 欣欣小助手 问欣欣 悬停菜单 (WHY 页的第一个字段)");
+  await openPlanByTitle(page, FOCUS_PLAN_TITLE);
+  await ensurePlanGroupExpanded(page);
+  await page.locator(".pl-explorer-leaf", { hasText: /^WHY/ }).first().click();
+  await page.waitForTimeout(300);
+  // A fresh 新对话 first, so the reply isn't preceded by unrelated history.
+  await page.locator(".copilot-toggle").click();
+  await page.locator(".copilot-panel").getByRole("button", { name: "新对话" }).click();
+  await page.waitForTimeout(300);
+  await page.locator(".copilot-toggle").click();
+  const field = page.locator(".pl-card .form-group.ai-ask-host").first();
+  await field.hover();
+  await field.locator(".ai-ask-trigger").hover();
+  await page.locator(".ai-ask-menu").waitFor();
+  await page.waitForTimeout(300);
+  {
+    const box = await field.boundingBox();
+    const menuBox = await page.locator(".ai-ask-menu").boundingBox();
+    const bottom = Math.max(box.y + box.height, menuBox.y + menuBox.height) + 12;
+    await shoot(page, "copilot-ask-menu", { clip: { x: box.x - 12, y: box.y - 12, width: box.width + 24, height: bottom - box.y + 12 } });
+  }
+
+  console.log("==> 欣欣小助手 针对某一栏的对话 (帮我完善)");
+  await page.locator(".ai-ask-menu").getByRole("menuitem", { name: "帮我完善" }).click();
+  await page.locator(".copilot-panel .copilot-focus-chip").waitFor();
+  await page.waitForFunction(
+    () => !document.querySelector(".copilot-bubble-thinking") && !document.querySelector(".copilot-task-card") &&
+      !!document.querySelector(".copilot-bubble-user .copilot-bubble-focus") &&
+      document.querySelectorAll(".copilot-bubble-assistant").length > 0,
+    null,
+    { timeout: 240000 }
+  );
+  await page.locator(".copilot-bubble-user .copilot-bubble-focus").last().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(500);
+  await shoot(page.locator(".copilot-panel"), "copilot-focus");
+  await page.locator(".copilot-toggle").click();
+}
 
 async function run() {
   const browser = await chromium.launch();
@@ -339,6 +384,8 @@ async function run() {
     await shoot(page.locator(".copilot-panel"), "copilot-photos");
     await page.locator(".copilot-toggle").click();
 
+    await captureFocusShots(page);
+
     // ---------------------------------------------------------------
     // 学习资源库 screenshot -- sourced from PRODUCTION (see this file's header
     // for why), read-only: browses a real topic as the same real teacher
@@ -374,4 +421,8 @@ async function run() {
   }
 }
 
-run();
+// `node scripts/captureManualScreenshots.js` runs everything; requiring it
+// lets a one-off capture reuse a single step (e.g. captureFocusShots).
+if (require.main === module) run();
+
+module.exports = { BASE_URL, loginAs, captureFocusShots };
