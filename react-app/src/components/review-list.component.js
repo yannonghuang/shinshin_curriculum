@@ -59,6 +59,10 @@ import { getPendingReviewEdit, setPendingReviewEdit, clearPendingReviewEdit, rev
 // paragraphs, which used to blow up every row's height in a list that's
 // meant to be scannable.
 const CONTENT_PREVIEW_LENGTH = 150;
+// An AI review's full-width body (see the reviewerType === "ai" rows below)
+// starts collapsed to its first few lines when longer than this -- the CSS
+// (.pl-review-ai-content.is-collapsed) does the actual clipping.
+const isLongAiContent = (content) => !!content && (content.length > 240 || content.split("\n").length > 6);
 
 // 设计's own segment sectionKeys -- both aggregates show these; 实施's
 // aggregate additionally shows EXECUTION_RECORD (see the file header
@@ -778,38 +782,99 @@ const ReviewList = (props) => {
                 );
               }
 
+              const scoreContent = review.aiScore ? (
+                // AI 打分 from the same turn/content version as this AI
+                // review -- only ever sent to experts/admins (see
+                // review.controller.js#attachAiScores); hover for the
+                // per-dimension breakdown.
+                <span
+                  style={{ cursor: "help", borderBottom: "1px dotted" }}
+                  title={[
+                    ...(review.aiScore.dimensionScores || []).map(
+                      (d) => `${d.name}：${d.score}/${d.weight}${d.level ? `（${d.level}）` : ""}`
+                    ),
+                    review.aiScore.summary && `总评：${review.aiScore.summary}`,
+                    `依据 AI 点评标准 #${review.aiScore.standardId}`,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
+                >
+                  {review.aiScore.totalScore}
+                </span>
+              ) : review.score !== null && review.score !== undefined ? (
+                review.score
+              ) : (
+                "-"
+              );
+              const actions = (
+                <>
+                  {/* Continuing an AI review's discussion with 欣欣小助手 is
+                      reserved to the plan's owning teacher (canDiscussAi
+                      mirrors canEditPlan -- unlike canTriggerAi, which
+                      admins/experts also get on submitted plans) --
+                      not shown to an expert/admin/other-teacher viewer
+                      reading the same review, matching chat.controller.js's
+                      own ownership check on the review-scoped conversation
+                      this button opens. */}
+                  {review.reviewerType === "ai" && canDiscussAi && (
+                    <button
+                      type="button"
+                      className="btn btn-link p-0 mr-2"
+                      title="打开欣欣小助手，就这条点评继续提问"
+                      onClick={() => window.dispatchEvent(new CustomEvent("copilot:open", { detail: { reviewId: review.id } }))}
+                    >
+                      讨论
+                    </button>
+                  )}
+                  {canDelete(review) ? (
+                    <button className="btn btn-link p-0 text-danger" onClick={() => deleteReview(review)}>
+                      删除
+                    </button>
+                  ) : null}
+                </>
+              );
+
+              // An AI review runs to several paragraphs -- same two-row shape
+              // as a draft (EditableDraftRow): details under their own column
+              // headers, then the text at the table's full width, where a
+              // multi-paragraph review is actually readable. Starts collapsed
+              // to its first few lines (faded out) when long.
+              if (review.reviewerType === "ai") {
+                const isLongAi = isLongAiContent(review.content);
+                const collapsed = isLongAi && !isExpanded;
+                const toggle = isLongAi && (
+                  <button type="button" className="btn btn-link btn-sm p-0" onClick={() => toggleExpanded(review.id)}>
+                    {isExpanded ? "收起" : "展开全文"}
+                  </button>
+                );
+                return (
+                  <React.Fragment key={review.id}>
+                    <tr className="pl-review-ai-row pl-review-ai-meta">
+                      <td style={{ whiteSpace: "nowrap" }}>{typeTags}</td>
+                      {isAggregateView && <td>{moduleContent}</td>}
+                      {showScore && <td>{scoreContent}</td>}
+                      <td className="small" style={{ whiteSpace: "nowrap" }}>
+                        {toggle || <span className="text-muted">见下方</span>}
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>{reviewerName}</td>
+                      <td>{timeText}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{actions}</td>
+                    </tr>
+                    <tr className="pl-review-ai-row pl-review-ai-body">
+                      <td colSpan={columnCount}>
+                        <div className={`pl-review-ai-content${collapsed ? " is-collapsed" : ""}`}>{review.content}</div>
+                        {toggle && <div className="mt-1">{toggle}</div>}
+                      </td>
+                    </tr>
+                  </React.Fragment>
+                );
+              }
+
               return (
                 <tr key={review.id}>
                   <td style={{ whiteSpace: "nowrap" }}>{typeTags}</td>
                   {isAggregateView && <td>{moduleContent}</td>}
-                  {showScore && (
-                    <td>
-                      {review.aiScore ? (
-                        // AI 打分 from the same turn/content version as this AI
-                        // review -- only ever sent to experts/admins (see
-                        // review.controller.js#attachAiScores); hover for the
-                        // per-dimension breakdown.
-                        <span
-                          style={{ cursor: "help", borderBottom: "1px dotted" }}
-                          title={[
-                            ...(review.aiScore.dimensionScores || []).map(
-                              (d) => `${d.name}：${d.score}/${d.weight}${d.level ? `（${d.level}）` : ""}`
-                            ),
-                            review.aiScore.summary && `总评：${review.aiScore.summary}`,
-                            `依据 AI 点评标准 #${review.aiScore.standardId}`,
-                          ]
-                            .filter(Boolean)
-                            .join("\n")}
-                        >
-                          {review.aiScore.totalScore}
-                        </span>
-                      ) : review.score !== null && review.score !== undefined ? (
-                        review.score
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                  )}
+                  {showScore && <td>{scoreContent}</td>}
                   <td style={{ whiteSpace: "pre-wrap" }}>
                     {isLong && !isExpanded ? `${review.content.slice(0, CONTENT_PREVIEW_LENGTH)}...` : review.content}
                     {isLong && (
@@ -820,33 +885,7 @@ const ReviewList = (props) => {
                   </td>
                   <td style={{ whiteSpace: "nowrap" }}>{reviewerName}</td>
                   <td>{timeText}</td>
-                  <td>
-                    {/* Continuing an AI review's discussion with 欣欣小助手 is
-                        reserved to the plan's owning teacher (canDiscussAi
-                        mirrors canEditPlan -- unlike canTriggerAi, which
-                        admins/experts also get on submitted plans) --
-                        not shown to an expert/admin/other-teacher viewer
-                        reading the same review, matching chat.controller.js's
-                        own ownership check on the review-scoped conversation
-                        this button opens. */}
-                    {review.reviewerType === "ai" && canDiscussAi && (
-                      <button
-                        type="button"
-                        className="btn btn-link p-0 mr-2"
-                        title="打开欣欣小助手，就这条点评继续提问"
-                        onClick={() =>
-                          window.dispatchEvent(new CustomEvent("copilot:open", { detail: { reviewId: review.id } }))
-                        }
-                      >
-                        讨论
-                      </button>
-                    )}
-                    {canDelete(review) ? (
-                      <button className="btn btn-link p-0 text-danger" onClick={() => deleteReview(review)}>
-                        删除
-                      </button>
-                    ) : null}
-                  </td>
+                  <td>{actions}</td>
                 </tr>
               );
             })}
