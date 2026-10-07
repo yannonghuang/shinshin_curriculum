@@ -148,14 +148,15 @@ const describeRelationship = (plan, userId, roles) => {
       "只有用户明确要求「写进去」「保存」「替换」时才调用工具修改课程设计。"
     );
   }
-  if (has("expert")) {
+  // Experts and admins get a neutral reading, matching their 解读这里-only
+  // menu (ask-ai-menu.component.js) -- no ready-made review or verdict;
+  // they still get one if they ask for it.
+  if (has("expert") || has("admin") || has("super")) {
+    const who = has("expert") ? "专家" : "管理员";
     return (
-      "\n用户身份：专家，正在查看他人的课程设计（只读），通常是为了撰写点评。回答侧重专业评价：亮点、不足与具体可操作的改进建议，措辞可直接用于点评；" +
+      `\n用户身份：${who}，正在查看他人的课程设计（只读）。回答以客观解读为主：说明内容与设计意图，用户明确要求时再给出评价或建议；` +
       "不要提议或尝试修改该课程设计。"
     );
-  }
-  if (has("admin") || has("super")) {
-    return "\n用户身份：管理员，正在查看他人的课程设计（只读）。回答侧重客观解读与质量判断；不要提议或尝试修改该课程设计。";
   }
   return "\n用户身份：教师，正在浏览其他教师的课程设计（只读），多半是想学习借鉴。回答侧重解读设计思路与可借鉴之处；不要提议或尝试修改该课程设计。";
 };
