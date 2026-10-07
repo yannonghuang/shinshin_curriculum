@@ -64,7 +64,7 @@ const TEACHER_ID = 8; // yannonghuang / 黄教师 -- a real existing teacher acc
 // own comment on how these were picked).
 const REVIEW_PLAN_TITLE = "小小菜农 —— 萝卜种植乡土实践课"; // real 设计 content + a real review pair
 const MANUAL_MIGRATION_PLAN_TITLE = "童心探敦煌，巧手汇非遗"; // real leftover 手动迁移内容 from an actual past migration
-const FOCUS_PLAN_TITLE = "黄陂三鲜"; // real online WHY/WHAT/HOW content, for the 问欣欣 hover menu
+const FOCUS_PLAN_TITLE = "黄陂三鲜"; // real online WHY/WHAT/HOW content, for the 小助手 hover menu
 
 // 学习资源库 content is sourced from PRODUCTION instead of dev -- see this
 // file's header comment on why, and on why only 材料内容 (never 基本信息, which
@@ -154,13 +154,13 @@ const shoot = async (locatorOrPage, name, options) => {
   console.log(`    saved ${name}.png`);
 };
 
-// 欣欣小助手's per-field 问欣欣 hover menu (ask-ai-menu.component.js) on a
+// 欣欣小助手's per-field 小助手 hover menu (ask-ai-menu.component.js) on a
 // real plan's WHY page, then the panel it opens: the 针对：… chip and a real
 // reply to the 帮我完善 question (a live LLM round-trip -- read-only, the
 // question only asks for suggestions, nothing is written). Runs with the
 // panel closed and leaves it closed.
 async function captureFocusShots(page) {
-  console.log("==> 欣欣小助手 问欣欣 悬停菜单 (WHY 页的第一个字段)");
+  console.log("==> 欣欣小助手 小助手 悬停菜单 (WHY 页的第一个字段)");
   await openPlanByTitle(page, FOCUS_PLAN_TITLE);
   await ensurePlanGroupExpanded(page);
   await page.locator(".pl-explorer-leaf", { hasText: /^WHY/ }).first().click();

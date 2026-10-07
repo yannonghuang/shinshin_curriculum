@@ -214,7 +214,7 @@ const getOrCreateCurrentConversation = async (userId, scopeKey) => {
 // something 200-500 characters long on demand.
 // `user` ({ userId, roles }) adds who the user is to the plan (author /
 // reviewing expert / browsing teacher), and `focus` -- the turn's question
-// was asked from a specific field or section's 问欣欣小助手 menu -- adds that
+// was asked from a specific field or section's 小助手 menu -- adds that
 // part's template hint and current content (see copilotFocus.js).
 const buildContextAddition = async (pageContext, { user, focus } = {}) => {
   if (focus) {

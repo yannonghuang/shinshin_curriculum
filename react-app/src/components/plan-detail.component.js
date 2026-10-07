@@ -140,7 +140,7 @@ const FREEFORM_LESSON_FIELDS = [
 // onFormFieldChange/mergeFormData), so no per-depth answer namespacing is
 // needed.
 //
-// `askAi`, when given, puts a 问欣欣小助手 hover menu (AskAiMenu) on every
+// `askAi`, when given, puts a 小助手 hover menu (AskAiMenu) on every
 // field and subsection heading: { kind, basePath (labels of the enclosing
 // page), sectionKey?, lessonIndex?, presets, getValues } -- getValues()
 // returns this part's *live* answers, so a question sees unsaved edits.
@@ -861,7 +861,7 @@ const PlanDetail = (props) => {
     planDirty,
     executionDirty,
   };
-  // The forms' live (possibly unsaved) answers, for 欣欣小助手's 问欣欣 menus
+  // The forms' live (possibly unsaved) answers, for 欣欣小助手's 小助手 menus
   // (AskAiMenu) -- read when a question is sent, not when the menu rendered,
   // so a follow-up question sees edits made in between.
   const liveFormRef = useRef({});
@@ -1177,7 +1177,7 @@ const PlanDetail = (props) => {
   // review.model.js's own comment on why those stay distinct).
   const planReviews = plan.Reviews || [];
   const expertReviews = planReviews.filter((r) => r.reviewerType === "expert");
-  // 问欣欣小助手 menu entries by the user's relationship to this plan -- its
+  // 小助手 menu entries by the user's relationship to this plan -- its
   // author gets writing help, an expert reviewing it gets review help (the
   // backend gets the same relationship, see copilotFocus.js).
   const askAiPresetList = askAiPresets({ isAuthor: isOwner, isExpert: AuthService.isExpert(), isAdmin });

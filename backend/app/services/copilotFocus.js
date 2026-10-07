@@ -1,5 +1,5 @@
 // "Context-aware" 欣欣小助手: a question asked from a field's / section's
-// 问欣欣小助手 menu on the plan page (plan-detail.component.js#AskAiMenu)
+// 小助手 menu on the plan page (plan-detail.component.js#AskAiMenu)
 // carries a `focus` -- which part of the plan it is about, plus what the
 // edit box holds right now (possibly unsaved). This module validates it,
 // resolves it against the plan's own template (field hint, saved value), and

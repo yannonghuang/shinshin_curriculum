@@ -23,7 +23,7 @@ import "../curriculum.css";
 // URL (there's no /reviews/:id route) -- any component can request it via a
 // "copilot:open" window event (see the listener below), e.g. a "与欣欣小助手
 // 讨论这条点评" button in review-list.component.js. The same event carries a
-// `focus` from the plan page's 问欣欣 menus (ask-ai-menu.component.js) --
+// `focus` from the plan page's 小助手 menus (ask-ai-menu.component.js) --
 // the field/section a question is about, sent along with every message
 // until the teacher removes it (see focusTarget below).
 const PLAN_PAGE_RE = /^\/plans\/(\d+)/;
@@ -455,7 +455,7 @@ const CopilotPanel = () => {
   const displayName = currentUser && (currentUser.chineseName || currentUser.username);
 
   const [overrideReviewId, setOverrideReviewId] = useState(null);
-  // The plan part questions are about -- { focus, getDraft } from a 问欣欣
+  // The plan part questions are about -- { focus, getDraft } from a 小助手
   // menu: `focus` is what's sent (copilotFocus.js#normalizeFocus's shape),
   // getDraft() re-reads that part's on-screen text at each send. Shown as a
   // chip above the input; × removes it, leaving the page ends it.
@@ -700,7 +700,7 @@ const CopilotPanel = () => {
 
   panelStateRef.current = { isOpen, explicitConversationId, overrideReviewId };
 
-  // Sends a 问欣欣 menu question once the conversation is on screen.
+  // Sends a 小助手 menu question once the conversation is on screen.
   useEffect(() => {
     if (!queuedPrompt || !isOpen || !isLoaded || isSending || viewMode !== "chat") return;
     const prompt = queuedPrompt;
@@ -714,7 +714,7 @@ const CopilotPanel = () => {
   const isUploading = pendingAttachments.some((a) => a.status === "uploading");
   const readyAttachments = pendingAttachments.filter((a) => a.status === "ready");
 
-  // `presetContent`: a 问欣欣 menu question (see the queued-prompt effect)
+  // `presetContent`: a 小助手 menu question (see the queued-prompt effect)
   // -- sent as-is, leaving whatever the teacher has typed or attached alone.
   const send = async (e, presetContent) => {
     if (e) e.preventDefault();

@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import AiLetterIcon from "./ai-letter-icon.component";
 import "../curriculum.css";
 
-// "Context-aware" 欣欣小助手: a small 问欣欣 trigger that shows up while the
+// "Context-aware" 欣欣小助手: a small 小助手 trigger that shows up while the
 // pointer is over (or the caret is in) a field or section of the plan page,
 // and opens a menu of questions about *that* part. Picking one opens the
 // co-pilot panel with the part attached as the question's focus (see
@@ -120,7 +120,7 @@ const AskAiMenu = ({ target, presets, unit = "这一栏" }) => {
         onClick={() => setOpen((v) => !v)}
       >
         <AiLetterIcon size={16} />
-        <span>问欣欣</span>
+        <span>小助手</span>
       </button>
       {open && (
         <div className="ai-ask-menu" role="menu">
