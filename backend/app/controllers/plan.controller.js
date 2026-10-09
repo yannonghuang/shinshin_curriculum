@@ -8,6 +8,7 @@ const templateParser = require("../services/templateParser");
 const planDocExtract = require("../services/planDocExtract");
 const { diffPlanFormDataSegments, diffExecutionFormDataSegments } = require("../services/segmentVersion");
 const { migratePlanFormData } = require("../services/templateMigration");
+const { computeCompletion } = require("../services/planCompletion");
 const db = require("../models");
 const Plan = db.plan;
 const User = db.user;
@@ -113,6 +114,14 @@ const canViewNonExcellentPlan = async (plan, userId) => {
   const [admin, expert, teacher] = await Promise.all([isAdminRequester(userId), isExpertRequester(userId), isTeacherRequester(userId)]);
   if (admin) return true;
   return (expert || teacher) && plan.status !== "draft";
+};
+
+// Who sees a plan's 完成度: its owner, admins/super-admins and experts.
+const canSeeCompletion = async (plan, userId) => {
+  if (!userId) return false;
+  if (plan.teacherId === userId) return true;
+  const [admin, expert] = await Promise.all([isAdminRequester(userId), isExpertRequester(userId)]);
+  return admin || expert;
 };
 
 // 乡土主题 options come from the active plan_design template's own "附件"
@@ -510,6 +519,19 @@ exports.findOne = async (req, res) => {
     // anonymous request through (the public gallery has no login).
     if (!data.isExcellentCase && !(await canViewNonExcellentPlan(data, req.userId))) {
       return res.status(403).send({ message: "无权查看该乡土课程设计。" });
+    }
+
+    // 完成度 (planCompletion.js) is for the plan's owner and for
+    // admins/experts, who track progress -- not for a peer teacher (or an
+    // anonymous gallery visitor) browsing someone else's plan, so it's only
+    // computed and sent for the former.
+    if (await canSeeCompletion(data, req.userId)) {
+      const plain = data.get({ plain: true });
+      plain.completion = computeCompletion(plain, {
+        planSchema: data.PlanTemplateVersion ? data.PlanTemplateVersion.schemaJson : null,
+        hasDesignArtifact: (data.Artifacts || []).some((a) => a.lessonIndex === null || a.lessonIndex === undefined),
+      });
+      return res.send(plain);
     }
 
     return res.send(data);

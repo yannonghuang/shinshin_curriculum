@@ -265,6 +265,9 @@ async function run() {
     await page.waitForTimeout(300);
     await shoot(page.locator(".pl-card").first(), "review-panel");
 
+    console.log("==> plan-detail: 完成度 (标题栏)");
+    await shoot(page.locator(".pl-hero").first(), "plan-completion");
+
     console.log("==> plan-detail: 支撑材料 (文件管理器)");
     // "实施" (unlike a 课时N subgroup) also starts expanded, same as "计划" --
     // 课时 1 is already a visible leaf, no group click needed first.
