@@ -56,6 +56,33 @@ const PRESETS = {
   },
 };
 
+// 基本信息's own entries -- advice runs between its parts (the school's
+// locality -> 乡土主题/课题, a 课题 -> its 乡土主题, a 乡土主题 -> 课题;
+// see backend copilotFocus.js#describeBasicContext), not writing help for
+// one free-text field.
+const BASIC_PRESETS = {
+  suggestTopics: {
+    label: "推荐课题",
+    icon: "lightbulb",
+    prompt: () => "请结合我校所在地的乡土资源，以及已选的乡土主题和年级，推荐 3–5 个具体课题（可直接作为标题），每个附一句理由。",
+  },
+  suggestThemes: {
+    label: "推荐乡土主题",
+    icon: "map-marked-alt",
+    prompt: () => "请根据我校所在地区以及已填写的标题（课题），推荐最合适的乡土主题，并说明理由。",
+  },
+  checkMatch: {
+    label: "检查信息匹配",
+    icon: "check-double",
+    prompt: () => "请检查基本信息各项（标题、乡土主题、年级、学生人数、预计课时）是否相互匹配、是否立足我校当地，列出问题并给出调整建议。",
+  },
+};
+
+// `keys` picks which 基本信息 entries a given menu shows (the whole section
+// vs. its 标题 / 乡土主题 field); a non-author gets the usual read-only ones.
+export const basicInfoPresets = ({ isAuthor, isExpert, isAdmin }, keys = Object.keys(BASIC_PRESETS)) =>
+  isAuthor ? keys.map((key) => ({ key, ...BASIC_PRESETS[key] })) : askAiPresets({ isAuthor, isExpert, isAdmin });
+
 // The plan's author gets writing help; anyone else is reading someone
 // else's plan -- an expert/admin just gets it explained (no ready-made
 // review or consistency check), a teacher also what to learn from it.

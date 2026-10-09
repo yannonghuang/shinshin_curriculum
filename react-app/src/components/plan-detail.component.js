@@ -7,7 +7,7 @@ import AuthService from "../services/auth.service";
 import ReviewList, { scopeReviews } from "./review-list.component";
 import ReviewDataService from "../services/review.service";
 import LessonFileManager from "./lesson-file-manager.component";
-import AskAiMenu, { askAiPresets } from "./ask-ai-menu.component";
+import AskAiMenu, { askAiPresets, basicInfoPresets } from "./ask-ai-menu.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, PLAN_STATUSES, EMPTY_LESSON, currentSeason } from "../constants/plan-options";
 import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
 import { registerSessionExpiryHandler, writeLocalDraft, takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
@@ -600,6 +600,18 @@ const PLAN_SECTIONS = [
   { key: "reviews", label: "计划整体点评" },
 ];
 
+// 基本信息 fields in form order, for 欣欣小助手's focus text.
+const BASIC_INFO_LABELS = [
+  ["title", "标题"],
+  ["year", "年份"],
+  ["season", "学季"],
+  ["theme", "乡土主题"],
+  ["grade", "年级"],
+  ["studentCount", "学生人数"],
+  ["instructorName", "执教人"],
+  ["plannedLessonCount", "预计课时"],
+];
+
 // 基本信息 form -> PlanDataService.update payload. Shared by saveAll and the
 // session-timeout auto-save, so both send the same fields.
 const metaFormPayload = (metaForm) => ({
@@ -865,7 +877,7 @@ const PlanDetail = (props) => {
   // (AskAiMenu) -- read when a question is sent, not when the menu rendered,
   // so a follow-up question sees edits made in between.
   const liveFormRef = useRef({});
-  liveFormRef.current = { formData, executionFormData };
+  liveFormRef.current = { formData, executionFormData, metaForm };
   useEffect(() => {
     const unsavedParts = () => {
       const s = expiryStateRef.current;
@@ -1185,6 +1197,22 @@ const PlanDetail = (props) => {
     <AskAiMenu presets={askAiPresetList} unit="这一部分" target={{ kind, ...extra, labelPath: [label], getDraft }} />
   );
 
+  // 基本信息's own 小助手 menus -- the section heading plus 标题 / 乡土主题,
+  // where its suggestions land (see basicInfoPresets).
+  const basicRole = { isAuthor: isOwner, isExpert: AuthService.isExpert(), isAdmin };
+  const basicDraft = () => {
+    const m = liveFormRef.current.metaForm || {};
+    return BASIC_INFO_LABELS.filter(([key]) => m[key] !== undefined && m[key] !== null && String(m[key]).trim() !== "")
+      .map(([key, label]) => `【${label}】${m[key]}`)
+      .join("\n");
+  };
+  const basicFieldAskAi = (fieldKey, label, keys) => (
+    <AskAiMenu
+      presets={basicInfoPresets(basicRole, keys)}
+      target={{ kind: "planBasic", fieldKey, labelPath: ["基本信息", label], getDraft: () => String((liveFormRef.current.metaForm || {})[fieldKey] ?? "") }}
+    />
+  );
+
   const reviewFlags = {
     aiReviewed: planReviews.some((r) => r.reviewerType === "ai"),
     expertReviewed: expertReviews.length > 0,
@@ -1195,7 +1223,10 @@ const PlanDetail = (props) => {
     if (selected.type === "plan" && selected.key === "basic") {
       return (
         <div className="pl-card">
-          <h6>基本信息</h6>
+          <h6 className="ai-ask-host">
+            基本信息
+            <AskAiMenu presets={basicInfoPresets(basicRole)} unit="这一部分" target={{ kind: "planBasic", labelPath: ["基本信息"], getDraft: basicDraft }} />
+          </h6>
           <div className="mb-3">
             <span className={`pl-plan-card-status status-${plan.status || "draft"}`}>
               {(PLAN_STATUSES.find((s) => s.value === plan.status) || PLAN_STATUSES[0]).label}
@@ -1216,8 +1247,9 @@ const PlanDetail = (props) => {
               saveAll();
             }}
           >
-            <div className="form-group">
+            <div className="form-group ai-ask-host">
               <label>标题</label>
+              {basicFieldAskAi("title", "标题", ["suggestTopics", "checkMatch"])}
               {/* textarea (not a single-line input) so a long 标题 (project
                   titles here routinely run past what a single-line input can
                   show, e.g. "伞韵米香·寻味五溪——...") wraps and stays fully
@@ -1256,8 +1288,9 @@ const PlanDetail = (props) => {
                   ))}
                 </select>
               </div>
-              <div className="form-group col-md-3">
+              <div className="form-group col-md-3 ai-ask-host">
                 <label>乡土主题</label>
+                {basicFieldAskAi("theme", "乡土主题", ["suggestThemes", "suggestTopics"])}
                 <select className="form-control" value={metaForm.theme} onChange={(e) => updateMetaForm({ theme: e.target.value })} disabled={!canEditPlan}>
                   <option value="">不限</option>
                   {themeOptions.map((t) => (
