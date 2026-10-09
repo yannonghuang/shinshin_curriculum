@@ -126,7 +126,9 @@ const canSeeProgress = async (plan, userId) => {
 };
 
 // The plan's newest AI 打分 (same pick as 数据看板), or null if never
-// scored. `stale`: the plan's content was edited after the scored version.
+// scored. `stale`: the plan's content was edited after the scored version
+// -- the same version check review-list.component.js's isCurrentVersion
+// uses to tag AI 点评 rows 内容已更新.
 const latestAiDesignScore = async (plan) => {
   const s = await db.aiPlanScore.findOne({ where: { planId: plan.id }, order: [["id", "DESC"]] });
   if (!s) return null;
@@ -143,7 +145,7 @@ const latestAiDesignScore = async (plan) => {
     summary: s.summary,
     standardId: s.standardId,
     scoredAt: s.createdAt,
-    stale: time(plan.contentVersionAt) > time(s.planVersionAt),
+    stale: time(plan.contentVersionAt) !== time(s.planVersionAt),
   };
 };
 

@@ -245,7 +245,7 @@ const aiDesignScoreTooltip = (s) => {
     `评分标准：${s.standardTitle || "AI 点评标准"}（#${s.standardId}${s.maxScore ? `，满分 ${s.maxScore}` : ""}）`,
     ...blocks,
     `打分于 ${new Date(s.scoredAt).toLocaleString()}`,
-    s.stale && "打分后课程内容已修改，分数可能已不反映当前内容。",
+    s.stale && "内容已更新：课程内容已在此 AI 打分后被修改，分数针对的是修改前的内容。",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -270,7 +270,12 @@ const PlanProgressBadges = ({ completion, aiDesignScore: s }) => {
         >
           AI 设计分数：{s.totalScore}
           {s.maxScore ? ` / ${s.maxScore}` : ""}
-          {s.stale ? "（内容已修改）" : ""}
+          {/* Same tag as an out-of-date AI 点评 row (review-list.component.js). */}
+          {s.stale && (
+            <span className="pl-tag pl-tag-warn ml-2" title="课程内容已在此 AI 打分后被修改，分数针对的是修改前的内容">
+              内容已更新
+            </span>
+          )}
         </span>
       )}
     </div>
