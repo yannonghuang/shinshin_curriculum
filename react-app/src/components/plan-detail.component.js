@@ -222,6 +222,23 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
   );
 };
 
+// The header's 完成度. Sent only to the owner and admins/experts
+// (plan.controller.js#findOne's canSeeCompletion) -- a peer teacher never
+// gets it, so this renders nothing for them. As of the last save
+// (retrievePlan reloads it). Its own component rather than inline JSX:
+// PlanDetail is big enough that one more conditional branch in it trips
+// react-hooks/rules-of-hooks' path counting into a false "hook called
+// conditionally" error, which fails the dev build.
+const CompletionBadge = ({ completion }) =>
+  completion ? (
+    <span
+      className="pl-completion"
+      title={`基本信息 ${completion.basic}% · 课程设计 ${completion.design}% · 分课时设计 ${completion.lessonDesign}%（按上次保存的内容计算）`}
+    >
+      完成度：{completion.overall}%
+    </span>
+  ) : null;
+
 // The page's single 保存草稿/提交待点评 pair, rendered once in the sticky
 // header (see .pl-sticky-header) rather than above and below every section
 // -- it saves everything dirty across all sections at once (see saveAll),
@@ -1717,17 +1734,7 @@ const PlanDetail = (props) => {
                 {plan.isExcellentCase ? " · 优秀案例" : ""}
               </p>
             </div>
-            {/* Sent only to the owner and admins/experts (plan.controller.js
-                #findOne's canSeeCompletion) -- a peer teacher never gets it.
-                As of the last save (retrievePlan reloads it). */}
-            {plan.completion && (
-              <span
-                className="pl-completion"
-                title={`基本信息 ${plan.completion.basic}% · 课程设计 ${plan.completion.design}% · 分课时设计 ${plan.completion.lessonDesign}%（按上次保存的内容计算）`}
-              >
-                完成度：{plan.completion.overall}%
-              </span>
-            )}
+            <CompletionBadge completion={plan.completion} />
           </div>
           {plan.suspended && !isAdmin && (
             <div className="alert alert-warning py-2 mb-0">该课程设计已被管理员停用，如需修改请联系管理员。</div>
