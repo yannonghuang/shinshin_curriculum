@@ -265,7 +265,7 @@ async function run() {
     await page.waitForTimeout(300);
     await shoot(page.locator(".pl-card").first(), "review-panel");
 
-    console.log("==> plan-detail: 设计完成度 (标题栏)");
+    console.log("==> plan-detail: 设计完成度 / AI 设计分数 (标题栏)");
     await shoot(page.locator(".pl-hero").first(), "plan-completion");
 
     console.log("==> plan-detail: 支撑材料 (文件管理器)");

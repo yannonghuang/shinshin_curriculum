@@ -481,7 +481,7 @@ const Dashboard = () => {
           </select>
         </div>
         <div className="form-group col-md-3">
-          <label>AI 分数</label>
+          <label>AI 设计分数</label>
           <div className="d-flex align-items-center">
             <input
               className="form-control"
@@ -549,7 +549,7 @@ const Dashboard = () => {
             <th>课程</th>
             {sortableTh("submitted", "是否提交", { width: "7%" })}
             {sortableTh("completion", "设计完成度", { width: "14%" })}
-            {sortableTh("aiScore", "AI 分数", { width: "10%" })}
+            {sortableTh("aiScore", "AI 设计分数", { width: "10%" })}
             <th style={{ width: "13%" }}>专家点评</th>
           </tr>
         </thead>

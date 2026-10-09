@@ -158,7 +158,7 @@ const EXPORT_FIELDS = [
   { key: "completionDesign", label: "课程设计(%)", width: 10, value: (r) => r.completion.design },
   { key: "completionLessonDesign", label: "分课时设计(%)", width: 12, value: (r) => r.completion.lessonDesign },
   { key: "lessonCount", label: "课时数", width: 8, value: (r) => r.completion.lessonCount },
-  { key: "aiScore", label: "AI 总分", width: 8, defaultOn: true, value: (r) => (r.aiScore ? r.aiScore.totalScore : "") },
+  { key: "aiScore", label: "AI 设计分数", width: 12, defaultOn: true, value: (r) => (r.aiScore ? r.aiScore.totalScore : "") },
   {
     key: "aiDimensions",
     label: "AI 各维度得分",
