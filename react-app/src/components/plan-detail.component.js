@@ -1249,7 +1249,7 @@ const PlanDetail = (props) => {
           >
             <div className="form-group ai-ask-host">
               <label>标题</label>
-              {basicFieldAskAi("title", "标题", ["suggestTopics", "checkMatch"])}
+              {basicFieldAskAi("title", "标题", ["suggestTitles", "checkMatch"])}
               {/* textarea (not a single-line input) so a long 标题 (project
                   titles here routinely run past what a single-line input can
                   show, e.g. "伞韵米香·寻味五溪——...") wraps and stays fully
@@ -1290,7 +1290,7 @@ const PlanDetail = (props) => {
               </div>
               <div className="form-group col-md-3 ai-ask-host">
                 <label>乡土主题</label>
-                {basicFieldAskAi("theme", "乡土主题", ["suggestThemes", "suggestTopics"])}
+                {basicFieldAskAi("theme", "乡土主题", ["suggestThemes", "suggestTitles"])}
                 <select className="form-control" value={metaForm.theme} onChange={(e) => updateMetaForm({ theme: e.target.value })} disabled={!canEditPlan}>
                   <option value="">不限</option>
                   {themeOptions.map((t) => (

@@ -57,19 +57,19 @@ const PRESETS = {
 };
 
 // 基本信息's own entries -- advice runs between its parts (the school's
-// locality -> 乡土主题/课题, a 课题 -> its 乡土主题, a 乡土主题 -> 课题;
+// locality -> 乡土主题/标题, a 标题 -> its 乡土主题, a 乡土主题 -> 标题;
 // see backend copilotFocus.js#describeBasicContext), not writing help for
 // one free-text field.
 const BASIC_PRESETS = {
-  suggestTopics: {
-    label: "推荐课题",
+  suggestTitles: {
+    label: "推荐标题",
     icon: "lightbulb",
-    prompt: () => "请结合我校所在地的乡土资源，以及已选的乡土主题和年级，推荐 3–5 个具体课题（可直接作为标题），每个附一句理由。",
+    prompt: () => "请结合我校所在地的乡土资源，以及已选的乡土主题和年级，推荐 3–5 个可直接使用的课程标题，每个附一句理由。",
   },
   suggestThemes: {
     label: "推荐乡土主题",
     icon: "map-marked-alt",
-    prompt: () => "请根据我校所在地区以及已填写的标题（课题），推荐最合适的乡土主题，并说明理由。",
+    prompt: () => "请根据我校所在地区以及已填写的标题，推荐最合适的乡土主题，并说明理由。",
   },
   checkMatch: {
     label: "检查信息匹配",

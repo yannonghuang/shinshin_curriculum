@@ -197,7 +197,7 @@ async function captureFocusShots(page) {
   await shoot(page.locator(".copilot-panel"), "copilot-focus");
   await page.locator(".copilot-toggle").click();
 
-  // 基本信息's own menu (推荐课题/推荐乡土主题/...) -- just the menu, no
+  // 基本信息's own menu (推荐标题/推荐乡土主题/...) -- just the menu, no
   // question sent.
   console.log("==> 欣欣小助手 基本信息 小助手 菜单 (乡土主题)");
   await page.locator(".pl-explorer-leaf", { hasText: "基本信息" }).first().click();

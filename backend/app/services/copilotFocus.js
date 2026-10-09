@@ -114,14 +114,14 @@ const PART_LABELS = {
 
 // 基本信息 is what the rest of the design builds on, and its useful advice
 // runs between its parts -- the school's locality suggests 乡土主题 and
-// 课题, a 课题 suggests its 乡土主题, a 乡土主题 suggests 课题 -- so the
+// 标题, a 标题 suggests its 乡土主题, a 乡土主题 suggests 标题 -- so the
 // model gets the school and the allowed 乡土主题 options alongside it.
 const describeBasicContext = (plan, themeOptions) => {
   const lines = [];
   const school = plan.Teacher && plan.Teacher.School;
   if (school) {
     const addr = school.address && school.address !== school.name ? `（地址：${school.address}）` : "";
-    lines.push(`作者所在学校：${school.name}${addr}。课程要立足学校当地的乡土资源；推荐的主题/课题若并非当地特有，要说明与本地生活的联系。`);
+    lines.push(`作者所在学校：${school.name}${addr}。课程要立足学校当地的乡土资源；推荐的乡土主题/标题若并非当地特有，要说明与本地生活的联系。`);
   } else {
     lines.push("作者的学校信息未知；若需要当地情况才能给出建议，请先询问用户学校所在地。");
   }
@@ -129,9 +129,9 @@ const describeBasicContext = (plan, themeOptions) => {
     lines.push(`「乡土主题」只能从以下选项中选择：${themeOptions.join("、")}。推荐乡土主题时必须使用这些选项原文。`);
   }
   lines.push(
-    "基本信息各项之间要相互匹配：根据已填写的内容推断、补全其余部分——已知学校地区可推荐乡土主题和具体课题（标题）；" +
-      "已知课题可推荐对应的乡土主题；已知乡土主题可推荐结合当地资源的具体课题；同时考虑年级、学生人数与预计课时是否合适。" +
-      "推荐课题时给出 3–5 个候选，每个附一句理由（当地资源依据、适合该年级的原因）。"
+    "基本信息各项之间要相互匹配：根据已填写的内容推断、补全其余部分——已知学校地区可推荐乡土主题和课程标题；" +
+      "已知标题可推荐对应的乡土主题；已知乡土主题可推荐结合当地资源的标题；同时考虑年级、学生人数与预计课时是否合适。" +
+      "推荐标题时给出 3–5 个候选，每个附一句理由（当地资源依据、适合该年级的原因）。"
   );
   return lines.join("\n");
 };
