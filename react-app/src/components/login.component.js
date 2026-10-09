@@ -6,18 +6,13 @@ import CheckButton from "react-validation/build/button";
 import { Link } from "react-router-dom";
 
 import AuthService from "../services/auth.service";
+import { landingPathForRoles } from "../utils/landingPath";
 import "../curriculum.css";
 
-// 教师 lands on their own plans, 专家 lands on the 待点评 queue, 管理员/超级管理员
-// land on the full plans list -- each role's day-to-day work is managing
-// existing cases, not a generic home dashboard.
-const landingPathForRoles = (roles) => {
-  const r = roles || [];
-  if (r.includes("ROLE_TEACHER")) return "/plans?mine=true";
-  if (r.includes("ROLE_EXPERT")) return "/plans?status=submitted";
-  if (r.includes("ROLE_ADMIN") || r.includes("ROLE_SUPER")) return "/plans";
-  return "/";
-};
+// 教师 lands on their own plans, 专家 on 我的点评 (or the 待点评 queue before
+// their first review), 管理员/超级管理员 on the full plans list -- each
+// role's day-to-day work is managing existing cases, not a generic home
+// dashboard (see utils/landingPath.js).
 
 const required = (value) => {
   if (!value) {
@@ -50,6 +45,12 @@ export default class Login extends Component {
   }
 
   componentDidMount() {
+    // Already logged in: straight on to this role's landing page.
+    if (AuthService.isValid()) {
+      const currentUser = AuthService.getCurrentUser();
+      landingPathForRoles(currentUser ? currentUser.roles : []).then((path) => this.props.history.replace(path));
+      return;
+    }
     const search = this.props.location.search;
     const username = new URLSearchParams(search).get("username");
 
@@ -83,9 +84,11 @@ export default class Login extends Component {
       (response) => {
         if (response.data && response.data.accessToken) {
           localStorage.setItem("user", JSON.stringify(response.data));
-          this.setState({ loading: false });
-          this.props.history.push(landingPathForRoles(response.data.roles));
-          window.location.reload();
+          landingPathForRoles(response.data.roles).then((path) => {
+            this.setState({ loading: false });
+            this.props.history.push(path);
+            window.location.reload();
+          });
         } else {
           this.setState({ loading: false, message: "服务器异常，登录失败。" });
         }
@@ -102,11 +105,8 @@ export default class Login extends Component {
   }
 
   render() {
-    if (AuthService.isValid()) {
-      const currentUser = AuthService.getCurrentUser();
-      this.props.history.push(landingPathForRoles(currentUser ? currentUser.roles : []));
-      return null;
-    }
+    // Redirected from componentDidMount.
+    if (AuthService.isValid()) return null;
 
     return (
       <div className="auth-page">

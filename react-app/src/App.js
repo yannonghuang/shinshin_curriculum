@@ -102,15 +102,15 @@ class App extends Component {
                 )}
                 {AuthService.isExpert() && (
                   <li className="nav-item">
-                    <Link to="/plans?status=submitted" className="nav-link">
-                      待点评案例
+                    <Link to="/plans?reviewed=mine" className="nav-link">
+                      我的点评
                     </Link>
                   </li>
                 )}
                 {AuthService.isExpert() && (
                   <li className="nav-item">
-                    <Link to="/plans?reviewed=mine" className="nav-link">
-                      我的点评
+                    <Link to="/plans?status=submitted" className="nav-link">
+                      待点评案例
                     </Link>
                   </li>
                 )}
