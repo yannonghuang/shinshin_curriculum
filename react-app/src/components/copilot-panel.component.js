@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import ChatDataService from "../services/chat.service";
 import AiLetterIcon from "./ai-letter-icon.component";
 import AuthService from "../services/auth.service";
+import { saveBeforeCopilot } from "../utils/copilotSaveGuard";
 import "../curriculum.css";
 
 // Floating slide-in co-pilot -- mounted once in App.js for any logged-in
@@ -740,6 +741,19 @@ const CopilotPanel = () => {
     setMessages((prev) => [...prev, { role: "user", content, attachments: sentAttachments, focus, _pending: true }]);
     setIsSending(true);
     const attachmentIds = sentAttachments.map((a) => a.id);
+    // Unsaved edits on the plan page are saved first -- the assistant
+    // reads the plan from the server (see utils/copilotSaveGuard.js). A
+    // failed save sends nothing and hands the question back.
+    if (!(await saveBeforeCopilot())) {
+      setMessages((prev) => prev.filter((m) => !m._pending));
+      if (!isPreset) {
+        setInput(content);
+        setPendingAttachments(keptAttachments);
+      }
+      setError("页面上未保存的修改自动保存失败（原因见页面提示），本次提问未发送。");
+      setIsSending(false);
+      return;
+    }
     try {
       const resp = explicitConversationId
         ? await ChatDataService.sendMessageToConversation(explicitConversationId, content, attachmentIds)
