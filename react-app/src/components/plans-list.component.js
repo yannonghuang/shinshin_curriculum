@@ -9,6 +9,9 @@ import PlansHierarchy from "./plans-hierarchy.component";
 import { PLAN_THEMES, PLAN_GRADES, currentSeason } from "../constants/plan-options";
 import "../curriculum.css";
 
+// See showListControls.
+const SMALL_LIST_THRESHOLD = 5;
+
 const currentUserId = () => {
   const user = AuthService.getCurrentUser();
   return user ? user.id : null;
@@ -103,6 +106,15 @@ const PlansList = (props) => {
   // ever true for a logged-out visitor on bare /plans.
   const stylishPublic = !isManagerOrExpertView && !AuthService.isLogin();
 
+  // A teacher's 我的乡土课程 and an expert's 我的点评 -- each role's landing
+  // page (utils/landingPath.js) -- show search/filters/pagination only once
+  // the list is long enough to need them; a handful of cards is easier to
+  // scan than to filter. Judged on the unfiltered total, so a filter that
+  // narrows the list below the threshold doesn't hide its own controls.
+  const isLandingList = effectiveMineOnly || reviewedByMe;
+  const [unfilteredTotal, setUnfilteredTotal] = useState(null);
+  const showListControls = !isLandingList || (unfilteredTotal !== null && unfilteredTotal >= SMALL_LIST_THRESHOLD);
+
   const isOwnerOf = (item) => AuthService.isTeacher() && String(item.teacherId) === String(currentUserId());
   // Editing a plan's content is owner-only, no admin bypass -- managers can
   // suspend/delete/promote/leave notes (see below), but not edit case content.
@@ -133,6 +145,7 @@ const PlansList = (props) => {
       setPlans(resp.data.rows || []);
       setTotalPages(resp.data.totalPages || 0);
       setTotalItems(resp.data.totalItems || 0);
+      if (!keyword && !searchYear && !searchTheme && !searchGrade) setUnfilteredTotal(resp.data.totalItems || 0);
     } catch (e) {
       console.log(e);
       setMessage("加载课程设计数据失败。");
@@ -361,10 +374,8 @@ const PlansList = (props) => {
         />
       ) : (
         <>
-      {/* A teacher's own plans list is small by nature -- search/filter/pagination
-          are noise there, not a tool; every other view (admin's 全部, the public
-          gallery, the expert queue) keeps them since those lists can be long. */}
-      {!effectiveMineOnly && (
+      {/* Hidden on a short landing list -- see showListControls. */}
+      {showListControls && (
         <>
       <div className={stylishPublic ? "pl-card" : "mb-3"}>
         <div className="input-group">
@@ -491,7 +502,9 @@ const PlansList = (props) => {
         </div>
       )}
 
-      {!effectiveMineOnly && (
+      {/* A teacher's own list is fetched as one page (see retrieveAll) --
+          nothing to paginate even when its filters show. */}
+      {showListControls && !effectiveMineOnly && (
         <>
           <div className="mt-2 d-flex align-items-center">
             <label className="mr-2 mb-0">每页条数</label>
