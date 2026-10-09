@@ -222,7 +222,8 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
   );
 };
 
-// The header's 完成度. Sent only to the owner and admins/experts
+// The header's 设计完成度 -- planCompletion.js scores the 计划 (design)
+// only; an 实施完成度 may come later. Sent only to the owner and admins/experts
 // (plan.controller.js#findOne's canSeeCompletion) -- a peer teacher never
 // gets it, so this renders nothing for them. As of the last save
 // (retrievePlan reloads it). Its own component rather than inline JSX:
@@ -235,7 +236,7 @@ const CompletionBadge = ({ completion }) =>
       className="pl-completion"
       title={`基本信息 ${completion.basic}% · 课程设计 ${completion.design}% · 分课时设计 ${completion.lessonDesign}%（按上次保存的内容计算）`}
     >
-      完成度：{completion.overall}%
+      设计完成度：{completion.overall}%
     </span>
   ) : null;
 
