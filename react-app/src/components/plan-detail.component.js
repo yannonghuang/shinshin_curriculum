@@ -12,6 +12,7 @@ import { PLAN_THEMES, PLAN_GRADES, PLAN_SEASONS, PLAN_STATUSES, EMPTY_LESSON, cu
 import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
 import { registerSessionExpiryHandler, writeLocalDraft, takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
 import { hasPendingReviewEdits, discardPendingReviewEdits, subscribePendingReviewEdits } from "../utils/pendingReviewEdits";
+import { registerCopilotSaveHandler } from "../utils/copilotSaveGuard";
 import "../curriculum.css";
 
 // True if an answers object (shaped like planFormData/one executionFormData
@@ -248,15 +249,24 @@ const CompletionBadge = ({ completion }) =>
 // reviewed) -- 提交待点评 doesn't apply anymore at that point, so it's dropped
 // entirely rather than left showing disabled, same as every other
 // case-content action in this file that's owner/draft-gated by omission.
+//
+// A disabled button says why on hover -- greyed out with no explanation
+// read as "the plan got submitted". The tooltip sits on a wrapping span:
+// a disabled <button> gets no mouse events, so its own title may never show
+// (pointer-events: none lets the hover reach the span, per Bootstrap's docs).
 const SaveSubmitButtons = ({ onSaveDraft, saveDisabled, onSubmit, submitDisabled, showSubmit = true }) => (
   <div className="d-flex">
-    <button className="btn btn-light mr-2" type="button" onClick={onSaveDraft} disabled={saveDisabled}>
-      保存草稿
-    </button>
-    {showSubmit && (
-      <button className="btn btn-light" type="button" onClick={onSubmit} disabled={submitDisabled}>
-        提交待点评
+    <span className="d-inline-block mr-2" title={saveDisabled ? "没有未保存的修改" : undefined}>
+      <button className="btn btn-light" type="button" onClick={onSaveDraft} disabled={saveDisabled} style={saveDisabled ? { pointerEvents: "none" } : undefined}>
+        保存草稿
       </button>
+    </span>
+    {showSubmit && (
+      <span className="d-inline-block" title={submitDisabled ? "请先填写 WHY/WHAT/HOW、分课时设计或实施记录后再提交" : undefined}>
+        <button className="btn btn-light" type="button" onClick={onSubmit} disabled={submitDisabled} style={submitDisabled ? { pointerEvents: "none" } : undefined}>
+          提交待点评
+        </button>
+      </span>
     )}
   </div>
 );
@@ -937,6 +947,42 @@ const PlanDetail = (props) => {
       },
     });
   }, [planId]);
+
+  // 欣欣小助手 reads the plan from the server, so unsaved edits get saved
+  // (as a draft, like 保存草稿) before a 小助手 menu opens the panel and
+  // before each question is sent -- otherwise it answers about stale
+  // content. One request, same as saveAll. A part edited again while the
+  // save was in flight stays dirty. The plan is re-read quietly (no
+  // 加载中 flash) so e.g. a changed 预计课时 reaches the 课时 nav.
+  useEffect(
+    () =>
+      registerCopilotSaveHandler(async () => {
+        const s = expiryStateRef.current;
+        if (!s.canEdit) return true;
+        const payload = {};
+        if (s.metaDirty && s.metaForm) Object.assign(payload, metaFormPayload(s.metaForm));
+        if (s.planDirty) payload.planFormData = s.formData;
+        if (s.executionDirty) payload.executionFormData = s.executionFormData;
+        if (Object.keys(payload).length === 0) return true;
+        const sent = { metaForm: s.metaForm, formData: s.formData, executionFormData: s.executionFormData };
+        try {
+          await PlanDataService.update(planId, payload);
+        } catch (err) {
+          setMessage(`向欣欣小助手提问前自动保存失败：${err?.response?.data?.message || "保存失败。"}`);
+          return false;
+        }
+        const now = expiryStateRef.current;
+        if (now.metaForm === sent.metaForm) setMetaDirty(false);
+        if (now.formData === sent.formData) setPlanDirty(false);
+        if (now.executionFormData === sent.executionFormData) setExecutionDirty(false);
+        setMessage("已自动保存，欣欣小助手将基于保存后的内容回答。");
+        PlanDataService.get(planId)
+          .then((resp) => setPlan(resp.data))
+          .catch(() => {});
+        return true;
+      }),
+    [planId]
+  );
   const isAdmin = AuthService.isAdmin();
   // Always editable for the owner/admin, regardless of status (submitting for
   // review no longer locks the plan) -- previously gated on plan.status ===

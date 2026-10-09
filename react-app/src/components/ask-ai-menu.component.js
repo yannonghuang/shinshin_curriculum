@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import AiLetterIcon from "./ai-letter-icon.component";
+import { saveBeforeCopilot } from "../utils/copilotSaveGuard";
 import "../curriculum.css";
 
 // "Context-aware" 欣欣小助手: a small 小助手 trigger that shows up while the
@@ -127,9 +128,12 @@ const AskAiMenu = ({ target, presets, unit = "这一栏" }) => {
   const name = target.labelPath[target.labelPath.length - 1];
 
   // prompt === undefined: 自由提问 -- the panel opens with the focus
-  // attached and the caret in the input, nothing sent yet.
-  const ask = (prompt) => {
+  // attached and the caret in the input, nothing sent yet. Unsaved edits on
+  // the page are saved first, so the assistant sees what's on screen; if
+  // that fails the page says why and the panel stays shut.
+  const ask = async (prompt) => {
     setOpen(false);
+    if (!(await saveBeforeCopilot())) return;
     const { getDraft, ...focus } = target;
     window.dispatchEvent(new CustomEvent("copilot:open", { detail: { focus, getDraft, prompt } }));
   };
