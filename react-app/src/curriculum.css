@@ -79,6 +79,17 @@
   font-size: 12px;
 }
 
+/* Plan page header's 完成度 -- same pill as .pl-kpi, a bit larger. */
+.pl-completion {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: default;
+}
+
 .pl-card {
   background: var(--pl-panel);
   border: 1px solid var(--pl-line);

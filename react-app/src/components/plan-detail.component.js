@@ -1706,14 +1706,29 @@ const PlanDetail = (props) => {
               />
             )}
           </div>
-          <h4 className="pl-title">
-            {plan.title}
-            {plan.suspended && <span className="pl-tag pl-tag-warn ml-2">已停用</span>}
-          </h4>
-          <p className="pl-subtitle">
-            {plan.theme || "-"} · {plan.grade || "-"} · {plan.year} · 状态：{PLAN_STATUS_LABELS[plan.status] || plan.status}
-            {plan.isExcellentCase ? " · 优秀案例" : ""}
-          </p>
+          <div className="d-flex justify-content-between align-items-end flex-wrap">
+            <div>
+              <h4 className="pl-title">
+                {plan.title}
+                {plan.suspended && <span className="pl-tag pl-tag-warn ml-2">已停用</span>}
+              </h4>
+              <p className="pl-subtitle">
+                {plan.theme || "-"} · {plan.grade || "-"} · {plan.year} · 状态：{PLAN_STATUS_LABELS[plan.status] || plan.status}
+                {plan.isExcellentCase ? " · 优秀案例" : ""}
+              </p>
+            </div>
+            {/* Sent only to the owner and admins/experts (plan.controller.js
+                #findOne's canSeeCompletion) -- a peer teacher never gets it.
+                As of the last save (retrievePlan reloads it). */}
+            {plan.completion && (
+              <span
+                className="pl-completion"
+                title={`基本信息 ${plan.completion.basic}% · 课程设计 ${plan.completion.design}% · 分课时设计 ${plan.completion.lessonDesign}%（按上次保存的内容计算）`}
+              >
+                完成度：{plan.completion.overall}%
+              </span>
+            )}
+          </div>
           {plan.suspended && !isAdmin && (
             <div className="alert alert-warning py-2 mb-0">该课程设计已被管理员停用，如需修改请联系管理员。</div>
           )}
