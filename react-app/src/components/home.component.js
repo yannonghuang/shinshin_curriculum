@@ -1,16 +1,28 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link, Redirect } from "react-router-dom";
 import AuthService from "../services/auth.service";
+import { landingPathForRoles } from "../utils/landingPath";
 import "../curriculum.css";
 
 const Home = () => {
   const user = AuthService.getCurrentUser();
+  // 教师/专家 land on their own working list directly, skipping this generic
+  // dashboard (covers direct visits to "/", not just the post-login
+  // redirect) -- an expert's depends on whether they've reviewed anything
+  // yet, hence the lookup (see utils/landingPath.js).
+  const landsElsewhere = AuthService.isTeacher() || AuthService.isExpert();
+  const [landing, setLanding] = useState(null);
+  useEffect(() => {
+    if (!landsElsewhere) return undefined;
+    let cancelled = false;
+    landingPathForRoles(user ? user.roles : []).then((path) => !cancelled && setLanding(path));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // 教师 lands on their own plans directly, skipping this generic dashboard
-  // (covers direct visits to "/", not just the post-login redirect).
-  if (AuthService.isTeacher()) {
-    return <Redirect to="/plans?mine=true" />;
-  }
+  if (landsElsewhere) return landing ? <Redirect to={landing} /> : null;
 
   return (
     <div className="container pl-page">
