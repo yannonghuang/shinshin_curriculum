@@ -196,6 +196,25 @@ async function captureFocusShots(page) {
   await page.waitForTimeout(500);
   await shoot(page.locator(".copilot-panel"), "copilot-focus");
   await page.locator(".copilot-toggle").click();
+
+  // 基本信息's own menu (推荐标题/推荐乡土主题/...) -- just the menu, no
+  // question sent.
+  console.log("==> 欣欣小助手 基本信息 小助手 菜单 (乡土主题)");
+  await page.locator(".pl-explorer-leaf", { hasText: "基本信息" }).first().click();
+  await page.waitForTimeout(300);
+  const card = page.locator(".pl-card").first();
+  const themeField = card.locator(".form-group.ai-ask-host", { hasText: "乡土主题" }).first();
+  await themeField.hover();
+  await themeField.locator(".ai-ask-trigger").hover();
+  await page.locator(".ai-ask-menu").waitFor();
+  await page.waitForTimeout(300);
+  {
+    const box = await card.boundingBox();
+    const menuBox = await page.locator(".ai-ask-menu").boundingBox();
+    const bottom = Math.max(box.y + box.height, menuBox.y + menuBox.height) + 12;
+    await shoot(page, "copilot-basic-info-menu", { clip: { x: box.x - 12, y: box.y - 12, width: box.width + 24, height: bottom - box.y + 12 } });
+  }
+  await page.mouse.move(0, 0);
 }
 
 async function run() {

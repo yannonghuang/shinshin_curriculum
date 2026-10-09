@@ -7,16 +7,19 @@
 // system-prompt text, so the teacher no longer has to describe or paste the
 // section they are working on.
 
-// Which part of the plan: a WHY/WHAT/HOW-equivalent section, one 课时 of
-// 分课时设计, or one 课时's 实施记录. With a fieldKey the focus is one field
-// inside it; without, the whole part (or a subsection, per labelPath).
-const FOCUS_KINDS = ["planSection", "planLesson", "executionRecord"];
+// Which part of the plan: its 基本信息 (title/theme/grade/... -- plan
+// columns, not template fields), a WHY/WHAT/HOW-equivalent section, one 课时
+// of 分课时设计, or one 课时's 实施记录. With a fieldKey the focus is one
+// field inside it; without, the whole part (or a subsection, per labelPath).
+const FOCUS_KINDS = ["planBasic", "planSection", "planLesson", "executionRecord"];
 const MAX_LABEL_PARTS = 6;
 const MAX_LABEL_CHARS = 80;
 const MAX_KEY_CHARS = 64;
 // Bounds the edit box text carried per message -- a whole section's fields
 // joined together can run long, and it is replayed nowhere else.
 const MAX_DRAFT_CHARS = 6000;
+
+const BASIC_FIELD_KEYS = ["title", "year", "season", "theme", "grade", "studentCount", "instructorName", "plannedLessonCount"];
 
 const cleanString = (value, max) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 
@@ -88,6 +91,8 @@ const byLessonIndex = (records, index) => (Array.isArray(records) ? records.find
 // re-uploaded since, an untouched field).
 const resolveField = (plan, focus) => {
   if (!focus.fieldKey) return { field: null, saved: undefined };
+  // 基本信息 fields are the plan's own columns -- no template field/hint.
+  if (focus.kind === "planBasic") return { field: null, saved: BASIC_FIELD_KEYS.includes(focus.fieldKey) ? plan[focus.fieldKey] : undefined };
   const planSchema = (plan.PlanTemplateVersion && plan.PlanTemplateVersion.schemaJson) || {};
   if (focus.kind === "planLesson") {
     const lesson = byLessonIndex(plan.planFormData && plan.planFormData.lessons, focus.lessonIndex);
@@ -101,18 +106,47 @@ const resolveField = (plan, focus) => {
 };
 
 const PART_LABELS = {
+  planBasic: "基本信息",
   planSection: "课程设计方案",
   planLesson: "分课时设计",
   executionRecord: "实施记录",
 };
 
+// 基本信息 is what the rest of the design builds on, and its useful advice
+// runs between its parts -- the school's locality suggests 乡土主题 and
+// 标题, a 标题 suggests its 乡土主题, a 乡土主题 suggests 标题 -- so the
+// model gets the school and the allowed 乡土主题 options alongside it.
+const describeBasicContext = (plan, themeOptions) => {
+  const lines = [];
+  const school = plan.Teacher && plan.Teacher.School;
+  if (school) {
+    const addr = school.address && school.address !== school.name ? `（地址：${school.address}）` : "";
+    lines.push(`作者所在学校：${school.name}${addr}。课程要立足学校当地的乡土资源；推荐的乡土主题/标题若并非当地特有，要说明与本地生活的联系。`);
+  } else {
+    lines.push("作者的学校信息未知；若需要当地情况才能给出建议，请先询问用户学校所在地。");
+  }
+  if (Array.isArray(themeOptions) && themeOptions.length > 0) {
+    lines.push(`「乡土主题」只能从以下选项中选择：${themeOptions.join("、")}。推荐乡土主题时必须使用这些选项原文。`);
+  }
+  lines.push(
+    "基本信息各项之间要相互匹配：根据已填写的内容推断、补全其余部分——已知学校地区可推荐乡土主题和课程标题；" +
+      "已知标题可推荐对应的乡土主题；已知乡土主题可推荐结合当地资源的标题；同时考虑年级、学生人数与预计课时是否合适。" +
+      "推荐标题时给出 3–5 个候选，每个附一句理由（当地资源依据、适合该年级的原因）。"
+  );
+  return lines.join("\n");
+};
+
 // The block appended to the system prompt for the turn being answered.
-// `plan` must be loaded with PlanTemplateVersion/ExecutionTemplateVersion.
-const describeFocus = (plan, focus) => {
+// `plan` must be loaded with PlanTemplateVersion/ExecutionTemplateVersion,
+// and for a planBasic focus also Teacher->School; `themeOptions` is the
+// 乡土主题 list (planBasic only).
+const describeFocus = (plan, focus, { themeOptions } = {}) => {
   const label = focusLabel(focus);
   const part = PART_LABELS[focus.kind] + (focus.lessonIndex ? `·第${focus.lessonIndex}课时` : "");
   const lines = [`\n\n【当前聚焦】用户是在课程设计《${plan.title}》(planId: ${plan.id}) 的「${label}」处（${part}）打开你的，本轮问题针对这一部分。`];
   lines.push("用户消息中的「这一栏」「这里」「这部分」等指的就是它；回答要紧扣这一部分，必要时结合课程的其他部分（可调用 get_plan_details 查看全文）。");
+
+  if (focus.kind === "planBasic") lines.push(describeBasicContext(plan, themeOptions));
 
   const { field, saved } = resolveField(plan, focus);
   const hint = field && field.hint ? String(field.hint).trim() : "";

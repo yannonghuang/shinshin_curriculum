@@ -216,16 +216,29 @@ const getOrCreateCurrentConversation = async (userId, scopeKey) => {
 // reviewing expert / browsing teacher), and `focus` -- the turn's question
 // was asked from a specific field or section's 小助手 menu -- adds that
 // part's template hint and current content (see copilotFocus.js).
+// The 乡土主题 options a plan can be saved with -- same source as
+// plan.controller.js#getOptions (the active plan_design template's own list,
+// else PLAN_THEMES).
+const activeThemeOptions = async () => {
+  const active = await db.templateVersion.findOne({ where: { templateKey: "plan_design", isActive: true } }).catch(() => null);
+  const own = active && active.schemaJson && active.schemaJson.themeOptions;
+  return Array.isArray(own) && own.length > 0 ? own : db.PLAN_THEMES;
+};
+
 const buildContextAddition = async (pageContext, { user, focus } = {}) => {
   if (focus) {
     await copilotActions.assertPlanVisible(user.userId, user.roles, focus.planId);
+    const basic = focus.kind === "planBasic";
     const plan = await Plan.findByPk(focus.planId, {
       include: [
         { model: db.templateVersion, as: "PlanTemplateVersion" },
         { model: db.templateVersion, as: "ExecutionTemplateVersion" },
+        // 基本信息 advice starts from the school's locality (copilotFocus.js#describeBasicContext).
+        ...(basic ? [{ model: db.user, as: "Teacher", attributes: ["id"], include: [{ model: db.school, as: "School", required: false }] }] : []),
       ],
     });
-    if (plan) return copilotFocus.describeFocus(plan, focus) + copilotFocus.describeRelationship(plan, user.userId, user.roles);
+    const themeOptions = basic ? await activeThemeOptions() : undefined;
+    if (plan) return copilotFocus.describeFocus(plan, focus, { themeOptions }) + copilotFocus.describeRelationship(plan, user.userId, user.roles);
   }
   if (!pageContext) return "";
   if (pageContext.reviewId) {
