@@ -288,7 +288,7 @@ const AiScoreReview = () => {
         )}
         并核查课程的目标一致性与完整性。打分与点评在教师或专家「请AI点评」时生成
         {canRun ? "，也可在此为当前显示的待处理课程统一生成（每个课程只补齐所缺的部分）。" : "，或由管理员统一生成。"}
-        完成度与<Link to="/dashboard" className="mx-1">数据看板</Link>一致。
+        设计完成度与<Link to="/dashboard" className="mx-1">数据看板</Link>一致。
       </p>
 
       {loaded && !standard && (
@@ -386,7 +386,7 @@ const AiScoreReview = () => {
           </div>
           <div className="d-flex flex-wrap align-items-center mb-3">
             <div className="form-inline mr-4 mb-2">
-              <label className="mr-2">完成度</label>
+              <label className="mr-2">设计完成度</label>
               {rangeInput("minCompletion", "不限", 100)}
               <span className="mx-2">% 至</span>
               {rangeInput("maxCompletion", "不限", 100)}
@@ -437,7 +437,7 @@ const AiScoreReview = () => {
               <tr>
                 {sortableHeader("title", "课程")}
                 {sortableHeader("school", "学校 / 教师", "18%")}
-                {sortableHeader("completion", "完成度", "8%")}
+                {sortableHeader("completion", "设计完成度", "8%")}
                 {sortableHeader("score", "总分", "8%")}
                 <th style={{ width: "26%" }}>各维度得分</th>
                 <th style={{ width: "15%" }}>打分 / 点评时间</th>
