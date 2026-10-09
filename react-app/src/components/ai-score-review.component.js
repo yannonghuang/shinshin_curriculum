@@ -393,7 +393,7 @@ const AiScoreReview = () => {
               <span className="ml-2">%</span>
             </div>
             <div className="form-inline mr-4 mb-2">
-              <label className="mr-2">AI 总分</label>
+              <label className="mr-2">AI 设计分数</label>
               {rangeInput("minScore", "不限")}
               <span className="mx-2">至</span>
               {rangeInput("maxScore", "不限")}

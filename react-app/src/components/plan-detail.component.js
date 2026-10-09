@@ -223,23 +223,64 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
   );
 };
 
-// The header's 设计完成度 -- planCompletion.js scores the 计划 (design)
-// only; an 实施完成度 may come later. Sent only to the owner and admins/experts
-// (plan.controller.js#findOne's canSeeCompletion) -- a peer teacher never
-// gets it, so this renders nothing for them. As of the last save
-// (retrievePlan reloads it). Its own component rather than inline JSX:
-// PlanDetail is big enough that one more conditional branch in it trips
+// The header's 设计完成度 and AI 设计分数 -- both score the 计划 (design)
+// only; 实施 counterparts may come later. Sent only to the owner and
+// admins/experts (plan.controller.js#findOne's canSeeProgress) -- a peer
+// teacher never gets them, so this renders nothing for them. As of the last
+// save (retrievePlan reloads them). Its own component rather than inline
+// JSX: PlanDetail is big enough that one more conditional branch in it trips
 // react-hooks/rules-of-hooks' path counting into a false "hook called
 // conditionally" error, which fails the dev build.
-const CompletionBadge = ({ completion }) =>
-  completion ? (
-    <span
-      className="pl-completion"
-      title={`基本信息 ${completion.basic}% · 课程设计 ${completion.design}% · 分课时设计 ${completion.lessonDesign}%（按上次保存的内容计算）`}
-    >
-      设计完成度：{completion.overall}%
-    </span>
-  ) : null;
+// AI 设计分数's hover text: per dimension, the score it got and the
+// standard's 考察要点 it was scored against.
+const aiDesignScoreTooltip = (s) => {
+  const scored = new Map((s.dimensionScores || []).map((d) => [d.name, d]));
+  const dims = (s.criteria || []).length > 0 ? s.criteria : s.dimensionScores || [];
+  const blocks = dims.map((dim) => {
+    const got = scored.get(dim.name);
+    const head = `【${dim.name}】${got ? `${got.score}/${dim.weight}${got.level ? `（${got.level}）` : ""}` : `满分 ${dim.weight}`}`;
+    return [head, ...(dim.criteria || []).map((c) => `· ${c}`)].join("\n");
+  });
+  return [
+    `评分标准：${s.standardTitle || "AI 点评标准"}（#${s.standardId}${s.maxScore ? `，满分 ${s.maxScore}` : ""}）`,
+    ...blocks,
+    `打分于 ${new Date(s.scoredAt).toLocaleString()}`,
+    s.stale && "内容已更新：课程内容已在此 AI 打分后被修改，分数针对的是修改前的内容。",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+};
+
+const PlanProgressBadges = ({ completion, aiDesignScore: s }) => {
+  if (!completion && !s) return null;
+  return (
+    <div className="d-flex flex-wrap" style={{ gap: "8px" }}>
+      {completion && (
+        <span
+          className="pl-completion"
+          title={`基本信息 ${completion.basic}% · 课程设计 ${completion.design}% · 分课时设计 ${completion.lessonDesign}%（按上次保存的内容计算）`}
+        >
+          设计完成度：{completion.overall}%
+        </span>
+      )}
+      {s && (
+        <span
+          className="pl-completion"
+          title={aiDesignScoreTooltip(s)}
+        >
+          AI 设计分数：{s.totalScore}
+          {s.maxScore ? ` / ${s.maxScore}` : ""}
+          {/* Same tag as an out-of-date AI 点评 row (review-list.component.js). */}
+          {s.stale && (
+            <span className="pl-tag pl-tag-warn ml-2" title="课程内容已在此 AI 打分后被修改，分数针对的是修改前的内容">
+              内容已更新
+            </span>
+          )}
+        </span>
+      )}
+    </div>
+  );
+};
 
 // The page's single 保存草稿/提交待点评 pair, rendered once in the sticky
 // header (see .pl-sticky-header) rather than above and below every section
@@ -1781,7 +1822,7 @@ const PlanDetail = (props) => {
                 {plan.isExcellentCase ? " · 优秀案例" : ""}
               </p>
             </div>
-            <CompletionBadge completion={plan.completion} />
+            <PlanProgressBadges completion={plan.completion} aiDesignScore={plan.aiDesignScore} />
           </div>
           {plan.suspended && !isAdmin && (
             <div className="alert alert-warning py-2 mb-0">该课程设计已被管理员停用，如需修改请联系管理员。</div>

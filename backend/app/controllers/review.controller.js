@@ -246,10 +246,11 @@ exports.markSeen = async (req, res) => {
 // whose content was later scored under a newer standard, still shows how
 // that content scored. A score of a later version is never attached to an
 // earlier review. Shown in the review list's 评分 column,
-// which teachers don't see. Only experts and admins get it (teachers,
-// the owner included, never receive an AI score from any endpoint), with
-// the same plan scope as 数据看板: admins any plan, experts only submitted,
-// non-suspended ones.
+// which teachers don't see. Only experts and admins get it here, with the
+// same plan scope as 数据看板: admins any plan, experts only submitted,
+// non-suspended ones. (The plan's owner sees its latest score as the plan
+// header's AI 设计分数 instead -- plan.controller.js#findOne; peer teachers
+// never receive an AI score.)
 async function attachAiScores(planId, rows, userId) {
   const plain = rows.map((r) => r.get({ plain: true }));
   const aiRows = plain.filter((r) => r.reviewerType === "ai" && r.lessonIndex === null);
