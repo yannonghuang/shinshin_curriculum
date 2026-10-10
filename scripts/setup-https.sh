@@ -8,7 +8,7 @@
 # compose stack living at DEPLOY_PATH. It does not build or push any images.
 #
 # Usage (on the VM, from the repo checkout or anywhere):
-#   sudo DOMAIN=xtclass.shinshinfoundation.org CERTBOT_EMAIL=you@example.org \
+#   sudo DOMAIN=xtclass.nhfoundation.cn CERTBOT_EMAIL=you@example.org \
 #     bash scripts/setup-https.sh
 #
 # Requires: DNS for DOMAIN already resolving to this VM's public IP, and

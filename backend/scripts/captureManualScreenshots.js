@@ -69,8 +69,8 @@ const FOCUS_PLAN_TITLE = "黄陂三鲜"; // real online WHY/WHAT/HOW content, fo
 // 学习资源库 content is sourced from PRODUCTION instead of dev -- see this
 // file's header comment on why, and on why only 材料内容 (never 基本信息, which
 // carries a real 主讲人 name) is ever captured from it.
-const PROD_BASE_URL = "https://xtclass.shinshinfoundation.org";
-const PROD_SSH_HOST = "root@8.210.148.145";
+const PROD_BASE_URL = "https://xtclass.nhfoundation.cn";
+const PROD_SSH_HOST = "root@8.133.234.36";
 const PROD_SSH_KEY = path.join(os.homedir(), ".ssh", "shinshin_deploy");
 const PROD_DEPLOY_PATH = "/opt/shinshin_curriculum";
 const PROD_TEACHER_ID = 2; // yannonghuang -- the same real teacher, on production
