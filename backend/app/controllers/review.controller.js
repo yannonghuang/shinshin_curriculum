@@ -137,8 +137,8 @@ exports.createAiReview = async (req, res) => {
     // standard in effect -- whether from an earlier click or from
     // AI 打分加点评 -- that one is returned and nothing is generated; else
     // one turn produces just what's missing. Only the review is returned --
-    // the score is for experts and admins, never teachers (the owner
-    // included).
+    // its score reaches the page with the review list (attachAiScores, which
+    // decides who may see it).
     const standard = await aiReviewStandard.getLatestStandard();
     const result = await aiPlanEvaluation.ensureEvaluation(plan, {
       standard,

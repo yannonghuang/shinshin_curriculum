@@ -116,12 +116,15 @@ const canViewNonExcellentPlan = async (plan, userId) => {
   return (expert || teacher) && plan.status !== "draft";
 };
 
-// Who sees a plan's 设计完成度: its owner, admins/super-admins and experts.
+// Who sees a plan's 设计完成度: its owner, admins/super-admins, and experts
+// on a submitted, non-suspended plan -- the same scope as its AI 设计分数
+// (review.controller.js#attachAiScores) and 数据看板, so an expert sees
+// both or neither. (An expert can't open a draft at all.)
 const canSeeCompletion = async (plan, userId) => {
   if (!userId) return false;
   if (plan.teacherId === userId) return true;
-  const [admin, expert] = await Promise.all([isAdminRequester(userId), isExpertRequester(userId)]);
-  return admin || expert;
+  if (await isAdminRequester(userId)) return true;
+  return !plan.suspended && plan.status !== "draft" && (await isExpertRequester(userId));
 };
 
 // 乡土主题 options come from the active plan_design template's own "附件"
