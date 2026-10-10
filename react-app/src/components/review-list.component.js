@@ -65,7 +65,7 @@ const CONTENT_PREVIEW_LENGTH = 150;
 // (.pl-review-ai-content.is-collapsed) does the actual clipping.
 const isLongAiContent = (content) => !!content && (content.length > 240 || content.split("\n").length > 6);
 
-// An AI 点评 row's 评分 tab (see the AI row below): the AI 设计分数 scored
+// An AI 点评 row's AI 设计分数 view (opened from its 评分 column, see the AI row below): the AI 设计分数 scored
 // alongside that review, itemized per dimension -- score/满分, level, the
 // AI's own rationale -- next to the standard's 考察要点 it was scored
 // against (shape: review.controller.js#attachAiScores).
@@ -378,10 +378,11 @@ const ReviewList = (props) => {
   const aiLoading = aiPending !== undefined ? aiPending : localAiLoading;
   const setAiLoading = setAiPending || setLocalAiLoading;
   const [expandedIds, setExpandedIds] = useState(new Set());
-  // AI 点评 rows currently showing their 评分 tab rather than 点评.
-  const [scoreTabIds, setScoreTabIds] = useState(new Set());
-  const showScoreTab = (id, on) =>
-    setScoreTabIds((prev) => {
+  // AI 点评 rows whose full-width body currently shows their AI 设计分数
+  // (opened from the 评分 column) rather than the review text.
+  const [scoreViewIds, setScoreViewIds] = useState(new Set());
+  const showScoreView = (id, on) =>
+    setScoreViewIds((prev) => {
       const next = new Set(prev);
       if (on) next.add(id);
       else next.delete(id);
@@ -416,7 +417,12 @@ const ReviewList = (props) => {
   // A teacher (any viewer who can't write reviews) doesn't see the 评分
   // column in the two 整体点评 views -- the written feedback is what's
   // meant for them there. Segment widgets keep it.
-  const showScore = isExpertReviewer || !isAggregateView;
+  // The plan's owner also gets the column in 计划整体点评 once an AI 点评
+  // there carries an AI 设计分数 (attachAiScores only sends one to the
+  // owner, experts and admins) -- AI scores only: other rows' scores stay
+  // "-" for them (scoreColumnAiOnly), as above.
+  const scoreColumnAiOnly = !(isExpertReviewer || !isAggregateView);
+  const showScore = !scoreColumnAiOnly || reviews.some((r) => r.aiScore);
   // The sectionKey an aggregate's own directly-written comments/AI review
   // get tagged with (see review.model.js's sectionKey comment) -- null for
   // 设计's aggregate (unchanged from before aggregateScope existed).
@@ -851,20 +857,23 @@ const ReviewList = (props) => {
 
               // AI 设计分数 from the same content version as this AI review
               // (review.controller.js#attachAiScores) -- sent to the plan's
-              // owner and to experts/admins, never to a peer teacher. Shown
-              // itemized in the row's 评分 tab (below); the 评分 column, where
-              // there is one, repeats the total and opens that tab. The row's
-              // 内容已更新 tag covers the score too.
+              // owner and to experts/admins, never to a peer teacher. Its
+              // total sits in the 评分 column; clicking it swaps the row's
+              // full-width body from the review text to the itemized scores
+              // (and back) -- 评分 and 内容 each drive their own content. The
+              // row's 内容已更新 tag covers the score too.
+              const scoreOpen = !!review.aiScore && scoreViewIds.has(review.id);
               const scoreContent = review.aiScore ? (
                 <button
                   type="button"
-                  className="btn btn-link btn-sm p-0"
-                  title="查看各维度得分与评分标准"
-                  onClick={() => showScoreTab(review.id, true)}
+                  className={`btn btn-link btn-sm p-0${scoreOpen ? " font-weight-bold" : ""}`}
+                  title={scoreOpen ? "返回点评内容" : "查看各维度得分与评分标准"}
+                  aria-pressed={scoreOpen}
+                  onClick={() => showScoreView(review.id, !scoreOpen)}
                 >
                   {aiDesignScoreText(review.aiScore)}
                 </button>
-              ) : review.score !== null && review.score !== undefined ? (
+              ) : !scoreColumnAiOnly && review.score !== null && review.score !== undefined ? (
                 review.score
               ) : (
                 "-"
@@ -903,9 +912,8 @@ const ReviewList = (props) => {
               // multi-paragraph review is actually readable. Starts collapsed
               // to its first few lines (faded out) when long.
               if (review.reviewerType === "ai") {
-                const onScoreTab = !!review.aiScore && scoreTabIds.has(review.id);
-                // The score tab is always long enough to collapse.
-                const isLongAi = isLongAiContent(review.content) || !!review.aiScore;
+                // The score table is always long enough to collapse.
+                const isLongAi = scoreOpen || isLongAiContent(review.content);
                 const collapsed = isLongAi && !isExpanded;
                 const toggle = isLongAi && (
                   <button type="button" className="btn btn-link btn-sm p-0" onClick={() => toggleExpanded(review.id)}>
@@ -919,7 +927,13 @@ const ReviewList = (props) => {
                       {isAggregateView && <td>{moduleContent}</td>}
                       {showScore && <td>{scoreContent}</td>}
                       <td className="small" style={{ whiteSpace: "nowrap" }}>
-                        {toggle || <span className="text-muted">见下方</span>}
+                        {scoreOpen ? (
+                          <button type="button" className="btn btn-link btn-sm p-0" onClick={() => showScoreView(review.id, false)}>
+                            查看点评
+                          </button>
+                        ) : (
+                          toggle || <span className="text-muted">见下方</span>
+                        )}
                       </td>
                       <td style={{ whiteSpace: "nowrap" }}>{reviewerName}</td>
                       <td>{timeText}</td>
@@ -927,32 +941,10 @@ const ReviewList = (props) => {
                     </tr>
                     <tr className="pl-review-ai-row pl-review-ai-body">
                       <td colSpan={columnCount}>
-                        {review.aiScore && (
-                          <div className="pl-review-ai-tabs" role="tablist">
-                            <button
-                              type="button"
-                              role="tab"
-                              aria-selected={!onScoreTab}
-                              className={`pl-review-ai-tab${onScoreTab ? "" : " is-active"}`}
-                              onClick={() => showScoreTab(review.id, false)}
-                            >
-                              点评
-                            </button>
-                            <button
-                              type="button"
-                              role="tab"
-                              aria-selected={onScoreTab}
-                              className={`pl-review-ai-tab${onScoreTab ? " is-active" : ""}`}
-                              onClick={() => showScoreTab(review.id, true)}
-                            >
-                              AI 设计分数 {aiDesignScoreText(review.aiScore)}
-                            </button>
-                          </div>
-                        )}
                         <div
-                          className={`pl-review-ai-content${onScoreTab ? " is-score" : ""}${collapsed ? " is-collapsed" : ""}${review.aiScore ? " has-tabs" : ""}`}
+                          className={`pl-review-ai-content${scoreOpen ? " is-score" : ""}${collapsed ? " is-collapsed" : ""}`}
                         >
-                          {onScoreTab ? <AiScorePanel score={review.aiScore} /> : review.content}
+                          {scoreOpen ? <AiScorePanel score={review.aiScore} /> : review.content}
                         </div>
                         {toggle && <div className="mt-1">{toggle}</div>}
                       </td>
