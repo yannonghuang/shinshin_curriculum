@@ -148,7 +148,12 @@ export default class Login extends Component {
                   validations={[required]}
                 />
                 <button type="button" className="auth-password-toggle" onClick={this.togglePasswordVisible}>
-                  <i className={this.state.showPassword ? "fas fa-eye" : "fas fa-eye-slash"}></i>
+                  {/* Keyed wrapper: Font Awesome's JS swaps the <i> for an <svg>,
+                      so changing the <i>'s className never reaches the DOM --
+                      remount the whole icon instead. */}
+                  <span key={this.state.showPassword ? "shown" : "hidden"}>
+                    <i className={this.state.showPassword ? "fas fa-eye" : "fas fa-eye-slash"}></i>
+                  </span>
                 </button>
               </div>
             </div>
