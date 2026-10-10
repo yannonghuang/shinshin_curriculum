@@ -2417,6 +2417,47 @@
   border-radius: 6px;
 }
 
+/* An AI 点评 row's 点评 / AI 设计分数 tabs (review-list.component.js), sitting
+   on top of the content box they switch. */
+.pl-review-ai-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.pl-review-ai-tab {
+  padding: 4px 14px;
+  font-size: 13px;
+  color: #3b3fa0;
+  background: #eef1ff;
+  border: 1px solid #dfe3fa;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+}
+
+.pl-review-ai-tab.is-active {
+  background: #ffffff;
+  font-weight: 600;
+  position: relative;
+  top: 1px;
+}
+
+.pl-review-ai-content.has-tabs {
+  border-top-left-radius: 0;
+}
+
+/* The 评分 tab holds a table -- normal wrapping, not the review's pre-wrap. */
+.pl-review-ai-content.is-score {
+  white-space: normal;
+}
+
+.pl-ai-score-table {
+  font-size: 13px;
+  line-height: 1.5;
+  background: #ffffff;
+}
+
 /* First ~6 lines, fading out into "展开全文". */
 .pl-review-ai-content.is-collapsed {
   max-height: calc(1.7em * 6 + 20px);
