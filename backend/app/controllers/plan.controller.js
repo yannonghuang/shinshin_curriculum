@@ -116,37 +116,12 @@ const canViewNonExcellentPlan = async (plan, userId) => {
   return (expert || teacher) && plan.status !== "draft";
 };
 
-// Who sees a plan's 设计完成度 and AI 设计分数: its owner,
-// admins/super-admins and experts.
-const canSeeProgress = async (plan, userId) => {
+// Who sees a plan's 设计完成度: its owner, admins/super-admins and experts.
+const canSeeCompletion = async (plan, userId) => {
   if (!userId) return false;
   if (plan.teacherId === userId) return true;
   const [admin, expert] = await Promise.all([isAdminRequester(userId), isExpertRequester(userId)]);
   return admin || expert;
-};
-
-// The plan's newest AI 打分 (same pick as 数据看板), or null if never
-// scored. `stale`: the plan's content was edited after the scored version
-// -- the same version check review-list.component.js's isCurrentVersion
-// uses to tag AI 点评 rows 内容已更新.
-const latestAiDesignScore = async (plan) => {
-  const s = await db.aiPlanScore.findOne({ where: { planId: plan.id }, order: [["id", "DESC"]] });
-  if (!s) return null;
-  const standard = s.standardId ? await db.aiReviewStandard.findByPk(s.standardId, { attributes: ["id", "content"] }) : null;
-  const time = (d) => (d ? new Date(d).getTime() : 0);
-  const content = (standard && standard.content) || {};
-  return {
-    totalScore: Number(s.totalScore),
-    maxScore: content.totalScore || null,
-    standardTitle: content.title || null,
-    // The standard's own per-dimension 考察要点, for the score's tooltip.
-    criteria: (content.dimensions || []).map((d) => ({ name: d.name, weight: d.weight, criteria: d.criteria || [] })),
-    dimensionScores: s.dimensionScores,
-    summary: s.summary,
-    standardId: s.standardId,
-    scoredAt: s.createdAt,
-    stale: time(plan.contentVersionAt) !== time(s.planVersionAt),
-  };
 };
 
 // 乡土主题 options come from the active plan_design template's own "附件"
@@ -546,18 +521,17 @@ exports.findOne = async (req, res) => {
       return res.status(403).send({ message: "无权查看该乡土课程设计。" });
     }
 
-    // 设计完成度 (planCompletion.js) and AI 设计分数 (the latest
-    // ai_plan_scores row, as 数据看板 shows it) are for the plan's owner and
-    // for admins/experts, who track progress -- not for a peer teacher (or
-    // an anonymous gallery visitor) browsing someone else's plan, so they're
-    // only computed and sent for the former.
-    if (await canSeeProgress(data, req.userId)) {
+    // 设计完成度 (planCompletion.js) is for the plan's owner and for
+    // admins/experts, who track progress -- not for a peer teacher (or an
+    // anonymous gallery visitor) browsing someone else's plan, so it's only
+    // computed and sent for the former. (AI 设计分数 rides on its AI 点评
+    // row instead -- review.controller.js#attachAiScores.)
+    if (await canSeeCompletion(data, req.userId)) {
       const plain = data.get({ plain: true });
       plain.completion = computeCompletion(plain, {
         planSchema: data.PlanTemplateVersion ? data.PlanTemplateVersion.schemaJson : null,
         hasDesignArtifact: (data.Artifacts || []).some((a) => a.lessonIndex === null || a.lessonIndex === undefined),
       });
-      plain.aiDesignScore = await latestAiDesignScore(data);
       return res.send(plain);
     }
 

@@ -3,6 +3,7 @@ import ReviewDataService from "../services/review.service";
 import AuthService from "../services/auth.service";
 import { takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
 import { getPendingReviewEdit, setPendingReviewEdit, clearPendingReviewEdit, reviewPayload } from "../utils/pendingReviewEdits";
+import { aiDesignScoreTooltip, aiDesignScoreText } from "../utils/aiDesignScore";
 
 // Migrated from shinshin's comments-list.component.js (inline textarea-submit + list-below
 // pattern), extended with:
@@ -782,24 +783,21 @@ const ReviewList = (props) => {
                 );
               }
 
+              // AI 设计分数 from the same content version as this AI review
+              // (review.controller.js#attachAiScores) -- sent to the plan's
+              // owner and to experts/admins, never to a peer teacher. In the
+              // 评分 column where there is one (experts/admins), otherwise
+              // (the owner's view) as a badge in the row itself; either way
+              // hover shows the itemized scores and scoring criteria, and the
+              // row's 内容已更新 tag covers the score too.
+              const aiScoreBadge = review.aiScore && (
+                <span className="pl-ai-score" title={aiDesignScoreTooltip(review.aiScore)}>
+                  AI 设计分数：{aiDesignScoreText(review.aiScore)}
+                </span>
+              );
               const scoreContent = review.aiScore ? (
-                // AI 打分 from the same turn/content version as this AI
-                // review -- only ever sent to experts/admins (see
-                // review.controller.js#attachAiScores); hover for the
-                // per-dimension breakdown.
-                <span
-                  style={{ cursor: "help", borderBottom: "1px dotted" }}
-                  title={[
-                    ...(review.aiScore.dimensionScores || []).map(
-                      (d) => `${d.name}：${d.score}/${d.weight}${d.level ? `（${d.level}）` : ""}`
-                    ),
-                    review.aiScore.summary && `总评：${review.aiScore.summary}`,
-                    `依据 AI 点评标准 #${review.aiScore.standardId}`,
-                  ]
-                    .filter(Boolean)
-                    .join("\n")}
-                >
-                  {review.aiScore.totalScore}
+                <span style={{ cursor: "help", borderBottom: "1px dotted" }} title={aiDesignScoreTooltip(review.aiScore)}>
+                  {aiDesignScoreText(review.aiScore)}
                 </span>
               ) : review.score !== null && review.score !== undefined ? (
                 review.score
@@ -854,6 +852,7 @@ const ReviewList = (props) => {
                       {isAggregateView && <td>{moduleContent}</td>}
                       {showScore && <td>{scoreContent}</td>}
                       <td className="small" style={{ whiteSpace: "nowrap" }}>
+                        {!showScore && aiScoreBadge}
                         {toggle || <span className="text-muted">见下方</span>}
                       </td>
                       <td style={{ whiteSpace: "nowrap" }}>{reviewerName}</td>

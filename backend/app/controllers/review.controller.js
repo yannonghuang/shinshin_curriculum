@@ -238,40 +238,49 @@ exports.markSeen = async (req, res) => {
 
 // "super" inherits every admin privilege, including deleting any review
 // regardless of authorship.
-// AI 打分 rides along on the AI review rows it belongs to -- a score of the
-// same plan content version, i.e. of exactly the content that review saw:
-// preferably one under the review's own standard (the one produced in, or
-// current at, that review's turn), otherwise the newest score of that
-// content version -- a review written before any standard existed, or one
-// whose content was later scored under a newer standard, still shows how
-// that content scored. A score of a later version is never attached to an
-// earlier review. Shown in the review list's 评分 column,
-// which teachers don't see. Only experts and admins get it here, with the
-// same plan scope as 数据看板: admins any plan, experts only submitted,
-// non-suspended ones. (The plan's owner sees its latest score as the plan
-// header's AI 设计分数 instead -- plan.controller.js#findOne; peer teachers
-// never receive an AI score.)
+// AI 设计分数 (AI 打分) rides along on the AI review rows it belongs to -- a
+// score of the same plan content version, i.e. of exactly the content that
+// review saw: preferably one under the review's own standard (the one
+// produced in, or current at, that review's turn), otherwise the newest
+// score of that content version -- a review written before any standard
+// existed, or one whose content was later scored under a newer standard,
+// still shows how that content scored. A score of a later version is never
+// attached to an earlier review, so a row's 内容已更新 tag speaks for its
+// score too. Each score carries its standard's 满分 and per-dimension 考察要点
+// for the row's tooltip. Sent to the plan's owner (any of their plans) and
+// to admins (any plan) and experts (submitted, non-suspended plans -- the
+// same scope as 数据看板); peer teachers never receive an AI score.
 async function attachAiScores(planId, rows, userId) {
   const plain = rows.map((r) => r.get({ plain: true }));
-  const aiRows = plain.filter((r) => r.reviewerType === "ai" && r.lessonIndex === null);
+  const aiRows = plain.filter((r) => r.reviewerType === "ai" && r.lessonIndex === null && !r.sectionKey);
   if (!userId || aiRows.length === 0) return plain;
-  const isAdmin = await isAdminRequester(userId);
-  if (!isAdmin) {
+  const plan = await Plan.findByPk(planId, { attributes: ["teacherId", "status", "suspended"] });
+  if (!plan) return plain;
+  if (plan.teacherId !== userId && !(await isAdminRequester(userId))) {
     if (!(await isExpertRequester(userId))) return plain;
-    const plan = await Plan.findByPk(planId, { attributes: ["status", "suspended"] });
-    if (!plan || plan.status === "draft" || plan.suspended) return plain;
+    if (plan.status === "draft" || plan.suspended) return plain;
   }
   const scores = await db.aiPlanScore.findAll({ where: { planId }, order: [["id", "DESC"]] });
+  const standardIds = [...new Set(scores.map((x) => x.standardId).filter(Boolean))];
+  const standards = standardIds.length
+    ? await db.aiReviewStandard.findAll({ where: { id: { [db.Sequelize.Op.in]: standardIds } }, attributes: ["id", "content"] })
+    : [];
+  const contentById = new Map(standards.map((st) => [Number(st.id), st.content || {}]));
   const time = (d) => (d ? new Date(d).getTime() : null);
   aiRows.forEach((r) => {
     const sameContent = scores.filter((x) => time(x.planVersionAt) === time(r.planVersionAt));
     const s = sameContent.find((x) => Number(x.standardId) === Number(r.standardId)) || sameContent[0];
     if (s) {
+      const content = contentById.get(Number(s.standardId)) || {};
       r.aiScore = {
         totalScore: Number(s.totalScore),
+        maxScore: content.totalScore || null,
         dimensionScores: s.dimensionScores,
         summary: s.summary,
         standardId: s.standardId,
+        standardTitle: content.title || null,
+        criteria: (content.dimensions || []).map((d) => ({ name: d.name, weight: d.weight, criteria: d.criteria || [] })),
+        scoredAt: s.createdAt,
       };
     }
   });

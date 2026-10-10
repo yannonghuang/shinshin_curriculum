@@ -374,6 +374,21 @@
   color: var(--pl-accent);
 }
 
+/* An AI 点评 row's AI 设计分数 (review-list.component.js) -- same palette
+   as .pl-tag-ai, hover for the itemized scores and criteria. */
+.pl-ai-score {
+  display: inline-block;
+  margin-right: 10px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #eef1ff;
+  color: #3b3fa0;
+  border: 1px solid #cfd4f5;
+  cursor: help;
+}
+
 .pl-tag-ai {
   display: inline-block;
   padding: 2px 8px;

@@ -264,8 +264,14 @@ async function run() {
     await page.getByText("计划整体点评", { exact: true }).first().click();
     await page.waitForTimeout(300);
     await shoot(page.locator(".pl-card").first(), "review-panel");
+    // The owner's view of an AI 点评 row: AI 设计分数 badge in its 内容 cell
+    // (experts/admins get it in the 评分 column instead).
+    {
+      const aiRow = page.locator("tr.pl-review-ai-meta").first();
+      if (await aiRow.locator(".pl-ai-score").count()) await shoot(aiRow, "ai-design-score-row");
+    }
 
-    console.log("==> plan-detail: 设计完成度 / AI 设计分数 (标题栏)");
+    console.log("==> plan-detail: 设计完成度 (标题栏)");
     await shoot(page.locator(".pl-hero").first(), "plan-completion");
 
     console.log("==> plan-detail: 支撑材料 (文件管理器)");
