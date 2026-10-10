@@ -264,17 +264,17 @@ async function run() {
     await page.getByText("计划整体点评", { exact: true }).first().click();
     await page.waitForTimeout(300);
     await shoot(page.locator(".pl-card").first(), "review-panel");
-    // An AI 点评 row switched to its AI 设计分数 tab (collapsed), from the
-    // row's header line down through its tab body.
+    // An AI 点评 row with its AI 设计分数 opened from the 评分 column
+    // (collapsed), from the row's header line down through its body.
     {
-      const scoreTab = page.locator(".pl-review-ai-tab", { hasText: "AI 设计分数" }).first();
-      if (await scoreTab.count()) {
-        await scoreTab.click();
+      const scoreBtn = page.locator("tr.pl-review-ai-meta td button", { hasText: "/" }).first();
+      if (await scoreBtn.count()) {
+        await scoreBtn.click();
         await page.waitForTimeout(300);
         const top = await page.locator("tr.pl-review-ai-meta").first().boundingBox();
         const bottom = await page.locator("tr.pl-review-ai-body").first().boundingBox();
         await shoot(page, "ai-design-score-row", { clip: { x: top.x, y: top.y, width: top.width, height: bottom.y + bottom.height - top.y } });
-        await page.locator(".pl-review-ai-tab", { hasText: "点评" }).first().click();
+        await scoreBtn.click(); // back to the review text
       }
     }
 
