@@ -3,7 +3,7 @@ import ReviewDataService from "../services/review.service";
 import AuthService from "../services/auth.service";
 import { takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
 import { getPendingReviewEdit, setPendingReviewEdit, clearPendingReviewEdit, reviewPayload } from "../utils/pendingReviewEdits";
-import { aiDesignScoreTooltip, aiDesignScoreText } from "../utils/aiDesignScore";
+import { aiDesignScoreText } from "../utils/aiDesignScore";
 
 // Migrated from shinshin's comments-list.component.js (inline textarea-submit + list-below
 // pattern), extended with:
@@ -64,6 +64,63 @@ const CONTENT_PREVIEW_LENGTH = 150;
 // starts collapsed to its first few lines when longer than this -- the CSS
 // (.pl-review-ai-content.is-collapsed) does the actual clipping.
 const isLongAiContent = (content) => !!content && (content.length > 240 || content.split("\n").length > 6);
+
+// An AI 点评 row's 评分 tab (see the AI row below): the AI 设计分数 scored
+// alongside that review, itemized per dimension -- score/满分, level, the
+// AI's own rationale -- next to the standard's 考察要点 it was scored
+// against (shape: review.controller.js#attachAiScores).
+const AiScorePanel = ({ score: s }) => {
+  const scored = new Map((s.dimensionScores || []).map((d) => [d.name, d]));
+  const dims = (s.criteria || []).length > 0 ? s.criteria : s.dimensionScores || [];
+  return (
+    <div>
+      <div className="mb-2">
+        <b>AI 设计分数：{aiDesignScoreText(s)}</b>
+        <span className="text-muted small ml-2">
+          评分标准：{s.standardTitle || "AI 点评标准"}（#{s.standardId}）
+          {s.scoredAt && ` · 打分于 ${new Date(s.scoredAt).toLocaleString()}`}
+        </span>
+      </div>
+      <table className="table table-sm table-bordered mb-2 pl-ai-score-table">
+        <thead>
+          <tr>
+            <th style={{ width: "16%" }}>维度</th>
+            <th style={{ width: "11%" }}>得分</th>
+            <th style={{ width: "38%" }}>评分理由</th>
+            <th>考察要点</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dims.map((dim) => {
+            const got = scored.get(dim.name);
+            return (
+              <tr key={dim.name}>
+                <td>{dim.name}</td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {got ? `${got.score} / ${dim.weight}` : `- / ${dim.weight}`}
+                  {got && got.level && <div className="text-muted small">{got.level}</div>}
+                </td>
+                <td>{(got && got.rationale) || "-"}</td>
+                <td>
+                  {(dim.criteria || []).length > 0 ? (
+                    <ul className="mb-0 pl-3">
+                      {dim.criteria.map((c) => (
+                        <li key={c}>{c}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {s.summary && <div>总评：{s.summary}</div>}
+    </div>
+  );
+};
 
 // 设计's own segment sectionKeys -- both aggregates show these; 实施's
 // aggregate additionally shows EXECUTION_RECORD (see the file header
@@ -321,6 +378,15 @@ const ReviewList = (props) => {
   const aiLoading = aiPending !== undefined ? aiPending : localAiLoading;
   const setAiLoading = setAiPending || setLocalAiLoading;
   const [expandedIds, setExpandedIds] = useState(new Set());
+  // AI 点评 rows currently showing their 评分 tab rather than 点评.
+  const [scoreTabIds, setScoreTabIds] = useState(new Set());
+  const showScoreTab = (id, on) =>
+    setScoreTabIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   // Reviews the plan's teacher hadn't seen before this view showed them --
   // tagged 新 for as long as this widget stays mounted, even though they're
   // marked seen server-side right away (see trackSeen below).
@@ -785,20 +851,19 @@ const ReviewList = (props) => {
 
               // AI 设计分数 from the same content version as this AI review
               // (review.controller.js#attachAiScores) -- sent to the plan's
-              // owner and to experts/admins, never to a peer teacher. In the
-              // 评分 column where there is one (experts/admins), otherwise
-              // (the owner's view) as a badge in the row itself; either way
-              // hover shows the itemized scores and scoring criteria, and the
-              // row's 内容已更新 tag covers the score too.
-              const aiScoreBadge = review.aiScore && (
-                <span className="pl-ai-score" title={aiDesignScoreTooltip(review.aiScore)}>
-                  AI 设计分数：{aiDesignScoreText(review.aiScore)}
-                </span>
-              );
+              // owner and to experts/admins, never to a peer teacher. Shown
+              // itemized in the row's 评分 tab (below); the 评分 column, where
+              // there is one, repeats the total and opens that tab. The row's
+              // 内容已更新 tag covers the score too.
               const scoreContent = review.aiScore ? (
-                <span style={{ cursor: "help", borderBottom: "1px dotted" }} title={aiDesignScoreTooltip(review.aiScore)}>
+                <button
+                  type="button"
+                  className="btn btn-link btn-sm p-0"
+                  title="查看各维度得分与评分标准"
+                  onClick={() => showScoreTab(review.id, true)}
+                >
                   {aiDesignScoreText(review.aiScore)}
-                </span>
+                </button>
               ) : review.score !== null && review.score !== undefined ? (
                 review.score
               ) : (
@@ -838,7 +903,9 @@ const ReviewList = (props) => {
               // multi-paragraph review is actually readable. Starts collapsed
               // to its first few lines (faded out) when long.
               if (review.reviewerType === "ai") {
-                const isLongAi = isLongAiContent(review.content);
+                const onScoreTab = !!review.aiScore && scoreTabIds.has(review.id);
+                // The score tab is always long enough to collapse.
+                const isLongAi = isLongAiContent(review.content) || !!review.aiScore;
                 const collapsed = isLongAi && !isExpanded;
                 const toggle = isLongAi && (
                   <button type="button" className="btn btn-link btn-sm p-0" onClick={() => toggleExpanded(review.id)}>
@@ -852,7 +919,6 @@ const ReviewList = (props) => {
                       {isAggregateView && <td>{moduleContent}</td>}
                       {showScore && <td>{scoreContent}</td>}
                       <td className="small" style={{ whiteSpace: "nowrap" }}>
-                        {!showScore && aiScoreBadge}
                         {toggle || <span className="text-muted">见下方</span>}
                       </td>
                       <td style={{ whiteSpace: "nowrap" }}>{reviewerName}</td>
@@ -861,7 +927,33 @@ const ReviewList = (props) => {
                     </tr>
                     <tr className="pl-review-ai-row pl-review-ai-body">
                       <td colSpan={columnCount}>
-                        <div className={`pl-review-ai-content${collapsed ? " is-collapsed" : ""}`}>{review.content}</div>
+                        {review.aiScore && (
+                          <div className="pl-review-ai-tabs" role="tablist">
+                            <button
+                              type="button"
+                              role="tab"
+                              aria-selected={!onScoreTab}
+                              className={`pl-review-ai-tab${onScoreTab ? "" : " is-active"}`}
+                              onClick={() => showScoreTab(review.id, false)}
+                            >
+                              点评
+                            </button>
+                            <button
+                              type="button"
+                              role="tab"
+                              aria-selected={onScoreTab}
+                              className={`pl-review-ai-tab${onScoreTab ? " is-active" : ""}`}
+                              onClick={() => showScoreTab(review.id, true)}
+                            >
+                              AI 设计分数 {aiDesignScoreText(review.aiScore)}
+                            </button>
+                          </div>
+                        )}
+                        <div
+                          className={`pl-review-ai-content${onScoreTab ? " is-score" : ""}${collapsed ? " is-collapsed" : ""}${review.aiScore ? " has-tabs" : ""}`}
+                        >
+                          {onScoreTab ? <AiScorePanel score={review.aiScore} /> : review.content}
+                        </div>
                         {toggle && <div className="mt-1">{toggle}</div>}
                       </td>
                     </tr>

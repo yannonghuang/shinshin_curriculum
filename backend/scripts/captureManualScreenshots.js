@@ -264,11 +264,18 @@ async function run() {
     await page.getByText("计划整体点评", { exact: true }).first().click();
     await page.waitForTimeout(300);
     await shoot(page.locator(".pl-card").first(), "review-panel");
-    // The owner's view of an AI 点评 row: AI 设计分数 badge in its 内容 cell
-    // (experts/admins get it in the 评分 column instead).
+    // An AI 点评 row switched to its AI 设计分数 tab (collapsed), from the
+    // row's header line down through its tab body.
     {
-      const aiRow = page.locator("tr.pl-review-ai-meta").first();
-      if (await aiRow.locator(".pl-ai-score").count()) await shoot(aiRow, "ai-design-score-row");
+      const scoreTab = page.locator(".pl-review-ai-tab", { hasText: "AI 设计分数" }).first();
+      if (await scoreTab.count()) {
+        await scoreTab.click();
+        await page.waitForTimeout(300);
+        const top = await page.locator("tr.pl-review-ai-meta").first().boundingBox();
+        const bottom = await page.locator("tr.pl-review-ai-body").first().boundingBox();
+        await shoot(page, "ai-design-score-row", { clip: { x: top.x, y: top.y, width: top.width, height: bottom.y + bottom.height - top.y } });
+        await page.locator(".pl-review-ai-tab", { hasText: "点评" }).first().click();
+      }
     }
 
     console.log("==> plan-detail: 设计完成度 (标题栏)");
