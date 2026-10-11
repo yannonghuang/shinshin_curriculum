@@ -8,6 +8,30 @@ const Op = db.Sequelize.Op;
 var jwt = require("jsonwebtoken");
 var bcrypt = require("bcryptjs");
 
+// Session state behind the admin user list's 在线 / 退出时间 columns, from a
+// user's plain fields. A session starts at lastLogin and is over once
+// either (a) signout recorded a lastLogoutAt at/after it, or (b) the
+// sliding inactivity window (config.validity, see authJwt.js) has lapsed
+// since its last activity -- lastActivityAt, or lastLogin itself if no
+// renewal was persisted yet. (b) is never written when it happens (no
+// request marks a timeout), so until the next signin records it (see
+// signin) its time is derived here as last activity + validity.
+// findAll's online filter must express this same rule in SQL.
+const sessionStatusOf = (u, now = Date.now()) => {
+  const login = u.lastLogin ? new Date(u.lastLogin).getTime() : null;
+  const logout = u.lastLogoutAt ? new Date(u.lastLogoutAt).getTime() : null;
+  if (login == null) {
+    return { online: false, logoutAt: u.lastLogoutAt || null, logoutType: logout ? u.lastLogoutType : null };
+  }
+  if (logout != null && logout >= login) {
+    return { online: false, logoutAt: u.lastLogoutAt, logoutType: u.lastLogoutType };
+  }
+  const activity = u.lastActivityAt ? new Date(u.lastActivityAt).getTime() : 0;
+  const expiresAt = Math.max(login, activity) + config.validity * 1000;
+  if (expiresAt > now) return { online: true, logoutAt: null, logoutType: null };
+  return { online: false, logoutAt: new Date(expiresAt), logoutType: "timeout" };
+};
+
 // return role list: [{name:'teacher',label:'教师'}, {name:'expert',label:'专家'}, {name:'admin',label:'管理员'}]
 exports.getRoles = (req, res) => {
   res.send(ROLES);
@@ -135,15 +159,25 @@ exports.signin = (req, res) => {
 
       const lastLastLogin = user.lastLogin;
       const signinUpdates = { lastLogin: db.sequelize.literal("CURRENT_TIMESTAMP") };
-      // Reconciles a *previous* session that ended via inactivity timeout
-      // rather than an explicit sign-out -- signout() below always advances
-      // lastLogin past whatever lastActivityAt it leaves behind, so this
-      // only ever fires for the inactivity-timeout case (lastActivityAt from
-      // authJwt.js's renewals still sitting after the old lastLogin).
-      if (user.lastActivityAt && lastLastLogin && user.lastActivityAt > lastLastLogin) {
+      // Reconciles a *previous* session that never got an explicit
+      // sign-out -- signout() below already credited its own session and
+      // stamped lastLogoutAt, so one with a lastLogoutAt at/after its
+      // lastLogin is skipped (a late request on a still-valid token after
+      // signout can leave lastActivityAt past lastLogin; crediting it here
+      // would count that session twice).
+      const signedOut = user.lastLogoutAt && lastLastLogin && user.lastLogoutAt >= lastLastLogin;
+      if (!signedOut && user.lastActivityAt && lastLastLogin && user.lastActivityAt > lastLastLogin) {
         const elapsedSeconds = Math.max(0, Math.round((user.lastActivityAt.getTime() - lastLastLogin.getTime()) / 1000));
         signinUpdates.totalLoginTime = user.totalLoginTime + elapsedSeconds;
         signinUpdates.lastActivityAt = null;
+      }
+      // ...and records how it ended, if it timed out (one still within its
+      // window -- e.g. signing in again on another device -- was just
+      // superseded, not logged out, so nothing is recorded for it).
+      const previous = sessionStatusOf(user);
+      if (!signedOut && previous.logoutType === "timeout") {
+        signinUpdates.lastLogoutAt = previous.logoutAt;
+        signinUpdates.lastLogoutType = "timeout";
       }
       user.update(signinUpdates);
 
@@ -192,14 +226,24 @@ exports.signout = (req, res) => {
       // user.lastLogin) to totalLoginTime -- the precise, no-reconciliation-
       // needed case, since the user is explicitly ending the session right
       // now (contrast signin's reconciliation of a session that ended by
-      // inactivity timeout instead). lastActivityAt is cleared so signin
-      // doesn't also try to reconcile this same, already-credited session.
-      const signoutUpdates = { lastLogin: db.sequelize.literal("CURRENT_TIMESTAMP"), lastActivityAt: null };
-      if (user.lastLogin) {
+      // inactivity timeout instead). lastLogoutAt marks it ended (so signin
+      // doesn't also reconcile it, and the admin list shows it offline);
+      // lastLogin is left as the session's start, so 上次登录时间 stays a
+      // login time rather than turning into the sign-out time.
+      const signoutUpdates = {
+        lastActivityAt: null,
+        lastLogoutAt: db.sequelize.literal("CURRENT_TIMESTAMP"),
+        lastLogoutType: "manual",
+      };
+      // A session that's already over -- signed out in another tab, or timed
+      // out before this request -- is left alone: re-crediting it from
+      // lastLogin would count it twice (or count the idle hours), and a
+      // timed-out one is still recorded as such at the next signin.
+      if (sessionStatusOf(user).online) {
         const elapsedSeconds = Math.max(0, Math.round((Date.now() - user.lastLogin.getTime()) / 1000));
         signoutUpdates.totalLoginTime = user.totalLoginTime + elapsedSeconds;
+        user.update(signoutUpdates);
       }
-      user.update(signoutUpdates);
       res.send({ message: "Signed out successfully." });
     })
     .catch((err) => {
@@ -488,8 +532,35 @@ const buildUsersOrder = (sortBy, sortOrder) => {
 
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, role, suspended, schoolCode, sortBy, sortOrder } = req.query;
+    const { page, size, keyword, role, suspended, schoolCode, online, sortBy, sortOrder } = req.query;
     const { limit, offset } = getPagination(page, size);
+
+    // Same rule as sessionStatusOf, in SQL: a session started, not signed
+    // out since, with its last activity (or login) inside the window. The
+    // offline side is spelled out rather than NOT(online) -- NOT over a
+    // comparison with a NULL column is NULL, which would drop e.g. a
+    // never-renewed (last_activity_at NULL) session from both filters.
+    const activeSince = new Date(Date.now() - config.validity * 1000);
+    const col = db.sequelize.col;
+    const onlineCondition = {
+      [Op.and]: [
+        { lastLogin: { [Op.ne]: null } },
+        { [Op.or]: [{ lastLogoutAt: null }, db.sequelize.where(col("last_logout_at"), Op.lt, col("last_login"))] },
+        { [Op.or]: [{ lastLogin: { [Op.gt]: activeSince } }, { lastActivityAt: { [Op.gt]: activeSince } }] },
+      ],
+    };
+    const offlineCondition = {
+      [Op.or]: [
+        { lastLogin: null },
+        db.sequelize.where(col("last_logout_at"), Op.gte, col("last_login")),
+        {
+          [Op.and]: [
+            { lastLogin: { [Op.lte]: activeSince } },
+            { [Op.or]: [{ lastActivityAt: null }, { lastActivityAt: { [Op.lte]: activeSince } }] },
+          ],
+        },
+      ],
+    };
 
     const condition = {
       [Op.and]: [
@@ -504,6 +575,7 @@ exports.findAll = async (req, res) => {
           : null,
         suspended !== undefined ? { suspended: suspended === "true" || suspended === "1" } : null,
         schoolCode !== undefined && schoolCode !== "" ? { schoolCode: Number(schoolCode) } : null,
+        online === "true" ? onlineCondition : online === "false" ? offlineCondition : null,
       ],
     };
 
@@ -530,6 +602,9 @@ exports.findAll = async (req, res) => {
         "suspended",
         "schoolCode",
         "lastLogin",
+        "lastActivityAt",
+        "lastLogoutAt",
+        "lastLogoutType",
         "totalLoginTime",
         "createdAt",
       ],
@@ -545,6 +620,10 @@ exports.findAll = async (req, res) => {
       const plain = row.get({ plain: true });
       plain.schoolName = plain.School ? plain.School.name : null;
       delete plain.School;
+      Object.assign(plain, sessionStatusOf(plain));
+      delete plain.lastActivityAt;
+      delete plain.lastLogoutAt;
+      delete plain.lastLogoutType;
       return plain;
     });
 

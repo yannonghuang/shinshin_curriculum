@@ -15,6 +15,16 @@ const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, addres
 // auth.controller.js's signin/signout) -- rendered as the largest couple of
 // units that fit, matching how a human would say it ("3小时25分钟", not
 // "12300秒" or a raw decimal-hours number).
+const formatDateTime = (value) => new Date(value).toLocaleString("zh-cn", { hour12: false });
+
+// 退出时间's ending kinds -- logoutType comes from auth.controller.js's
+// sessionStatusOf: "manual" is an explicit 退出登录, "timeout" is the
+// inactivity window lapsing (including just closing the browser).
+const LOGOUT_TYPES = {
+  manual: { label: "主动退出", className: "pl-tag", tip: "用户主动点击退出登录" },
+  timeout: { label: "超时退出", className: "pl-tag pl-tag-warn", tip: "长时间无操作，登录已超时自动失效" },
+};
+
 const formatDuration = (totalSeconds) => {
   if (!totalSeconds) return "0分钟";
   const hours = Math.floor(totalSeconds / 3600);
@@ -62,6 +72,7 @@ const AdminUsersList = () => {
   const [roleFilter, setRoleFilter] = useState("");
   const [suspendedFilter, setSuspendedFilter] = useState("");
   const [schoolFilter, setSchoolFilter] = useState(null);
+  const [onlineFilter, setOnlineFilter] = useState("");
   // Code of the school currently shown in the detail popup, or null when
   // closed -- a popup rather than navigating away (see the 学校编号 cell
   // below) so opening it never loses the list's current page/filters/sort.
@@ -96,6 +107,7 @@ const AdminUsersList = () => {
         role: roleFilter || undefined,
         suspended: suspendedFilter || undefined,
         schoolCode: schoolFilter ? schoolFilter.value : undefined,
+        online: onlineFilter || undefined,
         sortBy: sortBy || undefined,
         sortOrder: sortBy ? sortOrder : undefined,
       });
@@ -106,7 +118,7 @@ const AdminUsersList = () => {
       console.log(e);
       setMessage("加载用户列表失败。");
     }
-  }, [page, pageSize, keyword, roleFilter, suspendedFilter, schoolFilter, sortBy, sortOrder]);
+  }, [page, pageSize, keyword, roleFilter, suspendedFilter, schoolFilter, onlineFilter, sortBy, sortOrder]);
 
   // Clicking a sortable column header: same column toggles asc/desc, a
   // different column starts fresh at asc. Also resets to page 1, since
@@ -330,6 +342,20 @@ const AdminUsersList = () => {
               isClearable
             />
           </div>
+          <div className="form-group col-md-3">
+            <select
+              className="form-control"
+              value={onlineFilter}
+              onChange={(e) => {
+                setOnlineFilter(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">全部在线状态</option>
+              <option value="true">在线</option>
+              <option value="false">离线</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -355,12 +381,14 @@ const AdminUsersList = () => {
             </th>
             <th>邮箱已验证</th>
             <th>状态</th>
+            <th>在线</th>
             <th role="button" onClick={() => onSortClick("createdAt")}>
               注册时间{sortIndicator("createdAt")}
             </th>
             <th role="button" onClick={() => onSortClick("lastLogin")}>
               上次登录时间{sortIndicator("lastLogin")}
             </th>
+            <th>退出时间</th>
             <th role="button" onClick={() => onSortClick("totalLoginTime")}>
               累计登录时长{sortIndicator("totalLoginTime")}
             </th>
@@ -395,11 +423,27 @@ const AdminUsersList = () => {
                 <td>
                   {item.suspended ? <span className="pl-tag-warn">已停用</span> : <span className="text-muted">正常</span>}
                 </td>
+                <td>{item.online ? <span className="pl-tag">在线</span> : <span className="text-muted">离线</span>}</td>
                 <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString("zh-cn") : "-"}</td>
                 <td>
-                  {item.lastLogin
-                    ? new Date(item.lastLogin).toLocaleString("zh-cn", { hour12: false })
-                    : "从未登录"}
+                  {item.lastLogin ? formatDateTime(item.lastLogin) : "从未登录"}
+                </td>
+                <td>
+                  {item.logoutAt ? (
+                    <span title={(LOGOUT_TYPES[item.logoutType] || {}).tip}>
+                      {formatDateTime(item.logoutAt)}
+                      {LOGOUT_TYPES[item.logoutType] && (
+                        <>
+                          <br />
+                          <span className={LOGOUT_TYPES[item.logoutType].className}>
+                            {LOGOUT_TYPES[item.logoutType].label}
+                          </span>
+                        </>
+                      )}
+                    </span>
+                  ) : (
+                    "-"
+                  )}
                 </td>
                 <td>{formatDuration(item.totalLoginTime)}</td>
                 <td>
@@ -430,7 +474,7 @@ const AdminUsersList = () => {
           })}
           {users.length === 0 && (
             <tr>
-              <td colSpan="11">暂无数据</td>
+              <td colSpan="13">暂无数据</td>
             </tr>
           )}
         </tbody>

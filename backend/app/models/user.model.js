@@ -56,6 +56,15 @@ module.exports = (sequelize, Sequelize) => {
       lastActivityAt: {
         type: Sequelize.DATE,
       },
+      // How the most recent session ended -- "manual" (signout) or
+      // "timeout" (inactivity window lapsed, recorded at the next signin).
+      // See 20261011000000-user-logout-tracking.js.
+      lastLogoutAt: {
+        type: Sequelize.DATE,
+      },
+      lastLogoutType: {
+        type: Sequelize.STRING(16),
+      },
       // Admin user-management: a suspended account can't sign in but isn't
       // deleted. See auth.controller.js's suspend/unsuspend + signin check.
       suspended: {
