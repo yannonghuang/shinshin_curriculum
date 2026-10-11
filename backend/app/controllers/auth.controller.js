@@ -532,7 +532,8 @@ const buildUsersOrder = (sortBy, sortOrder) => {
 
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, role, suspended, schoolCode, online, sortBy, sortOrder } = req.query;
+    const { page, size, keyword, role, suspended, schoolCode, online, logoutType, sortBy, sortOrder } =
+      req.query;
     const { limit, offset } = getPagination(page, size);
 
     // Same rule as sessionStatusOf, in SQL: a session started, not signed
@@ -549,17 +550,39 @@ exports.findAll = async (req, res) => {
         { [Op.or]: [{ lastLogin: { [Op.gt]: activeSince } }, { lastActivityAt: { [Op.gt]: activeSince } }] },
       ],
     };
-    const offlineCondition = {
-      [Op.or]: [
-        { lastLogin: null },
-        db.sequelize.where(col("last_logout_at"), Op.gte, col("last_login")),
-        {
-          [Op.and]: [
-            { lastLogin: { [Op.lte]: activeSince } },
-            { [Op.or]: [{ lastActivityAt: null }, { lastActivityAt: { [Op.lte]: activeSince } }] },
-          ],
-        },
+    const windowLapsed = {
+      [Op.and]: [
+        { lastLogin: { [Op.lte]: activeSince } },
+        { [Op.or]: [{ lastActivityAt: null }, { lastActivityAt: { [Op.lte]: activeSince } }] },
       ],
+    };
+    const offlineCondition = {
+      [Op.or]: [{ lastLogin: null }, db.sequelize.where(col("last_logout_at"), Op.gte, col("last_login")), windowLapsed],
+    };
+    // 退出方式 filter, matching sessionStatusOf's logoutType: a recorded
+    // logout of that type (one at/after the latest login, or with no login
+    // at all), plus -- for "timeout" -- a not-yet-recorded one: a session
+    // never signed out whose window has lapsed.
+    const recordedLogout = (type) => ({
+      [Op.and]: [
+        { lastLogoutType: type },
+        { [Op.or]: [{ lastLogin: null }, db.sequelize.where(col("last_logout_at"), Op.gte, col("last_login"))] },
+      ],
+    });
+    const logoutTypeConditions = {
+      manual: recordedLogout("manual"),
+      timeout: {
+        [Op.or]: [
+          recordedLogout("timeout"),
+          {
+            [Op.and]: [
+              { lastLogin: { [Op.ne]: null } },
+              { [Op.or]: [{ lastLogoutAt: null }, db.sequelize.where(col("last_logout_at"), Op.lt, col("last_login"))] },
+              windowLapsed,
+            ],
+          },
+        ],
+      },
     };
 
     const condition = {
@@ -576,6 +599,7 @@ exports.findAll = async (req, res) => {
         suspended !== undefined ? { suspended: suspended === "true" || suspended === "1" } : null,
         schoolCode !== undefined && schoolCode !== "" ? { schoolCode: Number(schoolCode) } : null,
         online === "true" ? onlineCondition : online === "false" ? offlineCondition : null,
+        logoutType === "manual" || logoutType === "timeout" ? logoutTypeConditions[logoutType] : null,
       ],
     };
 

@@ -18,7 +18,7 @@ import { hasUnsavedWork, saveUnsavedWork, stashUnsavedWork } from "../utils/sess
 // since the whole point is this fires even when no request would otherwise
 // go out. CHECK_INTERVAL_MS trades precision (how close to the true expiry
 // the redirect actually happens) for polling overhead; 30s is comfortably
-// precise for a 2-hour window at effectively zero cost.
+// precise for a 30-minute window at effectively zero cost.
 const CHECK_INTERVAL_MS = 30 * 1000;
 
 // The session times out after *inactivity*, and activity is the user doing

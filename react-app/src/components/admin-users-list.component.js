@@ -73,6 +73,7 @@ const AdminUsersList = () => {
   const [suspendedFilter, setSuspendedFilter] = useState("");
   const [schoolFilter, setSchoolFilter] = useState(null);
   const [onlineFilter, setOnlineFilter] = useState("");
+  const [logoutTypeFilter, setLogoutTypeFilter] = useState("");
   // Code of the school currently shown in the detail popup, or null when
   // closed -- a popup rather than navigating away (see the 学校编号 cell
   // below) so opening it never loses the list's current page/filters/sort.
@@ -108,6 +109,7 @@ const AdminUsersList = () => {
         suspended: suspendedFilter || undefined,
         schoolCode: schoolFilter ? schoolFilter.value : undefined,
         online: onlineFilter || undefined,
+        logoutType: logoutTypeFilter || undefined,
         sortBy: sortBy || undefined,
         sortOrder: sortBy ? sortOrder : undefined,
       });
@@ -118,7 +120,7 @@ const AdminUsersList = () => {
       console.log(e);
       setMessage("加载用户列表失败。");
     }
-  }, [page, pageSize, keyword, roleFilter, suspendedFilter, schoolFilter, onlineFilter, sortBy, sortOrder]);
+  }, [page, pageSize, keyword, roleFilter, suspendedFilter, schoolFilter, onlineFilter, logoutTypeFilter, sortBy, sortOrder]);
 
   // Clicking a sortable column header: same column toggles asc/desc, a
   // different column starts fresh at asc. Also resets to page 1, since
@@ -354,6 +356,23 @@ const AdminUsersList = () => {
               <option value="">全部在线状态</option>
               <option value="true">在线</option>
               <option value="false">离线</option>
+            </select>
+          </div>
+          <div className="form-group col-md-3">
+            <select
+              className="form-control"
+              value={logoutTypeFilter}
+              onChange={(e) => {
+                setLogoutTypeFilter(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">全部退出方式</option>
+              {Object.entries(LOGOUT_TYPES).map(([value, t]) => (
+                <option key={value} value={value}>
+                  {t.label}
+                </option>
+              ))}
             </select>
           </div>
         </div>

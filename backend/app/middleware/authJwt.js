@@ -11,7 +11,7 @@ const User = db.user;
 // here and needs no external store. Losing this cache on a restart just
 // means the next request per user writes again -- not a correctness issue,
 // only ever adds writes, never skips one that matters (60s is comfortably
-// within the 2-hour inactivity window either way).
+// within the 30-minute inactivity window either way).
 const ACTIVITY_PERSIST_THROTTLE_MS = 60 * 1000;
 const lastPersistedActivity = new Map();
 
