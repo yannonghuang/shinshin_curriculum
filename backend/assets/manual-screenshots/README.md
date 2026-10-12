@@ -9,9 +9,10 @@ from the local dev server (richer real 乡土课程设计 content there);
 `materials-library-content.png` comes from **production** instead (its real
 2026年秋季学期 topic has several real uploaded files; dev's only real topic
 is a single-file placeholder-ish one) — read-only, never writes anything
-there. `scripts/prepareManualScreenshotState.js` adds only the couple of
-small, clearly-scoped nudges dev's real content needed on top of what was
-already there naturally (a review pair, a `needsMigration` flag), plus
+there. `scripts/prepareManualScreenshotState.js` adds only the one small,
+clearly-scoped nudge dev's real content needed on top of what was already
+there naturally (a `needsMigration` flag), checks the review plan still has
+its real expert/AI reviews, plus
 genericizes the real accounts'/file's display names (黄教师/黄专家/王专家) so
 the manual — distributed to every user — doesn't carry anyone's actual full
 name. Every screenshot is checked by hand to make sure no real person's name
@@ -63,7 +64,7 @@ whole document, so it's fine to add these incrementally.
 | `copilot-panel.png` | 十二、AI 聊天助手「欣欣助手」 |
 | `copilot-action-confirm.png` | 十二、AI 聊天助手「欣欣助手」 -- 代办操作 (live LLM call; the pending 提交待点评 is 取消'd right after) |
 | `lesson-file-manager.png` | 十三、执行阶段支撑材料管理 |
-| `manual-migration-panel.png` | 十四、模板迁移 |
+| `manual-migration-panel.png` | 十四、模板迁移 (skipped while no dev plan has 手动迁移内容 -- see `MANUAL_MIGRATION_PLAN_TITLE`) |
 | `materials-library-content.png` | 十五、学习资源库 (sourced from production) |
 
 To add another screenshot: capture it in `captureManualScreenshots.js`,

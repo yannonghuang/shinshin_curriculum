@@ -53,7 +53,7 @@ const EXT_BY_IMAGE_MIME = { "image/png": "png", "image/jpeg": "jpg", "image/gif"
 // than the generic "unsupported" so the teacher knows the one-step fix.
 const LEGACY_HINTS = { doc: "docx", ppt: "pptx", xls: "xlsx" };
 
-const VISION_MODEL = () => process.env.COPILOT_VISION_MODEL || "qwen-vl-max";
+const VISION_MODEL = () => process.env.COPILOT_VISION_MODEL || "qwen3-vl-plus";
 const VISION_PROMPT =
   "请先完整、准确地转写图片中的全部文字（保持原有的段落、列表与层次结构；表格请用 Markdown 表格表示），" +
   "然后用一两句话简要描述图片中的非文字内容（如照片、插图、图表、示意图所表达的信息）。" +

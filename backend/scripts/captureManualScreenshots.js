@@ -62,9 +62,13 @@ const TEACHER_ID = 8; // yannonghuang / 黄教师 -- a real existing teacher acc
 
 // Real plans already on the dev server (see prepareManualScreenshotState.js's
 // own comment on how these were picked).
-const REVIEW_PLAN_TITLE = "小小菜农 —— 萝卜种植乡土实践课"; // real 设计 content + a real review pair
-const MANUAL_MIGRATION_PLAN_TITLE = "童心探敦煌，巧手汇非遗"; // real leftover 手动迁移内容 from an actual past migration
+const REVIEW_PLAN_TITLE = "黄陂三鲜"; // 已提交, real 设计 content + real expert/AI reviews and an AI 设计分数
+const DRAFT_PLAN_TITLE = "从一粒玉米说起"; // still 草稿 -- 提交待点评 only renders for a draft
 const FOCUS_PLAN_TITLE = "黄陂三鲜"; // real online WHY/WHAT/HOW content, for the 小助手 hover menu
+// A plan with real leftover 手动迁移内容 from an actual past migration. None
+// on dev right now, so manual-migration-panel.png is skipped (the committed
+// one stays) -- set this to such a plan's title to re-capture it.
+const MANUAL_MIGRATION_PLAN_TITLE = null;
 
 // 学习资源库 content is sourced from PRODUCTION instead of dev -- see this
 // file's header comment on why, and on why only 材料内容 (never 基本信息, which
@@ -290,18 +294,23 @@ async function run() {
     await page.waitForTimeout(300);
     await shoot(page.locator(".pl-card").first(), "lesson-file-manager");
 
-    console.log("==> plan-detail #2: 手动迁移内容 板块 (真实的历史迁移遗留内容)");
-    await openPlanByTitle(page, MANUAL_MIGRATION_PLAN_TITLE);
-    await ensurePlanGroupExpanded(page);
-    await page.getByText("手动迁移内容", { exact: true }).first().click();
-    await page.waitForTimeout(300);
-    await shoot(page.locator(".pl-card").first(), "manual-migration-panel");
+    if (MANUAL_MIGRATION_PLAN_TITLE) {
+      console.log("==> plan-detail: 手动迁移内容 板块 (真实的历史迁移遗留内容)");
+      await openPlanByTitle(page, MANUAL_MIGRATION_PLAN_TITLE);
+      await ensurePlanGroupExpanded(page);
+      await page.getByText("手动迁移内容", { exact: true }).first().click();
+      await page.waitForTimeout(300);
+      await shoot(page.locator(".pl-card").first(), "manual-migration-panel");
+    } else {
+      console.log("==> plan-detail: 手动迁移内容 板块 -- skipped (no MANUAL_MIGRATION_PLAN_TITLE), keeping the existing PNG");
+    }
 
     console.log("==> plan-detail #2: 实施记录 (保存草稿/提交待点评 按钮)");
-    // Shot on this plan, not REVIEW_PLAN_TITLE's: it's still 草稿 on dev, and
-    // 提交待点评 only renders for a draft -- REVIEW_PLAN_TITLE's is 已提交, so
-    // the screenshot would show 保存草稿 alone. 分课时设计 starts collapsed,
-    // so the first "课时 1" leaf is 实施's.
+    // Shot on DRAFT_PLAN_TITLE, not REVIEW_PLAN_TITLE's: 提交待点评 only
+    // renders for a draft -- REVIEW_PLAN_TITLE's is 已提交, so the screenshot
+    // would show 保存草稿 alone. 分课时设计 starts collapsed, so the first
+    // "课时 1" leaf is 实施's.
+    await openPlanByTitle(page, DRAFT_PLAN_TITLE);
     await page.getByText("课时 1", { exact: true }).first().click();
     await page.waitForTimeout(200);
     await page.getByText("实施记录", { exact: true }).first().click();
@@ -332,12 +341,23 @@ async function run() {
     await page.waitForTimeout(500);
     await page.locator(".copilot-input-row textarea").fill("请把这份课程设计提交待点评。");
     await page.locator(".copilot-input-row button[type=submit]").click();
+    // submit_plan's precheck refuses a blank plan, so on a DRAFT_PLAN_TITLE
+    // with no content yet the reply is a plain refusal, no card -- skipped
+    // then (the committed PNG stays) rather than failing the whole run.
     const actionCard = page.locator(".copilot-action", { has: page.getByRole("button", { name: "确认执行" }) }).first();
-    await actionCard.waitFor({ timeout: 180000 });
-    await page.waitForTimeout(500);
-    await shoot(page.locator(".copilot-panel"), "copilot-action-confirm");
-    await actionCard.getByRole("button", { name: "取消" }).click();
+    await page.waitForFunction(
+      () => !document.querySelector(".copilot-bubble-thinking") && document.querySelectorAll(".copilot-bubble-assistant").length > 0,
+      null,
+      { timeout: 180000 }
+    );
     await page.waitForTimeout(1000);
+    if (await actionCard.isVisible()) {
+      await shoot(page.locator(".copilot-panel"), "copilot-action-confirm");
+      await actionCard.getByRole("button", { name: "取消" }).click();
+      await page.waitForTimeout(1000);
+    } else {
+      console.log("    skipped -- no 确认执行 card (DRAFT_PLAN_TITLE has no content to submit?), keeping the existing PNG");
+    }
 
     console.log("==> 欣欣小助手 附件：选择文件 + 粘贴截图");
     // Real material on both counts: the project's own spec .docx from the
@@ -368,7 +388,13 @@ async function run() {
     // wait), then opens 导出 in 选择部分消息 mode with the reply unticked --
     // captured and 取消'd; nothing is downloaded.
     await page.locator(".copilot-input-row button[type=submit]").click();
-    await page.waitForFunction(() => !document.querySelector(".copilot-bubble-thinking"), null, { timeout: 180000 });
+    // A slow reply moves into a 正在处理 task card instead of the thinking
+    // bubble -- wait for that to finish too, so 导出 has a reply to show.
+    await page.waitForFunction(
+      () => !document.querySelector(".copilot-bubble-thinking") && !document.querySelector(".copilot-task-card"),
+      null,
+      { timeout: 240000 }
+    );
     await page.waitForTimeout(1000);
     await page.locator(".copilot-panel").getByRole("button", { name: "导出" }).click();
     await page.locator(".copilot-panel").getByLabel("选择部分消息").check();
@@ -406,17 +432,39 @@ async function run() {
     await page.waitForTimeout(500);
     await page.locator(".copilot-input-row textarea").fill("能显示几张本课程主题的照片吗？");
     await page.locator(".copilot-input-row button[type=submit]").click();
+    // The web search plus a vision relevance check per candidate can run
+    // long (into a 正在处理 task card), so wait for the reply itself first,
+    // then give the images a bounded time to load -- a web photo whose host
+    // blocks it never loads, so "every image loaded" alone could hang.
     await page.waitForFunction(
-      () => {
-        const imgs = [...document.querySelectorAll(".copilot-photo-img")];
-        return imgs.length > 0 && imgs.every((i) => i.tagName === "IMG" && i.complete && i.naturalWidth > 0);
-      },
+      () =>
+        !document.querySelector(".copilot-bubble-thinking") &&
+        !document.querySelector(".copilot-task-card") &&
+        document.querySelectorAll(".copilot-bubble-assistant").length > 0,
       null,
-      { timeout: 240000 }
+      { timeout: 360000 }
     );
-    await page.locator(".copilot-photos").last().scrollIntoViewIfNeeded();
-    await page.waitForTimeout(500);
-    await shoot(page.locator(".copilot-panel"), "copilot-photos");
+    const loadedPhotos = () =>
+      page.evaluate(
+        () => [...document.querySelectorAll(".copilot-photo-img")].filter((i) => i.tagName === "IMG" && i.complete && i.naturalWidth > 0).length
+      );
+    await page
+      .waitForFunction(
+        () => {
+          const imgs = [...document.querySelectorAll(".copilot-photo-img")];
+          return imgs.length > 0 && imgs.every((i) => i.tagName === "IMG" && i.complete && i.naturalWidth > 0);
+        },
+        null,
+        { timeout: 60000 }
+      )
+      .catch(() => {});
+    if ((await loadedPhotos()) > 0) {
+      await page.locator(".copilot-photos").last().scrollIntoViewIfNeeded();
+      await page.waitForTimeout(500);
+      await shoot(page.locator(".copilot-panel"), "copilot-photos");
+    } else {
+      console.log("    skipped -- the reply came back without any loaded photo, keeping the existing PNG");
+    }
     await page.locator(".copilot-toggle").click();
 
     await captureFocusShots(page);

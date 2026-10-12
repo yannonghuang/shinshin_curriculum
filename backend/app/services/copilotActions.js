@@ -216,7 +216,7 @@ const findLibraryPhotos = async (query) => {
 // they're real people who never agreed to appear in a classroom.
 const judgePhoto = async (photo, query) => {
   const result = await llmClient.llmChat({
-    model: process.env.COPILOT_VISION_MODEL || "qwen-vl-max",
+    model: process.env.COPILOT_VISION_MODEL || "qwen3-vl-plus",
     messages: [
       {
         role: "user",

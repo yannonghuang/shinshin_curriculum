@@ -71,7 +71,7 @@ services:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       AI_REVIEW_MODEL: ${AI_REVIEW_MODEL:-qwen3.8-max}
-      COPILOT_VISION_MODEL: ${COPILOT_VISION_MODEL:-qwen-vl-max}
+      COPILOT_VISION_MODEL: ${COPILOT_VISION_MODEL:-qwen3-vl-plus}
       COPILOT_DISABLE_DRAFT_PLAN: ${COPILOT_DISABLE_DRAFT_PLAN:-}
     volumes:
       - ./backend:/app
