@@ -153,10 +153,16 @@ const EXPORT_FIELDS = [
   { key: "theme", label: "乡土主题", width: 16, value: (r) => r.theme || "" },
   { key: "status", label: "状态", width: 8, value: (r) => STATUS_LABELS[r.status] || r.status },
   { key: "submitted", label: "是否提交", width: 8, defaultOn: true, value: (r) => yesNo(r.submitted) },
-  { key: "completion", label: "设计完成度(%)", width: 13, defaultOn: true, value: (r) => r.completion.overall },
+  { key: "completionGeneral", label: "总体设计完成度(%)", width: 15, defaultOn: true, value: (r) => r.completion.general },
+  {
+    key: "completionLessonDesign",
+    label: "分课时设计完成度(%)",
+    width: 17,
+    defaultOn: true,
+    value: (r) => r.completion.lessonDesign,
+  },
   { key: "completionBasic", label: "基本信息(%)", width: 10, value: (r) => r.completion.basic },
   { key: "completionDesign", label: "课程设计(%)", width: 10, value: (r) => r.completion.design },
-  { key: "completionLessonDesign", label: "分课时设计(%)", width: 12, value: (r) => r.completion.lessonDesign },
   { key: "lessonCount", label: "课时数", width: 8, value: (r) => r.completion.lessonCount },
   { key: "aiScore", label: "AI 设计分数", width: 12, defaultOn: true, value: (r) => (r.aiScore ? r.aiScore.totalScore : "") },
   {

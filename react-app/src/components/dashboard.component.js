@@ -32,7 +32,8 @@ const sortValue = {
   school: (r) => r.schoolName || "",
   // 已提交 before 草稿 on the natural (high→low) direction.
   submitted: (r) => (r.submitted ? 1 : 0),
-  completion: (r) => r.completion.overall,
+  general: (r) => r.completion.general,
+  lessonDesign: (r) => r.completion.lessonDesign,
   aiScore: (r) => (r.aiScore ? r.aiScore.totalScore : null),
 };
 
@@ -51,6 +52,15 @@ const compareBy = (sortKey, sortDir) => (a, b) => {
 
 const completionClass = (pct) => (pct >= 80 ? "bg-success" : pct >= 40 ? "bg-info" : "bg-warning");
 
+const CompletionBar = ({ pct }) => (
+  <div className="d-flex align-items-center">
+    <div className="progress flex-grow-1 mr-2" style={{ height: 8 }}>
+      <div className={`progress-bar ${completionClass(pct)}`} style={{ width: `${pct}%` }} />
+    </div>
+    <b>{pct}%</b>
+  </div>
+);
+
 const scoreClass = (score) => (score >= 85 ? "text-success" : score >= 60 ? "" : "text-danger");
 
 const readStoredExportFields = () => {
@@ -63,7 +73,7 @@ const readStoredExportFields = () => {
 };
 
 // 数据看板 (admins and experts): every plan in one sortable/filterable table with
-// its 完成度 (see backend services/planCompletion.js), newest AI 打分 and
+// its 总体/分课时设计完成度 (see backend services/planCompletion.js), newest AI 打分 and
 // expert reviews, exportable to Excel with a chosen set of columns.
 const Dashboard = () => {
   const allowed = AuthService.isAdmin() || AuthService.isExpert();
@@ -92,8 +102,10 @@ const Dashboard = () => {
   const [filterSubmitted, setFilterSubmitted] = useState(() => initialParams.get("submitted") || "");
   const [filterAiReviewed, setFilterAiReviewed] = useState(() => initialParams.get("aiReviewed") === "1");
   const [filterExpertReviewed, setFilterExpertReviewed] = useState(() => initialParams.get("expertReviewed") === "1");
-  const [completionMin, setCompletionMin] = useState(() => initialParams.get("completionMin") || "");
-  const [completionMax, setCompletionMax] = useState(() => initialParams.get("completionMax") || "");
+  const [generalMin, setGeneralMin] = useState(() => initialParams.get("generalMin") || "");
+  const [generalMax, setGeneralMax] = useState(() => initialParams.get("generalMax") || "");
+  const [lessonMin, setLessonMin] = useState(() => initialParams.get("lessonMin") || "");
+  const [lessonMax, setLessonMax] = useState(() => initialParams.get("lessonMax") || "");
   // "" (all) | "scored" | "unscored"
   const [filterAiScored, setFilterAiScored] = useState(() => initialParams.get("aiScored") || "");
   const [aiScoreMin, setAiScoreMin] = useState(() => initialParams.get("aiScoreMin") || "");
@@ -131,8 +143,10 @@ const Dashboard = () => {
     setOrDelete("submitted", filterSubmitted);
     setOrDelete("aiReviewed", filterAiReviewed ? "1" : "");
     setOrDelete("expertReviewed", filterExpertReviewed ? "1" : "");
-    setOrDelete("completionMin", completionMin);
-    setOrDelete("completionMax", completionMax);
+    setOrDelete("generalMin", generalMin);
+    setOrDelete("generalMax", generalMax);
+    setOrDelete("lessonMin", lessonMin);
+    setOrDelete("lessonMax", lessonMax);
     setOrDelete("aiScored", filterAiScored);
     setOrDelete("aiScoreMin", aiScoreMin);
     setOrDelete("aiScoreMax", aiScoreMax);
@@ -151,8 +165,10 @@ const Dashboard = () => {
     filterSubmitted,
     filterAiReviewed,
     filterExpertReviewed,
-    completionMin,
-    completionMax,
+    generalMin,
+    generalMax,
+    lessonMin,
+    lessonMax,
     filterAiScored,
     aiScoreMin,
     aiScoreMax,
@@ -176,14 +192,16 @@ const Dashboard = () => {
   const visibleRows = useMemo(() => {
     const teacherQuery = filterTeacherName.trim().toLowerCase();
     const schoolQuery = filterSchoolName.trim().toLowerCase();
-    const cMin = parseBound(completionMin);
-    const cMax = parseBound(completionMax);
+    const gMin = parseBound(generalMin);
+    const gMax = parseBound(generalMax);
+    const lMin = parseBound(lessonMin);
+    const lMax = parseBound(lessonMax);
     const sMin = parseBound(aiScoreMin);
     const sMax = parseBound(aiScoreMax);
     const scoreBounded = sMin !== null || sMax !== null;
     return rows
       .filter((r) => {
-        const pct = r.completion.overall;
+        const { general, lessonDesign } = r.completion;
         const score = r.aiScore ? r.aiScore.totalScore : null;
         return (
           (!filterTerm || termKey(r) === filterTerm) &&
@@ -193,8 +211,10 @@ const Dashboard = () => {
           (!filterSubmitted || (filterSubmitted === "yes") === r.submitted) &&
           (!filterAiReviewed || r.aiReviewed) &&
           (!filterExpertReviewed || r.expertReviews.count > 0) &&
-          (cMin === null || pct >= cMin) &&
-          (cMax === null || pct <= cMax) &&
+          (gMin === null || general >= gMin) &&
+          (gMax === null || general <= gMax) &&
+          (lMin === null || lessonDesign >= lMin) &&
+          (lMax === null || lessonDesign <= lMax) &&
           (filterAiScored !== "scored" || score !== null) &&
           (filterAiScored !== "unscored" || score === null) &&
           // A score range only makes sense for scored plans.
@@ -211,8 +231,10 @@ const Dashboard = () => {
     filterSubmitted,
     filterAiReviewed,
     filterExpertReviewed,
-    completionMin,
-    completionMax,
+    generalMin,
+    generalMax,
+    lessonMin,
+    lessonMax,
     filterAiScored,
     aiScoreMin,
     aiScoreMax,
@@ -232,6 +254,16 @@ const Dashboard = () => {
     }
   };
   const sortIcon = (key) => (sortKey !== key ? "fa-sort text-muted" : sortDir === "asc" ? "fa-sort-up" : "fa-sort-down");
+  const rangeFilter = (label, min, setMin, max, setMax) => (
+    <div className="form-group col-md-2">
+      <label className="text-nowrap">{label}</label>
+      <div className="d-flex align-items-center">
+        <input className="form-control" type="number" min="0" max="100" placeholder="最低" value={min} onChange={(e) => setMin(e.target.value)} />
+        <span className="mx-1">–</span>
+        <input className="form-control" type="number" min="0" max="100" placeholder="最高" value={max} onChange={(e) => setMax(e.target.value)} />
+      </div>
+    </div>
+  );
   const sortableTh = (key, label, style) => (
     <th style={{ cursor: "pointer", whiteSpace: "nowrap", ...style }} onClick={() => toggleSort(key)}>
       {label} <i className={`fas ${sortIcon(key)} ml-1`} />
@@ -246,8 +278,10 @@ const Dashboard = () => {
     setFilterSubmitted("");
     setFilterAiReviewed(false);
     setFilterExpertReviewed(false);
-    setCompletionMin("");
-    setCompletionMax("");
+    setGeneralMin("");
+    setGeneralMax("");
+    setLessonMin("");
+    setLessonMax("");
     setFilterAiScored("");
     setAiScoreMin("");
     setAiScoreMax("");
@@ -318,7 +352,8 @@ const Dashboard = () => {
   }
 
   const avg = (values) => (values.length ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10 : null);
-  const avgCompletion = avg(visibleRows.map((r) => r.completion.overall));
+  const avgGeneral = avg(visibleRows.map((r) => r.completion.general));
+  const avgLessonDesign = avg(visibleRows.map((r) => r.completion.lessonDesign));
   const scoredRows = visibleRows.filter((r) => r.aiScore);
   const avgScore = avg(scoredRows.map((r) => r.aiScore.totalScore));
 
@@ -448,30 +483,8 @@ const Dashboard = () => {
             <option value="no">未提交（草稿）</option>
           </select>
         </div>
-        <div className="form-group col-md-3">
-          <label>设计完成度（%）</label>
-          <div className="d-flex align-items-center">
-            <input
-              className="form-control"
-              type="number"
-              min="0"
-              max="100"
-              placeholder="最低"
-              value={completionMin}
-              onChange={(e) => setCompletionMin(e.target.value)}
-            />
-            <span className="mx-2">–</span>
-            <input
-              className="form-control"
-              type="number"
-              min="0"
-              max="100"
-              placeholder="最高"
-              value={completionMax}
-              onChange={(e) => setCompletionMax(e.target.value)}
-            />
-          </div>
-        </div>
+        {rangeFilter("总体设计完成度（%）", generalMin, setGeneralMin, generalMax, setGeneralMax)}
+        {rangeFilter("分课时设计完成度（%）", lessonMin, setLessonMin, lessonMax, setLessonMax)}
         <div className="form-group col-md-2">
           <label>AI 打分</label>
           <select className="form-control" value={filterAiScored} onChange={(e) => setFilterAiScored(e.target.value)}>
@@ -480,30 +493,7 @@ const Dashboard = () => {
             <option value="unscored">未打分</option>
           </select>
         </div>
-        <div className="form-group col-md-3">
-          <label>AI 设计分数</label>
-          <div className="d-flex align-items-center">
-            <input
-              className="form-control"
-              type="number"
-              min="0"
-              max="100"
-              placeholder="最低"
-              value={aiScoreMin}
-              onChange={(e) => setAiScoreMin(e.target.value)}
-            />
-            <span className="mx-2">–</span>
-            <input
-              className="form-control"
-              type="number"
-              min="0"
-              max="100"
-              placeholder="最高"
-              value={aiScoreMax}
-              onChange={(e) => setAiScoreMax(e.target.value)}
-            />
-          </div>
-        </div>
+        {rangeFilter("AI 设计分数", aiScoreMin, setAiScoreMin, aiScoreMax, setAiScoreMax)}
         <div className="form-group col-md-2 d-flex align-items-end">
           <button type="button" className="btn btn-link px-0" onClick={clearFilters}>
             清除筛选
@@ -531,12 +521,12 @@ const Dashboard = () => {
         <p className="small mb-2">
           {visibleRows.length === rows.length ? `共 ${rows.length} 个课程` : `筛选出 ${visibleRows.length} / ${rows.length} 个课程`}
           {`，已提交 ${visibleRows.filter((r) => r.submitted).length} 个`}
-          {avgCompletion !== null && `，平均设计完成度 ${avgCompletion}%`}
+          {avgGeneral !== null && `，平均总体设计完成度 ${avgGeneral}%，平均分课时设计完成度 ${avgLessonDesign}%`}
           {`，已打分 ${scoredRows.length} 个`}
           {avgScore !== null && `，AI 平均分 ${avgScore}`}。
-          <span className="text-muted ml-2" title="只计计划部分（不含课时实施记录）：基本信息 10% + 课程设计 40% + 分课时设计 50%，各部分按模板字段的填写比例计算；分课时设计中，越靠前的课时权重越高（线性递减）">
+          <span className="text-muted ml-2" title="只计计划部分（不含课时实施记录），各部分按模板字段的填写比例计算。总体设计完成度 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计完成度覆盖全部课时的分课时设计，越靠前的课时权重越高（线性递减）">
             <i className="fas fa-info-circle mr-1" />
-            设计完成度（计划）= 基本信息 10% + 课程设计 40% + 分课时设计 50%（按模板字段填写比例，靠前课时权重更高）
+            总体设计 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计 = 全部课时（靠前课时权重更高）
           </span>
         </p>
       )}
@@ -544,11 +534,12 @@ const Dashboard = () => {
       <table className="table table-bordered table-sm table-hover">
         <thead className="thead-light">
           <tr>
-            <th style={{ width: "9%" }}>教师</th>
-            {sortableTh("school", "学校", { width: "18%" })}
+            <th style={{ width: "8%" }}>教师</th>
+            {sortableTh("school", "学校", { width: "16%" })}
             <th>课程</th>
             {sortableTh("submitted", "是否提交", { width: "7%" })}
-            {sortableTh("completion", "设计完成度", { width: "14%" })}
+            {sortableTh("general", "总体设计完成度", { width: "11%" })}
+            {sortableTh("lessonDesign", "分课时设计完成度", { width: "11%" })}
             {sortableTh("aiScore", "AI 设计分数", { width: "10%" })}
             <th style={{ width: "13%" }}>专家点评</th>
           </tr>
@@ -556,14 +547,14 @@ const Dashboard = () => {
         <tbody>
           {!loaded && (
             <tr>
-              <td colSpan={7} className="text-center text-muted small">
+              <td colSpan={8} className="text-center text-muted small">
                 加载中...
               </td>
             </tr>
           )}
           {loaded && visibleRows.length === 0 && (
             <tr>
-              <td colSpan={7} className="text-center text-muted small">
+              <td colSpan={8} className="text-center text-muted small">
                 没有符合筛选条件的课程。
               </td>
             </tr>
@@ -588,16 +579,11 @@ const Dashboard = () => {
                   <td className="small">
                     {r.submitted ? <span className="badge badge-success">已提交</span> : <span className="badge badge-light border">草稿</span>}
                   </td>
-                  <td
-                    className="small"
-                    title={`基本信息 ${c.basic}% · 课程设计 ${c.design}% · 分课时设计 ${c.lessonDesign}%（${c.lessonCount} 课时）`}
-                  >
-                    <div className="d-flex align-items-center">
-                      <div className="progress flex-grow-1 mr-2" style={{ height: 8 }}>
-                        <div className={`progress-bar ${completionClass(c.overall)}`} style={{ width: `${c.overall}%` }} />
-                      </div>
-                      <b>{c.overall}%</b>
-                    </div>
+                  <td className="small" title={`基本信息 ${c.basic}% · 课程设计 ${c.design}%`}>
+                    <CompletionBar pct={c.general} />
+                  </td>
+                  <td className="small" title={`${c.lessonCount} 课时`}>
+                    <CompletionBar pct={c.lessonDesign} />
                   </td>
                   <td className="small">
                     {s ? (
@@ -645,7 +631,7 @@ const Dashboard = () => {
                     submitted plans only and a draft can carry a score too. */}
                 {s && expandedScore === r.planId && (
                   <tr>
-                    <td colSpan={7} className="bg-light small">
+                    <td colSpan={8} className="bg-light small">
                       {s.summary && <p className="mb-2">{s.summary}</p>}
                       {(s.dimensionScores || []).map((d) => (
                         <div key={d.name} className="mb-1">
