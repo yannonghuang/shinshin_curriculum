@@ -1,21 +1,23 @@
 // 完成度: how much of the 计划 (plan) the teacher has filled in -- plan
 // scope only, like every AI artifact; the per-lesson 实施记录 is left out.
-// A weighted average of three parts (each 0..1):
+// Reported as two separate percentages (no combined total), since the
+// generic part and the per-lesson part progress at very different paces:
 //
-//   基本信息     10%  -- title (renamed from the "未命名课程设计" placeholder),
-//                       theme, grade, season, 预计课时, 学生人数, 执教人
-//   课程设计     40%  -- share of the pinned plan_design template's fields
-//                       with an answer (an upload-mode plan with no online
-//                       form counts as complete once a design file exists)
-//   分课时设计   50%  -- per 课时, share of the template's per-lesson fields
-//                       answered, weighted over 预计课时 (see below)
+//   总体设计完成度 (general) -- 基本信息 20% + 课程设计 80%:
+//     基本信息   -- title (renamed from the "未命名课程设计" placeholder),
+//                   theme, grade, season, 预计课时, 学生人数, 执教人
+//     课程设计   -- WHY/WHAT/HOW: share of the pinned plan_design
+//                   template's fields with an answer (an upload-mode plan
+//                   with no online form counts as complete once a design
+//                   file exists)
+//   分课时设计完成度 (lessonDesign) -- per 课时, share of the template's
+//     per-lesson fields answered, weighted over 预计课时 (see below)
 //
-// The generic sections (基本信息 + 课程设计) carry half the total. Within
-// 分课时设计, lessons weigh linearly less the later they come: with n 课时,
-// 课时1 weighs n, 课时2 n-1, ... 课时n 1 (normalized) -- e.g. 4 课时:
-// 40%/30%/20%/10% of that part. The nearer lessons are the ones a teacher
-// works on first, so a plan whose first lessons are filled in counts as
-// further along than one with only its last lessons done.
+// Within 分课时设计, lessons weigh linearly less the later they come: with n
+// 课时, 课时1 weighs n, 课时2 n-1, ... 课时n 1 (normalized) -- e.g. 4 课时:
+// 40%/30%/20%/10%. The nearer lessons are the ones a teacher works on
+// first, so a plan whose first lessons are filled in counts as further
+// along than one with only its last lessons done.
 //
 // Field-based rather than character-count-based so a long answer in one box
 // can't make up for ten empty ones, and schema-driven (whichever template
@@ -26,7 +28,8 @@
 // new plan with -- not yet a real title.
 const EMPTY_TITLE = "未命名课程设计";
 
-const WEIGHTS = { basic: 0.1, design: 0.4, lessonDesign: 0.5 };
+// Weights within 总体设计完成度.
+const GENERAL_WEIGHTS = { basic: 0.2, design: 0.8 };
 
 const isFilled = (value) => {
   if (value === null || value === undefined) return false;
@@ -110,11 +113,10 @@ function computeCompletion(plan, { planSchema, hasDesignArtifact }) {
     fillRatioForKeys(lessonKeys, lessons.find((l) => Number(l.index) === i))
   );
 
-  const parts = { basic, design, lessonDesign };
-  const overall = Object.keys(WEIGHTS).reduce((sum, k) => sum + WEIGHTS[k] * parts[k], 0);
+  const general = GENERAL_WEIGHTS.basic * basic + GENERAL_WEIGHTS.design * design;
   const pct = (n) => Math.round(n * 100);
   return {
-    overall: pct(overall),
+    general: pct(general),
     basic: pct(basic),
     design: pct(design),
     lessonDesign: pct(lessonDesign),
@@ -122,4 +124,4 @@ function computeCompletion(plan, { planSchema, hasDesignArtifact }) {
   };
 }
 
-module.exports = { computeCompletion, WEIGHTS };
+module.exports = { computeCompletion, GENERAL_WEIGHTS };

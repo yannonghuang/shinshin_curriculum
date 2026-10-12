@@ -27,7 +27,7 @@ const termLabel = (year, season) => `${year}年 ${season || "未设置学期"}`;
 // Text columns sort A→Z first, numeric ones high→low (see toggleSort);
 // unscored plans always sort last on 总分, whichever direction.
 const TEXT_SORT_KEYS = ["title", "school"];
-const SORT_KEYS = ["title", "school", "completion", "score"];
+const SORT_KEYS = ["title", "school", "general", "lessonDesign", "score"];
 const compareBy = (sortKey, sortDir) => (a, b) => {
   const dir = sortDir === "asc" ? 1 : -1;
   if (sortKey === "title") return dir * (a.title || "").localeCompare(b.title || "", "zh");
@@ -38,7 +38,7 @@ const compareBy = (sortKey, sortDir) => (a, b) => {
         (a.teacherName || "").localeCompare(b.teacherName || "", "zh"))
     );
   }
-  if (sortKey === "completion") return dir * (a.completion.overall - b.completion.overall);
+  if (sortKey === "general" || sortKey === "lessonDesign") return dir * (a.completion[sortKey] - b.completion[sortKey]);
   if (!a.score && !b.score) return 0;
   if (!a.score) return 1;
   if (!b.score) return -1;
@@ -69,7 +69,18 @@ const STEP_LABELS = { combined: "打分加点评中", score: "打分中", review
 // Filter + sort state lives in the URL (same pattern as
 // plans-hierarchy.component.js), so returning from a plan -- its 返回 is a
 // history.goBack() -- lands back on the same filtered, sorted view.
-const URL_FILTERS = ["term", "teacherName", "schoolName", "theme", "minCompletion", "maxCompletion", "minScore", "maxScore"];
+const URL_FILTERS = [
+  "term",
+  "teacherName",
+  "schoolName",
+  "theme",
+  "minGeneral",
+  "maxGeneral",
+  "minLessonDesign",
+  "maxLessonDesign",
+  "minScore",
+  "maxScore",
+];
 const URL_TOGGLES = ["aiReviewed", "expertReviewed", "pending"];
 
 // AI -> AI 打分加点评: the one page for AI scores and reviews. Experts read
@@ -183,8 +194,10 @@ const AiScoreReview = () => {
   const visiblePlans = useMemo(() => {
     const teacherQuery = filters.teacherName.trim().toLowerCase();
     const schoolQuery = filters.schoolName.trim().toLowerCase();
-    const minC = num(filters.minCompletion);
-    const maxC = num(filters.maxCompletion);
+    const minG = num(filters.minGeneral);
+    const maxG = num(filters.maxGeneral);
+    const minL = num(filters.minLessonDesign);
+    const maxL = num(filters.maxLessonDesign);
     const minS = num(filters.minScore);
     const maxS = num(filters.maxScore);
     return plans
@@ -197,7 +210,8 @@ const AiScoreReview = () => {
           (!filters.aiReviewed || p.aiReviewed) &&
           (!filters.expertReviewed || p.expertReviewed) &&
           (!filters.pending || p.needsScore || p.needsReview) &&
-          inRange(p.completion.overall, minC, maxC) &&
+          inRange(p.completion.general, minG, maxG) &&
+          inRange(p.completion.lessonDesign, minL, maxL) &&
           (minS === null && maxS === null ? true : !!p.score && inRange(p.score.totalScore, minS, maxS))
       )
       .sort(compareBy(sortKey, sortDir));
@@ -386,10 +400,17 @@ const AiScoreReview = () => {
           </div>
           <div className="d-flex flex-wrap align-items-center mb-3">
             <div className="form-inline mr-4 mb-2">
-              <label className="mr-2">设计完成度</label>
-              {rangeInput("minCompletion", "不限", 100)}
+              <label className="mr-2">总体设计完成度</label>
+              {rangeInput("minGeneral", "不限", 100)}
               <span className="mx-2">% 至</span>
-              {rangeInput("maxCompletion", "不限", 100)}
+              {rangeInput("maxGeneral", "不限", 100)}
+              <span className="ml-2">%</span>
+            </div>
+            <div className="form-inline mr-4 mb-2">
+              <label className="mr-2">分课时设计完成度</label>
+              {rangeInput("minLessonDesign", "不限", 100)}
+              <span className="mx-2">% 至</span>
+              {rangeInput("maxLessonDesign", "不限", 100)}
               <span className="ml-2">%</span>
             </div>
             <div className="form-inline mr-4 mb-2">
@@ -436,8 +457,9 @@ const AiScoreReview = () => {
             <thead className="thead-light">
               <tr>
                 {sortableHeader("title", "课程")}
-                {sortableHeader("school", "学校 / 教师", "18%")}
-                {sortableHeader("completion", "设计完成度", "8%")}
+                {sortableHeader("school", "学校 / 教师", "16%")}
+                {sortableHeader("general", "总体设计完成度", "7%")}
+                {sortableHeader("lessonDesign", "分课时设计完成度", "7%")}
                 {sortableHeader("score", "总分", "8%")}
                 <th style={{ width: "26%" }}>各维度得分</th>
                 <th style={{ width: "15%" }}>打分 / 点评时间</th>
@@ -446,7 +468,7 @@ const AiScoreReview = () => {
             <tbody>
               {visiblePlans.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-muted small">
+                  <td colSpan={7} className="text-center text-muted small">
                     没有符合筛选条件的课程。
                   </td>
                 </tr>
@@ -476,7 +498,8 @@ const AiScoreReview = () => {
                         {p.schoolName}
                         <div className="text-muted">{p.teacherName}</div>
                       </td>
-                      <td>{p.completion.overall}%</td>
+                      <td>{p.completion.general}%</td>
+                      <td>{p.completion.lessonDesign}%</td>
                       <td>
                         {s ? <b className={scoreClass(s.totalScore, 100)}>{s.totalScore}</b> : <span className="text-muted small">未打分</span>}
                         {p.needsScore && (
@@ -504,7 +527,7 @@ const AiScoreReview = () => {
                     </tr>
                     {isOpen && (
                       <tr>
-                        <td colSpan={6} className="bg-light small">
+                        <td colSpan={7} className="bg-light small">
                           <ul className="nav nav-tabs mb-2">
                             {[
                               ["score", "打分理由", !!s],
