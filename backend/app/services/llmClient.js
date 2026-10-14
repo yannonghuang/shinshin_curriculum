@@ -166,7 +166,8 @@ async function webSearch({ prompt, model, maxTokens = 1500 }) {
       const results = data.output?.search_info?.search_results || [];
       return {
         text,
-        sources: results.map((r) => ({ index: r.index, title: r.title, url: r.url, site: r.site_name })),
+        // site_name comes back as the literal "无" when the page has none.
+        sources: results.map((r) => ({ index: r.index, title: r.title, url: r.url, site: r.site_name && r.site_name !== "无" ? r.site_name : undefined })),
         model: resolvedModel,
       };
     } catch (e) {

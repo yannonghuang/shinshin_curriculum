@@ -21,6 +21,7 @@ import TemplateAdmin from "./components/template-admin.component";
 import AiReviewStandard from "./components/ai-review-standard.component";
 import AiScoreReview from "./components/ai-score-review.component";
 import Dashboard from "./components/dashboard.component";
+import BookRecommendation from "./components/book-recommendation.component";
 import BuildInfo from "./components/build-info.component";
 
 import AuthService from "./services/auth.service";
@@ -135,6 +136,13 @@ class App extends Component {
                     </Link>
                   </li>
                 )}
+                {AuthService.isSuper() && (
+                  <li className="nav-item">
+                    <Link to="/admin/book-recommendations" className="nav-link">
+                      课外读物推荐
+                    </Link>
+                  </li>
+                )}
                 {AuthService.isAdmin() && (
                   <li className="nav-item">
                     <Link to="/admin/templates" className="nav-link">
@@ -224,6 +232,7 @@ class App extends Component {
             <Redirect exact from="/ai-review/scores" to="/ai-review/score-review" />
             <Route exact path="/ai-review/score-review" component={AiScoreReview} />
             <Route exact path="/dashboard" component={Dashboard} />
+            <Route exact path={["/admin/book-recommendations", "/admin/book-recommendations/:id"]} component={BookRecommendation} />
             <Route exact path="/plans" component={PlansList} />
             <Route path="/plans/:id" component={PlanDetail} />
           </Switch>
