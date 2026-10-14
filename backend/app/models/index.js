@@ -55,6 +55,13 @@ db.chatTask = require("./chat-task.model.js")(sequelize, Sequelize);
 db.chatWebImage = require("./chat-web-image.model.js")(sequelize, Sequelize);
 db.aiReviewStandard = require("./ai-review-standard.model.js")(sequelize, Sequelize);
 db.aiPlanScore = require("./ai-plan-score.model.js")(sequelize, Sequelize);
+{
+  const bookModels = require("./book-recommendation.model.js")(sequelize, Sequelize);
+  db.bookProfile = bookModels.BookProfile;
+  db.readingGuidance = bookModels.ReadingGuidance;
+  db.bookRecommendationRun = bookModels.BookRecommendationRun;
+  db.agentSkillNotes = bookModels.AgentSkillNotes;
+}
 
 // users <-> roles (many-to-many via user_roles)
 // Explicitly pre-defined (rather than through: "user_roles" as a bare string)
