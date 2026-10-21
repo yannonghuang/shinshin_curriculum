@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import mammoth from "mammoth";
 import PlanDataService from "../services/plan.service";
 import TemplateDataService from "../services/template.service";
@@ -7,6 +6,7 @@ import AuthService from "../services/auth.service";
 import Pagination from "@material-ui/lab/Pagination";
 import PlanCard from "./plan-card.component";
 import PlansHierarchy from "./plans-hierarchy.component";
+import TrashButton, { announceTrashChanged } from "./trash-button.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_DELETE_CONFIRM, currentSeason } from "../constants/plan-options";
 import "../curriculum.css";
 
@@ -287,6 +287,7 @@ const PlansList = (props) => {
     try {
       await PlanDataService.delete(item.id, true);
       setMessage("课程设计已移入回收站。");
+      announceTrashChanged();
       retrieveAll();
     } catch (err) {
       setMessage(err?.response?.data?.message || "删除失败。");
@@ -367,10 +368,7 @@ const PlansList = (props) => {
           {/* A teacher reaches the 回收站 from 我的乡土课程's toolbar below;
               an admin (who can delete anyone's plan) from here. */}
           {isManagerOrExpertView && !excellentOnly && AuthService.isAdmin() && (
-            <Link to="/plans/trash" className="btn btn-sm btn-outline-secondary ml-3">
-              <i className="fas fa-trash-restore mr-1" />
-              回收站
-            </Link>
+            <TrashButton className="btn-sm ml-3" />
           )}
         </h4>
       )}
@@ -465,10 +463,7 @@ const PlansList = (props) => {
           <button className="btn btn-primary mr-3" type="button" onClick={createEmptyPlan}>
             新增乡土课程
           </button>
-          <Link to="/plans/trash" className="btn btn-outline-secondary mr-3">
-            <i className="fas fa-trash-restore mr-1" />
-            回收站
-          </Link>
+          <TrashButton className="mr-3" />
           <span className="mr-3">
             乡土课程设计方案模版：
             <button className="btn btn-link p-0 ml-1 mr-2" type="button" onClick={() => downloadTemplateFile("plan_design")}>

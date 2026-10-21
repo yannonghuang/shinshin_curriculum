@@ -5,6 +5,7 @@ import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
 import { PLAN_THEMES, PLAN_DELETE_CONFIRM } from "../constants/plan-options";
+import { announceTrashChanged } from "./trash-button.component";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
 
@@ -380,6 +381,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     try {
       await PlanDataService.delete(item.id, true);
       setMessage("课程设计已移入回收站。");
+      announceTrashChanged();
       retrieveAll();
     } catch (err) {
       setMessage(err?.response?.data?.message || "删除失败。");
