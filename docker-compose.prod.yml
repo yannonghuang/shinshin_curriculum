@@ -15,6 +15,16 @@
 #        IMAGE_TAG=<git-sha> docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 #        IMAGE_TAG=<git-sha> docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
+# Docker's default json-file driver never rotates, so container logs grow
+# unbounded (frontend's nginx access log alone was ~1.2MB/day on prod). Cap
+# each service at 3 x 10MB. Set here rather than in /etc/docker/daemon.json
+# so it ships with a normal deploy instead of needing a dockerd restart.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     # Pull mysql:8.0 from ACR instead of Docker Hub directly -- confirmed on
@@ -56,6 +66,7 @@ services:
     # might thrash. A clean fast OOM-kill+restart beats slow disk-backed
     # swapping that can drag the whole host down with it.
     memswap_limit: 700m
+    logging: *default-logging
 
   backend:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-backend:${IMAGE_TAG:-latest}
@@ -113,6 +124,7 @@ services:
     cpu_shares: 256
     environment:
       NODE_OPTIONS: --max-old-space-size=450
+    logging: *default-logging
 
   frontend:
     image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-shinshin}/shinshin-curriculum-frontend:${IMAGE_TAG:-latest}
@@ -137,3 +149,4 @@ services:
     # ceiling purely as a backstop, see db's mem_limit comment.
     mem_limit: 128m
     memswap_limit: 128m   # see db's memswap_limit comment
+    logging: *default-logging
