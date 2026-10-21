@@ -173,6 +173,11 @@ exports.findByPlan = async (req, res) => {
     if (!Number.isInteger(planId) || planId <= 0) {
       return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
+    // Reviews aren't filtered by Plan's paranoid mode (回收站) -- check the
+    // parent explicitly so a trashed plan's reviews stay hidden.
+    if (!(await Plan.findByPk(planId, { attributes: ["id"] }))) {
+      return res.status(404).send({ message: "乡土课程设计不存在。" });
+    }
 
     // A saved (draft) review is its author's alone -- see review.model.js.
     const where = {

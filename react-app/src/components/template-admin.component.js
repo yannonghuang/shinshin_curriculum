@@ -4,6 +4,7 @@ import TemplateDataService from "../services/template.service";
 import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
+import { PLAN_DELETE_CONFIRM } from "../constants/plan-options";
 import "../curriculum.css";
 
 const TEMPLATE_KEYS = [
@@ -148,7 +149,7 @@ const TemplateAdmin = () => {
   };
 
   const deleteDependentPlan = async (item) => {
-    const ok = window.confirm("此操作将永久删除该课程设计及其所有附件与点评，且无法撤销。确定继续吗？");
+    const ok = window.confirm(PLAN_DELETE_CONFIRM);
     if (!ok) return;
     try {
       await PlanDataService.delete(item.id, true);

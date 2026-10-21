@@ -58,6 +58,7 @@ whole document, so it's fine to add these incrementally.
 |---|---|
 | `nav-bar.png` | 前言 -- 常用导航入口 |
 | `plans-list.png` | 一、创建课程设计 / 十四、模板迁移 |
+| `plans-trash.png` | 二、删除与恢复课程设计（回收站） |
 | `save-submit-buttons.png` | 三、保存 |
 | `upload-dropzone.png` | 五、上传 |
 | `review-panel.png` | 八、专家评审 |

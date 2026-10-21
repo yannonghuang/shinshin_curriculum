@@ -4,7 +4,7 @@ import Select from "react-select";
 import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
-import { PLAN_THEMES } from "../constants/plan-options";
+import { PLAN_THEMES, PLAN_DELETE_CONFIRM } from "../constants/plan-options";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
 
@@ -375,11 +375,11 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   const canDeleteItem = (item) => AuthService.isAdmin() || isOwnerOf(item);
 
   const onDelete = async (item) => {
-    const ok = window.confirm("此操作将永久删除该课程设计及其所有附件与点评，且无法撤销。确定继续吗？");
+    const ok = window.confirm(PLAN_DELETE_CONFIRM);
     if (!ok) return;
     try {
       await PlanDataService.delete(item.id, true);
-      setMessage("课程设计删除成功。");
+      setMessage("课程设计已移入回收站。");
       retrieveAll();
     } catch (err) {
       setMessage(err?.response?.data?.message || "删除失败。");

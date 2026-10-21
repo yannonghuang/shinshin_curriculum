@@ -134,6 +134,12 @@ module.exports = (sequelize, Sequelize) => {
     {
       tableName: "plans",
       freezeTableName: true,
+      // 回收站: destroy() only stamps deleted_at, and every Plan query
+      // (including includes from User etc.) skips such rows unless it passes
+      // paranoid: false -- see services/planTrash.js for restore/purge.
+      // Queries starting from a child table (artifacts/reviews/...) are NOT
+      // filtered by this; they're reached through a Plan.findByPk check.
+      paranoid: true,
     }
   );
 

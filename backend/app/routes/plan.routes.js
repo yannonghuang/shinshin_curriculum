@@ -15,6 +15,11 @@ module.exports = function (app) {
   // ?mine=true can be scoped server-side to the actual caller (see findAll).
   app.get("/api/plans", [authJwt.attachUserIfPresent], plans.findAll);
   app.get("/api/plans/options", plans.getOptions);
+  // 回收站 -- registered before GET /api/plans/:id for the same reason as
+  // migrate-my-plans below. Owner or admin only (checked in the handlers).
+  app.get("/api/plans/trash", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.findTrash);
+  app.put("/api/plans/:id/restore", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.restore);
+  app.delete("/api/plans/:id/permanent", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.purge);
   // attachUserIfPresent: stays reachable without login (excellent-case plans
   // are public), but resolves req.userId so findOne can allow the owner/
   // admin/expert through for a non-excellent plan -- see findOne's visibility

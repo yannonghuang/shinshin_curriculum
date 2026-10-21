@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import mammoth from "mammoth";
 import PlanDataService from "../services/plan.service";
 import TemplateDataService from "../services/template.service";
@@ -6,7 +7,7 @@ import AuthService from "../services/auth.service";
 import Pagination from "@material-ui/lab/Pagination";
 import PlanCard from "./plan-card.component";
 import PlansHierarchy from "./plans-hierarchy.component";
-import { PLAN_THEMES, PLAN_GRADES, currentSeason } from "../constants/plan-options";
+import { PLAN_THEMES, PLAN_GRADES, PLAN_DELETE_CONFIRM, currentSeason } from "../constants/plan-options";
 import "../curriculum.css";
 
 // See showListControls.
@@ -281,11 +282,11 @@ const PlansList = (props) => {
   };
 
   const onDelete = async (item) => {
-    const ok = window.confirm("此操作将永久删除该课程设计及其所有附件与点评，且无法撤销。确定继续吗？");
+    const ok = window.confirm(PLAN_DELETE_CONFIRM);
     if (!ok) return;
     try {
       await PlanDataService.delete(item.id, true);
-      setMessage("课程设计删除成功。");
+      setMessage("课程设计已移入回收站。");
       retrieveAll();
     } catch (err) {
       setMessage(err?.response?.data?.message || "删除失败。");
@@ -363,6 +364,14 @@ const PlansList = (props) => {
               hierarchy view's own tree conveys scale instead. */}
           {!isManagerOrExpertView && `（总数：${totalItems}）`}
           {showHierarchyCount && `（总数：${hierarchyFilteredCount}）`}
+          {/* A teacher reaches the 回收站 from 我的乡土课程's toolbar below;
+              an admin (who can delete anyone's plan) from here. */}
+          {isManagerOrExpertView && !excellentOnly && AuthService.isAdmin() && (
+            <Link to="/plans/trash" className="btn btn-sm btn-outline-secondary ml-3">
+              <i className="fas fa-trash-restore mr-1" />
+              回收站
+            </Link>
+          )}
         </h4>
       )}
 
@@ -456,6 +465,10 @@ const PlansList = (props) => {
           <button className="btn btn-primary mr-3" type="button" onClick={createEmptyPlan}>
             新增乡土课程
           </button>
+          <Link to="/plans/trash" className="btn btn-outline-secondary mr-3">
+            <i className="fas fa-trash-restore mr-1" />
+            回收站
+          </Link>
           <span className="mr-3">
             乡土课程设计方案模版：
             <button className="btn btn-link p-0 ml-1 mr-2" type="button" onClick={() => downloadTemplateFile("plan_design")}>

@@ -9,6 +9,7 @@ const planDocExtract = require("../services/planDocExtract");
 const { diffPlanFormDataSegments, diffExecutionFormDataSegments } = require("../services/segmentVersion");
 const { migratePlanFormData } = require("../services/templateMigration");
 const { computeCompletion } = require("../services/planCompletion");
+const planTrash = require("../services/planTrash");
 const db = require("../models");
 const Plan = db.plan;
 const User = db.user;
@@ -776,54 +777,103 @@ exports.unsuspend = async (req, res) => {
   }
 };
 
+// Moves the plan to the 回收站 (paranoid soft delete, see plan.model.js) --
+// its folders/artifacts/reviews and files stay until it's restored, purged
+// from the 回收站, or swept after planTrash.TRASH_RETENTION_DAYS. Still takes
+// confirmCascade so existing callers (and 欣欣小助手's call_api) keep working.
 exports.delete = async (req, res) => {
   const id = req.params.id;
   if (!mustConfirm(req.query.confirmCascade)) {
     return res.status(400).send({
-      message: "危险操作：将永久删除该乡土课程设计及其所有附件与点评。请使用 confirmCascade=true 重新提交。",
+      message: `将该乡土课程设计移入回收站（${planTrash.TRASH_RETENTION_DAYS} 天内可恢复）。请使用 confirmCascade=true 重新提交。`,
     });
   }
 
-  const t = await db.sequelize.transaction();
   try {
-    const data = await Plan.findByPk(id, { transaction: t });
+    const data = await Plan.findByPk(id);
     if (!data) {
-      await t.rollback();
       return res.status(404).send({ message: `未找到乡土课程设计 id=${id}。` });
     }
 
-    if (data.teacherId !== req.userId && !(await isAdminRequester(req.userId, t))) {
-      await t.rollback();
+    if (data.teacherId !== req.userId && !(await isAdminRequester(req.userId))) {
       return res.status(403).send({ message: "只能删除本人创建的乡土课程设计。" });
     }
 
-    const artifacts = await Artifact.findAll({
-      where: { planId: id },
-      attributes: ["id", "attachmentPath"],
-      transaction: t,
+    await data.destroy();
+    return res.send({
+      message: `乡土课程设计已移入回收站，${planTrash.TRASH_RETENTION_DAYS} 天内可在回收站中恢复。`,
     });
-    const artifactPaths = (artifacts || []).map((x) => x.attachmentPath).filter(Boolean);
-
-    // Application-level cascade for compatibility even if DB FK is missing.
-    await Review.destroy({ where: { planId: id }, transaction: t });
-    await Artifact.destroy({ where: { planId: id }, transaction: t });
-    await Plan.destroy({ where: { id }, transaction: t });
-    await t.commit();
-
-    for (const filePath of artifactPaths) {
-      try {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      } catch (e) {
-        console.error("删除附件文件失败:", filePath, e.message);
-      }
-    }
-
-    return res.send({ message: "乡土课程设计及其关联数据已删除。" });
   } catch (err) {
-    await t.rollback();
     return res.status(500).send({
       message: err.message || `删除乡土课程设计 id=${id} 时发生错误。`,
     });
+  }
+};
+
+// A plan in the 回收站 that the requester may restore/purge -- its owner or
+// an admin, same rule as #delete. Sends the error response itself and
+// returns null when not allowed.
+const findTrashedPlanFor = async (req, res) => {
+  const plan = await Plan.findByPk(req.params.id, { paranoid: false });
+  if (!plan || !plan.deletedAt) {
+    res.status(404).send({ message: `回收站中未找到乡土课程设计 id=${req.params.id}。` });
+    return null;
+  }
+  if (plan.teacherId !== req.userId && !(await isAdminRequester(req.userId))) {
+    res.status(403).send({ message: "只能操作本人创建的乡土课程设计。" });
+    return null;
+  }
+  return plan;
+};
+
+// GET /api/plans/trash -- a teacher sees their own deleted plans, an admin
+// everyone's.
+exports.findTrash = async (req, res) => {
+  try {
+    const where = { deletedAt: { [Op.ne]: null } };
+    if (!(await isAdminRequester(req.userId))) where.teacherId = req.userId;
+    const plans = await Plan.findAll({
+      where,
+      paranoid: false,
+      attributes: ["id", "title", "theme", "grade", "year", "season", "status", "teacherId", "deletedAt"],
+      include: [{ model: User, as: "Teacher", attributes: ["id", "username", "chineseName"] }],
+      order: [["deletedAt", "DESC"]],
+    });
+    return res.send({
+      retentionDays: planTrash.TRASH_RETENTION_DAYS,
+      rows: plans.map((p) => ({ ...p.toJSON(), purgeAt: planTrash.purgeAt(p.deletedAt) })),
+    });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "查询回收站时发生错误。" });
+  }
+};
+
+// PUT /api/plans/:id/restore
+exports.restore = async (req, res) => {
+  try {
+    const plan = await findTrashedPlanFor(req, res);
+    if (!plan) return;
+    await plan.restore();
+    return res.send({ message: `「${plan.title}」已恢复。` });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "恢复乡土课程设计时发生错误。" });
+  }
+};
+
+// DELETE /api/plans/:id/permanent -- only for a plan already in the 回收站.
+exports.purge = async (req, res) => {
+  if (!mustConfirm(req.query.confirmDelete)) {
+    return res.status(400).send({
+      message: "危险操作：将永久删除该乡土课程设计及其所有附件与点评。请使用 confirmDelete=true 重新提交。",
+    });
+  }
+  try {
+    const plan = await findTrashedPlanFor(req, res);
+    if (!plan) return;
+    await planTrash.purgePlan(plan.id);
+    return res.send({ message: `「${plan.title}」已永久删除。` });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "永久删除乡土课程设计时发生错误。" });
   }
 };
 
