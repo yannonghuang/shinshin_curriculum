@@ -9,6 +9,16 @@ class AdminUserDataService {
     return http.get("/auth/users", { params, headers: authHeader() });
   }
 
+  // Same filters/sort as getAll, minus pagination, with the chosen
+  // 导出字段 -- an .xlsx as an arraybuffer (like DashboardDataService.exportExcel).
+  exportExcel(params, fields) {
+    return http.get("/auth/users/export", {
+      params: { ...params, fields: fields.join(",") },
+      headers: authHeader(),
+      responseType: "arraybuffer",
+    });
+  }
+
   // Creates a user with any role (including "admin"/"super"). Public signup can
   // never do this -- see backend/app/middleware/verifySignUp.checkOnlyTeacherRole.
   create(data) {

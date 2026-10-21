@@ -34,6 +34,7 @@ const sortValue = {
   submitted: (r) => (r.submitted ? 1 : 0),
   general: (r) => r.completion.general,
   lessonDesign: (r) => r.completion.lessonDesign,
+  execution: (r) => r.completion.execution,
   aiScore: (r) => (r.aiScore ? r.aiScore.totalScore : null),
 };
 
@@ -106,6 +107,8 @@ const Dashboard = () => {
   const [generalMax, setGeneralMax] = useState(() => initialParams.get("generalMax") || "");
   const [lessonMin, setLessonMin] = useState(() => initialParams.get("lessonMin") || "");
   const [lessonMax, setLessonMax] = useState(() => initialParams.get("lessonMax") || "");
+  const [executionMin, setExecutionMin] = useState(() => initialParams.get("executionMin") || "");
+  const [executionMax, setExecutionMax] = useState(() => initialParams.get("executionMax") || "");
   // "" (all) | "scored" | "unscored"
   const [filterAiScored, setFilterAiScored] = useState(() => initialParams.get("aiScored") || "");
   const [aiScoreMin, setAiScoreMin] = useState(() => initialParams.get("aiScoreMin") || "");
@@ -147,6 +150,8 @@ const Dashboard = () => {
     setOrDelete("generalMax", generalMax);
     setOrDelete("lessonMin", lessonMin);
     setOrDelete("lessonMax", lessonMax);
+    setOrDelete("executionMin", executionMin);
+    setOrDelete("executionMax", executionMax);
     setOrDelete("aiScored", filterAiScored);
     setOrDelete("aiScoreMin", aiScoreMin);
     setOrDelete("aiScoreMax", aiScoreMax);
@@ -169,6 +174,8 @@ const Dashboard = () => {
     generalMax,
     lessonMin,
     lessonMax,
+    executionMin,
+    executionMax,
     filterAiScored,
     aiScoreMin,
     aiScoreMax,
@@ -196,12 +203,14 @@ const Dashboard = () => {
     const gMax = parseBound(generalMax);
     const lMin = parseBound(lessonMin);
     const lMax = parseBound(lessonMax);
+    const eMin = parseBound(executionMin);
+    const eMax = parseBound(executionMax);
     const sMin = parseBound(aiScoreMin);
     const sMax = parseBound(aiScoreMax);
     const scoreBounded = sMin !== null || sMax !== null;
     return rows
       .filter((r) => {
-        const { general, lessonDesign } = r.completion;
+        const { general, lessonDesign, execution } = r.completion;
         const score = r.aiScore ? r.aiScore.totalScore : null;
         return (
           (!filterTerm || termKey(r) === filterTerm) &&
@@ -215,6 +224,8 @@ const Dashboard = () => {
           (gMax === null || general <= gMax) &&
           (lMin === null || lessonDesign >= lMin) &&
           (lMax === null || lessonDesign <= lMax) &&
+          (eMin === null || execution >= eMin) &&
+          (eMax === null || execution <= eMax) &&
           (filterAiScored !== "scored" || score !== null) &&
           (filterAiScored !== "unscored" || score === null) &&
           // A score range only makes sense for scored plans.
@@ -235,6 +246,8 @@ const Dashboard = () => {
     generalMax,
     lessonMin,
     lessonMax,
+    executionMin,
+    executionMax,
     filterAiScored,
     aiScoreMin,
     aiScoreMax,
@@ -282,6 +295,8 @@ const Dashboard = () => {
     setGeneralMax("");
     setLessonMin("");
     setLessonMax("");
+    setExecutionMin("");
+    setExecutionMax("");
     setFilterAiScored("");
     setAiScoreMin("");
     setAiScoreMax("");
@@ -354,6 +369,7 @@ const Dashboard = () => {
   const avg = (values) => (values.length ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10 : null);
   const avgGeneral = avg(visibleRows.map((r) => r.completion.general));
   const avgLessonDesign = avg(visibleRows.map((r) => r.completion.lessonDesign));
+  const avgExecution = avg(visibleRows.map((r) => r.completion.execution));
   const scoredRows = visibleRows.filter((r) => r.aiScore);
   const avgScore = avg(scoredRows.map((r) => r.aiScore.totalScore));
 
@@ -485,6 +501,7 @@ const Dashboard = () => {
         </div>
         {rangeFilter("总体设计完成度（%）", generalMin, setGeneralMin, generalMax, setGeneralMax)}
         {rangeFilter("分课时设计完成度（%）", lessonMin, setLessonMin, lessonMax, setLessonMax)}
+        {rangeFilter("实施完成度（%）", executionMin, setExecutionMin, executionMax, setExecutionMax)}
         <div className="form-group col-md-2">
           <label>AI 打分</label>
           <select className="form-control" value={filterAiScored} onChange={(e) => setFilterAiScored(e.target.value)}>
@@ -521,12 +538,12 @@ const Dashboard = () => {
         <p className="small mb-2">
           {visibleRows.length === rows.length ? `共 ${rows.length} 个课程` : `筛选出 ${visibleRows.length} / ${rows.length} 个课程`}
           {`，已提交 ${visibleRows.filter((r) => r.submitted).length} 个`}
-          {avgGeneral !== null && `，平均总体设计完成度 ${avgGeneral}%，平均分课时设计完成度 ${avgLessonDesign}%`}
+          {avgGeneral !== null && `，平均总体设计完成度 ${avgGeneral}%，平均分课时设计完成度 ${avgLessonDesign}%，平均实施完成度 ${avgExecution}%`}
           {`，已打分 ${scoredRows.length} 个`}
           {avgScore !== null && `，AI 平均分 ${avgScore}`}。
-          <span className="text-muted ml-2" title="只计计划部分（不含课时实施记录），各部分按模板字段的填写比例计算。总体设计完成度 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计完成度覆盖全部课时的分课时设计，越靠前的课时权重越高（线性递减）">
+          <span className="text-muted ml-2" title="各部分按模板字段的填写比例计算。总体设计完成度 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计完成度覆盖全部课时的分课时设计，越靠前的课时权重越高（线性递减）；实施完成度覆盖全部课时的实施记录，各课时权重相同">
             <i className="fas fa-info-circle mr-1" />
-            总体设计 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计 = 全部课时（靠前课时权重更高）
+            总体设计 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计 = 全部课时（靠前课时权重更高）；实施 = 全部课时的实施记录（各课时等权）
           </span>
         </p>
       )}
@@ -538,8 +555,9 @@ const Dashboard = () => {
             {sortableTh("school", "学校", { width: "16%" })}
             <th>课程</th>
             {sortableTh("submitted", "是否提交", { width: "7%" })}
-            {sortableTh("general", "总体设计完成度", { width: "11%" })}
-            {sortableTh("lessonDesign", "分课时设计完成度", { width: "11%" })}
+            {sortableTh("general", "总体设计完成度", { width: "10%" })}
+            {sortableTh("lessonDesign", "分课时设计完成度", { width: "10%" })}
+            {sortableTh("execution", "实施完成度", { width: "9%" })}
             {sortableTh("aiScore", "AI 设计分数", { width: "10%" })}
             <th style={{ width: "13%" }}>专家点评</th>
           </tr>
@@ -547,14 +565,14 @@ const Dashboard = () => {
         <tbody>
           {!loaded && (
             <tr>
-              <td colSpan={8} className="text-center text-muted small">
+              <td colSpan={9} className="text-center text-muted small">
                 加载中...
               </td>
             </tr>
           )}
           {loaded && visibleRows.length === 0 && (
             <tr>
-              <td colSpan={8} className="text-center text-muted small">
+              <td colSpan={9} className="text-center text-muted small">
                 没有符合筛选条件的课程。
               </td>
             </tr>
@@ -584,6 +602,9 @@ const Dashboard = () => {
                   </td>
                   <td className="small" title={`${c.lessonCount} 课时`}>
                     <CompletionBar pct={c.lessonDesign} />
+                  </td>
+                  <td className="small" title={`${c.lessonCount} 课时`}>
+                    <CompletionBar pct={c.execution} />
                   </td>
                   <td className="small">
                     {s ? (
@@ -631,7 +652,7 @@ const Dashboard = () => {
                     submitted plans only and a draft can carry a score too. */}
                 {s && expandedScore === r.planId && (
                   <tr>
-                    <td colSpan={8} className="bg-light small">
+                    <td colSpan={9} className="bg-light small">
                       {s.summary && <p className="mb-2">{s.summary}</p>}
                       {(s.dimensionScores || []).map((d) => (
                         <div key={d.name} className="mb-1">

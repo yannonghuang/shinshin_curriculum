@@ -1,7 +1,7 @@
-// 完成度: how much of the 计划 (plan) the teacher has filled in -- plan
-// scope only, like every AI artifact; the per-lesson 实施记录 is left out.
-// Reported as two separate percentages (no combined total), since the
-// generic part and the per-lesson part progress at very different paces:
+// 完成度: how much of the 计划 (plan) the teacher has filled in, plus --
+// separately -- how much of the per-lesson 实施记录 is. Reported as separate
+// percentages (no combined total), since the generic part, the per-lesson
+// design and the implementation progress at very different paces:
 //
 //   总体设计完成度 (general) -- 基本信息 20% + 课程设计 80%:
 //     基本信息   -- title (renamed from the "未命名课程设计" placeholder),
@@ -12,6 +12,10 @@
 //                   file exists)
 //   分课时设计完成度 (lessonDesign) -- per 课时, share of the template's
 //     per-lesson fields answered, weighted over 预计课时 (see below)
+//   实施完成度 (execution) -- per 课时, share of the pinned lesson_execution
+//     template's fields answered in executionFormData, averaged evenly
+//     over 预计课时 (records are written one by one as lessons are taught,
+//     so every lesson counts the same)
 //
 // Within 分课时设计, lessons weigh linearly less the later they come: with n
 // 课时, 课时1 weighs n, 课时2 n-1, ... 课时n 1 (normalized) -- e.g. 4 课时:
@@ -86,10 +90,10 @@ const weightedOverLessons = (count, ratioForLesson) => {
   return sum;
 };
 
-// `plan` is a plain plan row; `planSchema` is the pinned plan_design
-// template version's schemaJson (or null); `hasDesignArtifact` covers the
-// upload-mode case.
-function computeCompletion(plan, { planSchema, hasDesignArtifact }) {
+// `plan` is a plain plan row; `planSchema`/`executionSchema` are the pinned
+// plan_design/lesson_execution template versions' schemaJson (or null);
+// `hasDesignArtifact` covers the upload-mode case.
+function computeCompletion(plan, { planSchema, executionSchema, hasDesignArtifact }) {
   const basicValues = [
     plan.title && plan.title.trim() !== EMPTY_TITLE ? plan.title : null,
     plan.theme,
@@ -113,6 +117,14 @@ function computeCompletion(plan, { planSchema, hasDesignArtifact }) {
     fillRatioForKeys(lessonKeys, lessons.find((l) => Number(l.index) === i))
   );
 
+  const records = Array.isArray(plan.executionFormData) ? plan.executionFormData : [];
+  const execution =
+    lessonCount > 0 && executionSchema
+      ? Array.from({ length: lessonCount }, (_, k) =>
+          fillRatioForSchema(executionSchema, records.find((r) => Number(r.index) === k + 1))
+        ).reduce((a, b) => a + b, 0) / lessonCount
+      : 0;
+
   const general = GENERAL_WEIGHTS.basic * basic + GENERAL_WEIGHTS.design * design;
   const pct = (n) => Math.round(n * 100);
   return {
@@ -120,6 +132,7 @@ function computeCompletion(plan, { planSchema, hasDesignArtifact }) {
     basic: pct(basic),
     design: pct(design),
     lessonDesign: pct(lessonDesign),
+    execution: pct(execution),
     lessonCount,
   };
 }

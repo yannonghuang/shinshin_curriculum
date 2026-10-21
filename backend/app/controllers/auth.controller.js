@@ -7,6 +7,7 @@ const Op = db.Sequelize.Op;
 
 var jwt = require("jsonwebtoken");
 var bcrypt = require("bcryptjs");
+const ExcelJS = require("exceljs");
 
 // Session state behind the admin user list's 在线 / 退出时间 columns, from a
 // user's plain fields. A session starts at lastLogin and is over once
@@ -530,129 +531,206 @@ const buildUsersOrder = (sortBy, sortOrder) => {
   return [["id", "DESC"]];
 };
 
+// The list's where/include/attributes/order for the given query-string
+// filters -- shared by findAll (one page) and exportUsers (every matching
+// row), so a download always holds exactly what the filtered list shows.
+const usersQuery = ({ keyword, role, suspended, schoolCode, online, logoutType, sortBy, sortOrder }) => {
+  // Same rule as sessionStatusOf, in SQL: a session started, not signed
+  // out since, with its last activity (or login) inside the window. The
+  // offline side is spelled out rather than NOT(online) -- NOT over a
+  // comparison with a NULL column is NULL, which would drop e.g. a
+  // never-renewed (last_activity_at NULL) session from both filters.
+  const activeSince = new Date(Date.now() - config.validity * 1000);
+  const col = db.sequelize.col;
+  const onlineCondition = {
+    [Op.and]: [
+      { lastLogin: { [Op.ne]: null } },
+      { [Op.or]: [{ lastLogoutAt: null }, db.sequelize.where(col("last_logout_at"), Op.lt, col("last_login"))] },
+      { [Op.or]: [{ lastLogin: { [Op.gt]: activeSince } }, { lastActivityAt: { [Op.gt]: activeSince } }] },
+    ],
+  };
+  const windowLapsed = {
+    [Op.and]: [
+      { lastLogin: { [Op.lte]: activeSince } },
+      { [Op.or]: [{ lastActivityAt: null }, { lastActivityAt: { [Op.lte]: activeSince } }] },
+    ],
+  };
+  const offlineCondition = {
+    [Op.or]: [{ lastLogin: null }, db.sequelize.where(col("last_logout_at"), Op.gte, col("last_login")), windowLapsed],
+  };
+  // 退出方式 filter, matching sessionStatusOf's logoutType: a recorded
+  // logout of that type (one at/after the latest login, or with no login
+  // at all), plus -- for "timeout" -- a not-yet-recorded one: a session
+  // never signed out whose window has lapsed.
+  const recordedLogout = (type) => ({
+    [Op.and]: [
+      { lastLogoutType: type },
+      { [Op.or]: [{ lastLogin: null }, db.sequelize.where(col("last_logout_at"), Op.gte, col("last_login"))] },
+    ],
+  });
+  const logoutTypeConditions = {
+    manual: recordedLogout("manual"),
+    timeout: {
+      [Op.or]: [
+        recordedLogout("timeout"),
+        {
+          [Op.and]: [
+            { lastLogin: { [Op.ne]: null } },
+            { [Op.or]: [{ lastLogoutAt: null }, db.sequelize.where(col("last_logout_at"), Op.lt, col("last_login"))] },
+            windowLapsed,
+          ],
+        },
+      ],
+    },
+  };
+
+  const condition = {
+    [Op.and]: [
+      keyword
+        ? {
+            [Op.or]: [
+              { username: { [Op.like]: `%${keyword}%` } },
+              { email: { [Op.like]: `%${keyword}%` } },
+              { chineseName: { [Op.like]: `%${keyword}%` } },
+            ],
+          }
+        : null,
+      suspended !== undefined ? { suspended: suspended === "true" || suspended === "1" } : null,
+      schoolCode !== undefined && schoolCode !== "" ? { schoolCode: Number(schoolCode) } : null,
+      online === "true" ? onlineCondition : online === "false" ? offlineCondition : null,
+      logoutType === "manual" || logoutType === "timeout" ? logoutTypeConditions[logoutType] : null,
+    ],
+  };
+
+  return {
+    where: condition,
+    include: [
+      {
+        model: Role,
+        attributes: ["name"],
+        through: { attributes: [] },
+        required: !!role,
+        where: role ? { name: role } : undefined,
+      },
+      { model: db.school, as: "School", attributes: ["code", "name"], required: false },
+    ],
+    attributes: [
+      "id",
+      "username",
+      "email",
+      "chineseName",
+      "phone",
+      "emailVerified",
+      "suspended",
+      "schoolCode",
+      "lastLogin",
+      "lastActivityAt",
+      "lastLogoutAt",
+      "lastLogoutType",
+      "totalLoginTime",
+      "createdAt",
+    ],
+    order: buildUsersOrder(sortBy, sortOrder),
+  };
+};
+
+// schoolName is no longer a real column (dropped in
+// 20260907120000-teacher-school-enforcement.js) -- derive it from the
+// School include so the response shape stays unchanged for callers.
+const toUserListRow = (row) => {
+  const plain = row.get({ plain: true });
+  plain.schoolName = plain.School ? plain.School.name : null;
+  delete plain.School;
+  Object.assign(plain, sessionStatusOf(plain));
+  delete plain.lastActivityAt;
+  delete plain.lastLogoutAt;
+  delete plain.lastLogoutType;
+  return plain;
+};
+
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, role, suspended, schoolCode, online, logoutType, sortBy, sortOrder } =
-      req.query;
+    const { page, size } = req.query;
     const { limit, offset } = getPagination(page, size);
-
-    // Same rule as sessionStatusOf, in SQL: a session started, not signed
-    // out since, with its last activity (or login) inside the window. The
-    // offline side is spelled out rather than NOT(online) -- NOT over a
-    // comparison with a NULL column is NULL, which would drop e.g. a
-    // never-renewed (last_activity_at NULL) session from both filters.
-    const activeSince = new Date(Date.now() - config.validity * 1000);
-    const col = db.sequelize.col;
-    const onlineCondition = {
-      [Op.and]: [
-        { lastLogin: { [Op.ne]: null } },
-        { [Op.or]: [{ lastLogoutAt: null }, db.sequelize.where(col("last_logout_at"), Op.lt, col("last_login"))] },
-        { [Op.or]: [{ lastLogin: { [Op.gt]: activeSince } }, { lastActivityAt: { [Op.gt]: activeSince } }] },
-      ],
-    };
-    const windowLapsed = {
-      [Op.and]: [
-        { lastLogin: { [Op.lte]: activeSince } },
-        { [Op.or]: [{ lastActivityAt: null }, { lastActivityAt: { [Op.lte]: activeSince } }] },
-      ],
-    };
-    const offlineCondition = {
-      [Op.or]: [{ lastLogin: null }, db.sequelize.where(col("last_logout_at"), Op.gte, col("last_login")), windowLapsed],
-    };
-    // 退出方式 filter, matching sessionStatusOf's logoutType: a recorded
-    // logout of that type (one at/after the latest login, or with no login
-    // at all), plus -- for "timeout" -- a not-yet-recorded one: a session
-    // never signed out whose window has lapsed.
-    const recordedLogout = (type) => ({
-      [Op.and]: [
-        { lastLogoutType: type },
-        { [Op.or]: [{ lastLogin: null }, db.sequelize.where(col("last_logout_at"), Op.gte, col("last_login"))] },
-      ],
-    });
-    const logoutTypeConditions = {
-      manual: recordedLogout("manual"),
-      timeout: {
-        [Op.or]: [
-          recordedLogout("timeout"),
-          {
-            [Op.and]: [
-              { lastLogin: { [Op.ne]: null } },
-              { [Op.or]: [{ lastLogoutAt: null }, db.sequelize.where(col("last_logout_at"), Op.lt, col("last_login"))] },
-              windowLapsed,
-            ],
-          },
-        ],
-      },
-    };
-
-    const condition = {
-      [Op.and]: [
-        keyword
-          ? {
-              [Op.or]: [
-                { username: { [Op.like]: `%${keyword}%` } },
-                { email: { [Op.like]: `%${keyword}%` } },
-                { chineseName: { [Op.like]: `%${keyword}%` } },
-              ],
-            }
-          : null,
-        suspended !== undefined ? { suspended: suspended === "true" || suspended === "1" } : null,
-        schoolCode !== undefined && schoolCode !== "" ? { schoolCode: Number(schoolCode) } : null,
-        online === "true" ? onlineCondition : online === "false" ? offlineCondition : null,
-        logoutType === "manual" || logoutType === "timeout" ? logoutTypeConditions[logoutType] : null,
-      ],
-    };
-
-    const data = await User.findAndCountAll({
-      where: condition,
-      include: [
-        {
-          model: Role,
-          attributes: ["name"],
-          through: { attributes: [] },
-          required: !!role,
-          where: role ? { name: role } : undefined,
-        },
-        { model: db.school, as: "School", attributes: ["code", "name"], required: false },
-      ],
-      distinct: true,
-      attributes: [
-        "id",
-        "username",
-        "email",
-        "chineseName",
-        "phone",
-        "emailVerified",
-        "suspended",
-        "schoolCode",
-        "lastLogin",
-        "lastActivityAt",
-        "lastLogoutAt",
-        "lastLogoutType",
-        "totalLoginTime",
-        "createdAt",
-      ],
-      limit,
-      offset,
-      order: buildUsersOrder(sortBy, sortOrder),
-    });
-
-    // schoolName is no longer a real column (dropped in
-    // 20260907120000-teacher-school-enforcement.js) -- derive it from the
-    // School include so the response shape stays unchanged for callers.
-    data.rows = data.rows.map((row) => {
-      const plain = row.get({ plain: true });
-      plain.schoolName = plain.School ? plain.School.name : null;
-      delete plain.School;
-      Object.assign(plain, sessionStatusOf(plain));
-      delete plain.lastActivityAt;
-      delete plain.lastLogoutAt;
-      delete plain.lastLogoutType;
-      return plain;
-    });
-
-    res.send(getPagingData(data, page, limit));
+    const data = await User.findAndCountAll({ ...usersQuery(req.query), distinct: true, limit, offset });
+    data.rows = data.rows.map(toUserListRow);
+    // exportFields: what the page's 导出字段 picker offers (see exportUsers).
+    res.send({ ...getPagingData(data, page, limit), exportFields: userExportFieldOptions() });
   } catch (err) {
     res.status(500).send({ message: err.message || "查询用户列表时发生错误。" });
+  }
+};
+
+const USER_ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员", super: "超级管理员" };
+const LOGOUT_TYPE_LABELS = { manual: "主动退出", timeout: "超时退出" };
+// Pinned to China time -- the server runs in UTC, but readers don't.
+const dateText = (d) => (d ? new Date(d).toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" }) : "");
+// Same wording as admin-users-list.component.js#formatDuration.
+const durationText = (totalSeconds) => {
+  if (!totalSeconds) return "0分钟";
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
+  return `${minutes}分钟`;
+};
+
+// Everything the user-list Excel export can include, in column order --
+// same shape as services/dashboard.js's EXPORT_FIELDS. `defaultOn` marks the
+// set pre-selected in the 导出字段 picker (the table's own columns).
+const USER_EXPORT_FIELDS = [
+  { key: "username", label: "用户名", width: 18, defaultOn: true, value: (u) => u.username },
+  { key: "chineseName", label: "姓名", width: 12, defaultOn: true, value: (u) => u.chineseName || "" },
+  { key: "email", label: "邮箱", width: 28, defaultOn: true, value: (u) => u.email || "" },
+  { key: "phone", label: "电话", width: 15, value: (u) => u.phone || "" },
+  {
+    key: "roles",
+    label: "角色",
+    width: 16,
+    defaultOn: true,
+    value: (u) => (u.roles || []).map((r) => USER_ROLE_LABELS[r.name] || r.name).join("、"),
+  },
+  { key: "schoolCode", label: "学校编号", width: 10, defaultOn: true, value: (u) => (u.schoolCode != null ? u.schoolCode : "") },
+  { key: "schoolName", label: "学校名称", width: 28, value: (u) => u.schoolName || "" },
+  { key: "emailVerified", label: "邮箱已验证", width: 10, defaultOn: true, value: (u) => (u.emailVerified ? "是" : "否") },
+  { key: "status", label: "状态", width: 8, defaultOn: true, value: (u) => (u.suspended ? "已停用" : "正常") },
+  { key: "online", label: "在线", width: 8, defaultOn: true, value: (u) => (u.online ? "在线" : "离线") },
+  { key: "createdAt", label: "注册时间", width: 20, defaultOn: true, value: (u) => dateText(u.createdAt) },
+  {
+    key: "lastLogin",
+    label: "上次登录时间",
+    width: 20,
+    defaultOn: true,
+    value: (u) => (u.lastLogin ? dateText(u.lastLogin) : "从未登录"),
+  },
+  { key: "logoutAt", label: "退出时间", width: 20, defaultOn: true, value: (u) => dateText(u.logoutAt) },
+  { key: "logoutType", label: "退出方式", width: 10, value: (u) => LOGOUT_TYPE_LABELS[u.logoutType] || "" },
+  { key: "totalLoginTime", label: "累计登录时长", width: 14, defaultOn: true, value: (u) => durationText(u.totalLoginTime) },
+];
+
+const userExportFieldOptions = () =>
+  USER_EXPORT_FIELDS.map(({ key, label, defaultOn }) => ({ key, label, defaultOn: !!defaultOn }));
+
+// GET /api/auth/users/export?fields=a,b,... (super-only) -- .xlsx of every
+// user matching the list's current filters, in its current sort order (no
+// pagination), with the columns picked in 导出字段 (unknown keys ignored).
+exports.exportUsers = async (req, res) => {
+  try {
+    const wanted = new Set(String(req.query.fields || "").split(","));
+    const fields = USER_EXPORT_FIELDS.filter((f) => wanted.has(f.key));
+    if (fields.length === 0) return res.status(422).send({ message: "请至少选择一个导出字段。" });
+
+    const rows = (await User.findAll(usersQuery(req.query))).map(toUserListRow);
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("用户");
+    sheet.columns = fields.map((f) => ({ header: f.label, key: f.key, width: f.width }));
+    sheet.getRow(1).font = { bold: true };
+    sheet.views = [{ state: "frozen", ySplit: 1 }];
+    rows.forEach((u) => sheet.addRow(Object.fromEntries(fields.map((f) => [f.key, f.value(u)]))));
+    const buffer = await workbook.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="users.xlsx"`);
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "导出用户列表时发生错误。" });
   }
 };

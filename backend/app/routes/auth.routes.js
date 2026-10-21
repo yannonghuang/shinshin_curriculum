@@ -42,8 +42,9 @@ module.exports = function (app) {
 
   app.get("/api/auth/roles", controller.getRoles);
 
-  // Super-only: list/search all users (must come before the /:id route below).
+  // Super-only: list/search/download all users (must come before the /:id route below).
   app.get("/api/auth/users", [authJwt.verifyToken, authJwt.isSuper], controller.findAll);
+  app.get("/api/auth/users/export", [authJwt.verifyToken, authJwt.isSuper], controller.exportUsers);
 
   app.get("/api/auth/users/:id", [authJwt.verifyToken], controller.findOne);
 

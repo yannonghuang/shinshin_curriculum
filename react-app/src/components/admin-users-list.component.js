@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import Pagination from "@material-ui/lab/Pagination";
 import Select from "react-select";
@@ -44,6 +44,18 @@ const formatSchoolOptionLabel = (option) => (
     {option.address && <div style={{ fontSize: "0.85em", color: "#6c757d" }}>{option.address}</div>}
   </div>
 );
+
+// Same 导出字段 picker as dashboard.component.js, remembered separately.
+const EXPORT_FIELDS_STORAGE_KEY = "adminUsersExportFields";
+
+const readStoredExportFields = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(EXPORT_FIELDS_STORAGE_KEY));
+    return Array.isArray(stored) ? stored : null;
+  } catch (e) {
+    return null;
+  }
+};
 
 const emptyForm = {
   username: "",
@@ -99,28 +111,96 @@ const AdminUsersList = () => {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
 
+  const [exportFields, setExportFields] = useState([]);
+  const [selectedExportFields, setSelectedExportFields] = useState(readStoredExportFields);
+  const [showExportConfig, setShowExportConfig] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  // The list's current filters and sort -- shared by the page fetch and 下载.
+  const queryParams = useMemo(
+    () => ({
+      keyword: keyword || undefined,
+      role: roleFilter || undefined,
+      suspended: suspendedFilter || undefined,
+      schoolCode: schoolFilter ? schoolFilter.value : undefined,
+      online: onlineFilter || undefined,
+      logoutType: logoutTypeFilter || undefined,
+      sortBy: sortBy || undefined,
+      sortOrder: sortBy ? sortOrder : undefined,
+    }),
+    [keyword, roleFilter, suspendedFilter, schoolFilter, onlineFilter, logoutTypeFilter, sortBy, sortOrder]
+  );
+
   const retrieveAll = useCallback(async () => {
     try {
-      const resp = await AdminUserDataService.getAll({
-        page: page - 1,
-        size: pageSize,
-        keyword: keyword || undefined,
-        role: roleFilter || undefined,
-        suspended: suspendedFilter || undefined,
-        schoolCode: schoolFilter ? schoolFilter.value : undefined,
-        online: onlineFilter || undefined,
-        logoutType: logoutTypeFilter || undefined,
-        sortBy: sortBy || undefined,
-        sortOrder: sortBy ? sortOrder : undefined,
-      });
+      const resp = await AdminUserDataService.getAll({ page: page - 1, size: pageSize, ...queryParams });
       setUsers(resp.data.rows || []);
       setTotalPages(resp.data.totalPages || 0);
       setTotalItems(resp.data.totalItems || 0);
+      setExportFields(resp.data.exportFields || []);
     } catch (e) {
       console.log(e);
       setMessage("加载用户列表失败。");
     }
-  }, [page, pageSize, keyword, roleFilter, suspendedFilter, schoolFilter, onlineFilter, logoutTypeFilter, sortBy, sortOrder]);
+  }, [page, pageSize, queryParams]);
+
+  // Stored choice (if any) wins over the server's defaults; keys no longer
+  // offered by the server are dropped.
+  const effectiveExportFields = useMemo(() => {
+    const offered = new Set(exportFields.map((f) => f.key));
+    if (selectedExportFields) return selectedExportFields.filter((k) => offered.has(k));
+    return exportFields.filter((f) => f.defaultOn).map((f) => f.key);
+  }, [exportFields, selectedExportFields]);
+
+  const updateExportFields = (keys) => {
+    setSelectedExportFields(keys);
+    try {
+      localStorage.setItem(EXPORT_FIELDS_STORAGE_KEY, JSON.stringify(keys));
+    } catch (e) {
+      // Not remembered across visits -- still applies to this one.
+    }
+  };
+  const toggleExportField = (key) => {
+    const current = new Set(effectiveExportFields);
+    if (current.has(key)) current.delete(key);
+    else current.add(key);
+    // Kept in the server's column order, not click order.
+    updateExportFields(exportFields.map((f) => f.key).filter((k) => current.has(k)));
+  };
+
+  // Every user matching the current filters (all pages), in the current sort.
+  const exportExcel = async () => {
+    setMessage("");
+    setExporting(true);
+    try {
+      const resp = await AdminUserDataService.exportExcel(queryParams, effectiveExportFields);
+      const url = window.URL.createObjectURL(
+        new Blob([resp.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      const d = new Date();
+      const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+      link.setAttribute("download", `用户列表_${stamp}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      // responseType is arraybuffer, so a JSON error body arrives as bytes.
+      let text = "导出 Excel 失败。";
+      try {
+        if (e.response && e.response.data instanceof ArrayBuffer) {
+          text = JSON.parse(new TextDecoder().decode(e.response.data)).message || text;
+        }
+      } catch (ignored) {
+        // Keep the generic message.
+      }
+      setMessage(text);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Clicking a sortable column header: same column toggles asc/desc, a
   // different column starts fresh at asc. Also resets to page 1, since
@@ -291,7 +371,72 @@ const AdminUsersList = () => {
 
   return (
     <div className="container">
-      <h4>用户管理（总数：{totalItems}）</h4>
+      <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap">
+        <h4 className="mb-0">用户管理（总数：{totalItems}）</h4>
+        <div className="position-relative">
+          <button
+            type="button"
+            className="btn btn-outline-secondary btn-sm mr-2"
+            onClick={() => setShowExportConfig((prev) => !prev)}
+          >
+            <i className="fas fa-columns mr-1" />
+            导出字段（{effectiveExportFields.length}）
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={exporting || totalItems === 0 || effectiveExportFields.length === 0}
+            onClick={exportExcel}
+          >
+            <i className="fas fa-file-excel mr-1" />
+            {exporting ? "导出中..." : `导出 Excel（${totalItems} 行）`}
+          </button>
+          {showExportConfig && (
+            <div className="card shadow-sm pl-dashboard-export-config">
+              <div className="card-body p-2">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <b className="small">选择导出到 Excel 的字段</b>
+                  <button type="button" className="close" onClick={() => setShowExportConfig(false)}>
+                    <span>&times;</span>
+                  </button>
+                </div>
+                <div className="small mb-2">
+                  <button type="button" className="btn btn-link btn-sm p-0 mr-3" onClick={() => updateExportFields(exportFields.map((f) => f.key))}>
+                    全选
+                  </button>
+                  <button type="button" className="btn btn-link btn-sm p-0 mr-3" onClick={() => updateExportFields([])}>
+                    全不选
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-link btn-sm p-0"
+                    onClick={() => updateExportFields(exportFields.filter((f) => f.defaultOn).map((f) => f.key))}
+                  >
+                    恢复默认
+                  </button>
+                </div>
+                <div className="pl-dashboard-export-fields">
+                  {exportFields.map((f) => (
+                    <div className="custom-control custom-checkbox" key={f.key}>
+                      <input
+                        type="checkbox"
+                        className="custom-control-input"
+                        id={`exportField-${f.key}`}
+                        checked={effectiveExportFields.includes(f.key)}
+                        onChange={() => toggleExportField(f.key)}
+                      />
+                      <label className="custom-control-label small" htmlFor={`exportField-${f.key}`}>
+                        {f.label}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                <div className="small text-muted mt-2">导出当前筛选结果（全部分页），按当前排序。</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="mb-3">
         <div className="form-row">

@@ -223,8 +223,8 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
   );
 };
 
-// The header's 总体/分课时设计完成度 -- planCompletion.js scores the 计划 (design)
-// only; an 实施完成度 may come later. Sent only to the owner and
+// The header's 总体/分课时设计完成度 and 实施完成度 (see planCompletion.js).
+// Sent only to the owner and
 // admins/experts (plan.controller.js#findOne's canSeeCompletion) -- a peer
 // teacher never gets it, so this renders nothing for them. As of the last
 // save (retrievePlan reloads it). (AI 设计分数 sits on its AI 点评 row, see
@@ -236,9 +236,9 @@ const CompletionBadge = ({ completion }) =>
   completion ? (
     <span
       className="pl-completion"
-      title={`总体设计 = 基本信息 ${completion.basic}% · 课程设计 ${completion.design}%；分课时设计共 ${completion.lessonCount} 课时（按上次保存的内容计算）`}
+      title={`总体设计 = 基本信息 ${completion.basic}% · 课程设计 ${completion.design}%；分课时设计、实施记录各共 ${completion.lessonCount} 课时（按上次保存的内容计算）`}
     >
-      总体设计完成度：{completion.general}% · 分课时设计完成度：{completion.lessonDesign}%
+      总体设计完成度：{completion.general}% · 分课时设计完成度：{completion.lessonDesign}% · 实施完成度：{completion.execution}%
     </span>
   ) : null;
 

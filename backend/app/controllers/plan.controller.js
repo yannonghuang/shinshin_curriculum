@@ -525,7 +525,7 @@ exports.findOne = async (req, res) => {
       return res.status(403).send({ message: "无权查看该乡土课程设计。" });
     }
 
-    // 设计完成度 (planCompletion.js) is for the plan's owner and for
+    // 设计/实施完成度 (planCompletion.js) is for the plan's owner and for
     // admins/experts, who track progress -- not for a peer teacher (or an
     // anonymous gallery visitor) browsing someone else's plan, so it's only
     // computed and sent for the former. (AI 设计分数 rides on its AI 点评
@@ -534,6 +534,7 @@ exports.findOne = async (req, res) => {
       const plain = data.get({ plain: true });
       plain.completion = computeCompletion(plain, {
         planSchema: data.PlanTemplateVersion ? data.PlanTemplateVersion.schemaJson : null,
+        executionSchema: data.ExecutionTemplateVersion ? data.ExecutionTemplateVersion.schemaJson : null,
         hasDesignArtifact: (data.Artifacts || []).some((a) => a.lessonIndex === null || a.lessonIndex === undefined),
       });
       return res.send(plain);
