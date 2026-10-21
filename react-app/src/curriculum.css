@@ -2435,3 +2435,9 @@
   -webkit-mask-image: linear-gradient(to bottom, #000 65%, transparent);
   mask-image: linear-gradient(to bottom, #000 65%, transparent);
 }
+
+/* 回收站 button when empty (trash-button.component.js) -- dimmed so a
+   non-empty one (red, with a count badge) stands out by contrast. */
+.pl-trash-empty {
+  opacity: 0.65;
+}

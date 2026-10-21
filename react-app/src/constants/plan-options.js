@@ -58,3 +58,9 @@ export const ARTIFACT_CATEGORIES = [...ARTIFACT_CATEGORIES_PLAN_LEVEL, ...ARTIFA
 // of these, keyed by `index`) back into "第二部分：分课时设计" when generating
 // a plan's 课程设计文件.
 export const EMPTY_LESSON = { title: "", content: "" };
+
+// Deleting a plan moves it to the 回收站 (see plans-trash.component.js and
+// backend services/planTrash.js) -- keep the day count in sync with
+// TRASH_RETENTION_DAYS there.
+export const PLAN_TRASH_RETENTION_DAYS = 30;
+export const PLAN_DELETE_CONFIRM = `确定删除该课程设计吗？删除后将移入回收站，${PLAN_TRASH_RETENTION_DAYS} 天内可在回收站中恢复，之后将永久删除。`;

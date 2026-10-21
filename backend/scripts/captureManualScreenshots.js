@@ -221,6 +221,31 @@ async function captureFocusShots(page) {
   await page.mouse.move(0, 0);
 }
 
+// 回收站 (plans-trash.component.js) needs something in it: moves a real
+// plan no other screenshot uses into the 回收站 through the app's own API,
+// captures the page, then restores it (finally) -- the plan ends up exactly
+// as it was, apart from updated_at.
+const TRASH_PLAN_TITLE = "家乡物产探索——向日葵PBL乡土实践课程";
+
+async function captureTrashShot(page, user) {
+  console.log("==> 回收站 (一条真实课程设计，截图后立即恢复)");
+  const headers = { "x-access-token": user.accessToken };
+  const list = await (await page.request.get(`${BASE_URL}/api/plans?mine=true&size=200`, { headers })).json();
+  const plan = (list.rows || []).find((p) => p.title === TRASH_PLAN_TITLE);
+  if (!plan) {
+    console.warn(`    plan "${TRASH_PLAN_TITLE}" not found -- skipping plans-trash.png`);
+    return;
+  }
+  await page.request.delete(`${BASE_URL}/api/plans/${plan.id}?confirmCascade=true`, { headers });
+  try {
+    await page.goto(`${BASE_URL}/plans/trash`, { waitUntil: "load" });
+    await page.locator("table").first().waitFor();
+    await shoot(page.locator(".container").first(), "plans-trash");
+  } finally {
+    await page.request.put(`${BASE_URL}/api/plans/${plan.id}/restore`, { headers });
+  }
+}
+
 async function run() {
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -230,7 +255,7 @@ async function run() {
     // Teacher-role screenshots
     // ---------------------------------------------------------------
     console.log("==> Logging in as real teacher account (no password used)...");
-    await loginAs(context, TEACHER_ID);
+    const teacher = await loginAs(context, TEACHER_ID);
     const page = await context.newPage();
     await page.goto(BASE_URL, { waitUntil: "load" });
 
@@ -249,6 +274,8 @@ async function run() {
     // `.pl-page`) for a logged-in teacher's own ?mine=true view -- `.pl-page`
     // only applies to the public/"stylish" gallery view.
     await shoot(page.locator(".container").first(), "plans-list");
+
+    await captureTrashShot(page, teacher);
 
     console.log("==> plan-detail: 课程设计文件 上传区域");
     await openPlanByTitle(page, REVIEW_PLAN_TITLE);
@@ -508,4 +535,4 @@ async function run() {
 // lets a one-off capture reuse a single step (e.g. captureFocusShots).
 if (require.main === module) run();
 
-module.exports = { BASE_URL, loginAs, captureFocusShots };
+module.exports = { BASE_URL, loginAs, captureFocusShots, captureTrashShot, shoot };

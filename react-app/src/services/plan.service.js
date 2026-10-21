@@ -28,6 +28,20 @@ class PlanDataService {
     });
   }
 
+  // 回收站: delete() above only moves a plan here (see backend
+  // services/planTrash.js). A teacher gets their own, an admin everyone's.
+  getTrash() {
+    return http.get("/plans/trash", { headers: authHeader() });
+  }
+
+  restore(id) {
+    return http.put(`/plans/${id}/restore`, {}, { headers: authHeader() });
+  }
+
+  purge(id) {
+    return http.delete(`/plans/${id}/permanent?confirmDelete=true`, { headers: authHeader() });
+  }
+
   // Bulk-migrates every one of the caller's own plans flagged needsMigration
   // onto the currently-active plan_design template version. Backs the
   // flashing 迁移 button in 我的乡土课程.

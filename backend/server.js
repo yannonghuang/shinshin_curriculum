@@ -85,6 +85,13 @@ const runChatRetentionSweep = () => {
       if (deletedCount > 0) console.log(`Chat retention sweep: purged ${deletedCount} unsent attachment(s).`);
     })
     .catch((err) => console.error("Chat attachment sweep failed:", err.message));
+  // Plans past their 回收站 window -- same daily cadence, see planTrash.js.
+  require("./app/services/planTrash")
+    .purgeExpired()
+    .then((purgedCount) => {
+      if (purgedCount > 0) console.log(`Plan trash sweep: purged ${purgedCount} plan(s).`);
+    })
+    .catch((err) => console.error("Plan trash sweep failed:", err.message));
 };
 setTimeout(runChatRetentionSweep, 10 * 1000);
 setInterval(runChatRetentionSweep, CHAT_RETENTION_SWEEP_INTERVAL_MS);

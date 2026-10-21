@@ -20,6 +20,11 @@ const BULK_SKIPPED_REPORT_LIMIT = Number(process.env.PLAN_BULK_SKIPPED_REPORT_LI
 
 const mustConfirm = (value) => value === true || value === "true" || value === "1";
 
+// Plan is paranoid (回收站, see plan.model.js), but artifact queries start
+// from this table and aren't filtered by it -- the public read routes below
+// check the parent plan explicitly so a trashed plan's files aren't served.
+const planIsLive = async (planId) => !!(await Plan.findByPk(planId, { attributes: ["id"] }));
+
 // backend/upload/Plan/<planId>/<category>/[lesson-<n>/]<timestamp>-<name>
 const getPlanDirectory = (planId) => {
   const dir = path.join(`${__dirname}/../../upload`, "Plan", `${planId}`);
@@ -497,6 +502,9 @@ exports.findByPlan = async (req, res) => {
     if (!Number.isInteger(planId) || planId <= 0) {
       return res.status(422).send({ message: "乡土课程设计 ID 无效。" });
     }
+    if (!(await planIsLive(planId))) {
+      return res.status(404).send({ message: "乡土课程设计不存在。" });
+    }
 
     const where = { planId };
     if (req.query.lessonIndex !== undefined) {
@@ -526,7 +534,7 @@ exports.findByPlan = async (req, res) => {
 exports.findOne = async (req, res) => {
   try {
     const data = await Artifact.findByPk(req.params.id);
-    if (!data) {
+    if (!data || !(await planIsLive(data.planId))) {
       return res.status(404).send({ message: `未找到附件 id=${req.params.id}。` });
     }
     return res.send(data);
@@ -540,7 +548,7 @@ exports.findOne = async (req, res) => {
 exports.download = async (req, res) => {
   try {
     const data = await Artifact.findByPk(req.params.id);
-    if (!data) {
+    if (!data || !(await planIsLive(data.planId))) {
       return res.status(404).send({ message: `未找到附件 id=${req.params.id}。` });
     }
     if (!fs.existsSync(data.attachmentPath)) {

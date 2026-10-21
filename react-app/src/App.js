@@ -14,6 +14,7 @@ import Register from "./components/register.component";
 import Reset from "./components/reset.component";
 import PlansList from "./components/plans-list.component";
 import PlanDetail from "./components/plan-detail.component";
+import PlansTrash from "./components/plans-trash.component";
 import MaterialsLibrary from "./components/materials-library.component";
 import CopilotPanel from "./components/copilot-panel.component";
 import AdminUsersList from "./components/admin-users-list.component";
@@ -234,6 +235,8 @@ class App extends Component {
             <Route exact path="/dashboard" component={Dashboard} />
             <Route exact path={["/admin/book-recommendations", "/admin/book-recommendations/:id"]} component={BookRecommendation} />
             <Route exact path="/plans" component={PlansList} />
+            {/* Before /plans/:id, which would otherwise match "trash" as an id. */}
+            <Route exact path="/plans/trash" component={PlansTrash} />
             <Route path="/plans/:id" component={PlanDetail} />
           </Switch>
         </div>
