@@ -8,6 +8,7 @@ const llmClient = require("./llmClient");
 const planDrafter = require("./planDrafter");
 const aiReviewStandard = require("./aiReviewStandard");
 const webImages = require("./webImages");
+const userProfile = require("./copilotUserProfile");
 const crypto = require("crypto");
 const { MANUAL_CATEGORY } = require("../constants/materialCategories");
 
@@ -435,7 +436,10 @@ const TOOLS = [
   {
     label: "起草课程设计",
     readOnly: true, // drafts text only -- creating the plan is a separate, explicit step
-    routes: ["GET /api/plans/options", "GET /api/templates/:templateKey/active"],
+    // POST /api/plans too, though drafting itself creates nothing: a draft
+    // exists to become a plan, so it's offered only to those who can create
+    // one (teachers) -- not to experts/admins, whose work isn't writing plans.
+    routes: ["GET /api/plans/options", "GET /api/templates/:templateKey/active", "POST /api/plans"],
     def: fn(
       "draft_plan",
       "按系统课程设计模板起草一份完整的乡土课程设计（学习目标、项目简介、入项/探究/制作与迭代/出项，以及每个课时的详细设计）。" +
@@ -528,6 +532,40 @@ const TOOLS = [
         document: { docId: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, source, format, title },
         note: "文档已生成。请告诉用户点击回复下方的「下载」按钮获取文件（PDF 会打开打印对话框，选择「另存为 PDF」）。不要在回复中重复文档全文。",
       };
+    },
+  },
+
+  // ---- Memory -----------------------------------------------------------------
+  // The user's own notes about themselves (copilotUserProfile.js) -- owned by
+  // and visible to that user only, editable in the panel's 记忆 view, so
+  // saving runs straight away like any other edit to their own data.
+  {
+    label: "记住信息",
+    routes: [],
+    def: fn(
+      "remember",
+      "把关于当前用户的一条长期信息保存到记忆中，今后的所有对话都会参考（如任教年级与学科、学生特点、偏好的回复风格）。" +
+        "只在用户要求记住、或用户说出今后会反复用到的长期信息时调用；不要保存学生个人信息或一次性的内容。",
+      { content: { type: "string", description: `要记住的内容：一条简洁、完整的陈述，${userProfile.MAX_MEMORY_CHARS} 字以内，如「任教五年级语文，班上约 30 名学生，多为留守儿童」` } },
+      ["content"]
+    ),
+    run: async (ctx, args) => {
+      const memory = await userProfile.addMemory(ctx.userId, args.content, { sourceConversationId: ctx.conversationId || null, origin: "chat" });
+      return { memory: { id: memory.id, content: memory.content }, note: "已保存。简短告知用户，并提示可在面板顶部「记忆」中查看和修改。" };
+    },
+  },
+  {
+    label: "删除记忆",
+    routes: [],
+    def: fn(
+      "forget",
+      "从记忆中删除一条关于当前用户的信息（用户要求忘记，或该信息已过时、被新信息取代时）。",
+      { memoryId: { type: "number", description: "要删除的记忆编号（系统提示中记忆条目前方括号内的数字）" } },
+      ["memoryId"]
+    ),
+    run: async (ctx, args) => {
+      const memory = await userProfile.deleteMemory(ctx.userId, args.memoryId);
+      return { forgotten: { id: memory.id, content: memory.content } };
     },
   },
 
@@ -940,8 +978,11 @@ const labelOf = (name) => {
 // drafts with -- the AI 点评标准, the school, goals planned and assigned to
 // lessons up front -- so the fallback path drafts to the same bar. "" when
 // draft_plan is on (it brings its own).
+// Also "" for a user who can't create plans (no create_plan) -- drafting
+// isn't their work (see copilotUserProfile.js's role profiles).
 const draftingGuidance = async (userId, tools) => {
-  if (tools.some((t) => t.function.name === "draft_plan")) return "";
+  const offers = (name) => tools.some((t) => t.function.name === name);
+  if (offers("draft_plan") || !offers("create_plan")) return "";
   const [standard, school] = await Promise.all([
     aiReviewStandard.getLatestStandard().catch(() => null),
     teacherSchoolLine(userId),
@@ -962,4 +1003,4 @@ const assertPlanVisible = async (userId, roles, planId) => {
   await loadVisiblePlan({ userId, roles }, planId);
 };
 
-module.exports = { buildToolset, runConfirmedAction, labelOf, createPlanFromDraft, draftingGuidance, assertPlanVisible };
+module.exports = { getUserRoles, buildToolset, runConfirmedAction, labelOf, createPlanFromDraft, draftingGuidance, assertPlanVisible };

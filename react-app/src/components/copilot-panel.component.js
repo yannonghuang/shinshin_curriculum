@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useHistory, useLocation } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -72,7 +72,10 @@ const formatRelativeTime = (dateStr) => {
 // Pure lookups (search_knowledge_base etc.) stay in the 参考资料 footer instead.
 const actionEntries = (message) =>
   (Array.isArray(message.retrievedChunkIds) ? message.retrievedChunkIds : []).filter(
-    (e) => e && e.output && (e.output.pendingConfirmation || e.output.changed || e.output.link || e.output.document || e.output.draft)
+    (e) =>
+      e &&
+      e.output &&
+      (e.output.pendingConfirmation || e.output.changed || e.output.link || e.output.document || e.output.draft || e.output.memory || e.output.forgotten)
   );
 
 const DOCUMENT_FORMAT_LABELS = { docx: "Word", pdf: "PDF", md: "Markdown" };
@@ -100,13 +103,31 @@ const elapsedLabel = (since) => {
 
 // Links in a reply (web sources, a 百度图片 search) open in a new tab -- a
 // plain <a> would navigate the whole app away, losing the open panel.
-const MARKDOWN_COMPONENTS = {
-  a: ({ node, children, ...props }) => (
-    <a {...props} target="_blank" rel="noopener noreferrer">
-      {children}
-    </a>
-  ),
-};
+// In-app links (/plans/12, /materials -- the assistant links existing plans
+// and pages, see backend copilotUserProfile.js#describeLinks) navigate in
+// place, keeping the panel and its conversation open; anything else opens in
+// a new tab.
+const isInAppHref = (href) => typeof href === "string" && href.startsWith("/") && !href.startsWith("//");
+const markdownComponents = (history) => ({
+  a: ({ node, children, href, ...props }) =>
+    isInAppHref(href) ? (
+      <a
+        {...props}
+        href={href}
+        onClick={(e) => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; // let the browser open a new tab
+          e.preventDefault();
+          history.push(href);
+        }}
+      >
+        {children}
+      </a>
+    ) : (
+      <a {...props} href={href} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    ),
+});
 
 // web_search's real source pages (copilotActions.js), every search this
 // turn, de-duplicated by URL. Only http(s) links are shown.
@@ -451,6 +472,8 @@ const CopilotPanel = () => {
     document.addEventListener("mouseup", onResizeMouseUp);
   };
 
+  const markdownComponentsMemo = useMemo(() => markdownComponents(history), [history]);
+
   const currentUser = AuthService.getCurrentUser();
   const isLoggedIn = !!currentUser;
   const displayName = currentUser && (currentUser.chineseName || currentUser.username);
@@ -475,7 +498,17 @@ const CopilotPanel = () => {
   // the whole point of picking a thread is that it stays put until the user
   // deliberately leaves it.
   const [explicitConversationId, setExplicitConversationId] = useState(null);
-  const [viewMode, setViewMode] = useState("chat"); // "chat" | "history"
+  const [viewMode, setViewMode] = useState("chat"); // "chat" | "history" | "memory"
+  // The empty panel's greeting and starter prompts, tailored to this user's
+  // role and current state (backend copilotUserProfile.js#buildWelcome).
+  const [welcome, setWelcome] = useState(null);
+  // 记忆: what 欣欣小助手 remembers about this user across conversations.
+  // editingMemory = { id (null = adding), content } while a row is open.
+  const [memories, setMemories] = useState(null);
+  const [editingMemory, setEditingMemory] = useState(null);
+  const [isSavingMemory, setIsSavingMemory] = useState(false);
+  // The 自动记忆 switch -- null until 记忆 has loaded.
+  const [autoMemory, setAutoMemory] = useState(null);
   const [historyList, setHistoryList] = useState(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   // The conversation the messages on screen belong to -- what 导出 exports.
@@ -595,6 +628,66 @@ const CopilotPanel = () => {
   useEffect(() => {
     setIsExportMode(false);
   }, [conversationId, viewMode]);
+
+  // Fetched on each open -- the starter prompts follow the user's latest
+  // state (e.g. their most recently edited draft).
+  useEffect(() => {
+    if (!isOpen || !isLoggedIn) return;
+    ChatDataService.getWelcome()
+      .then((resp) => setWelcome(resp.data))
+      .catch(() => setWelcome(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const openMemory = async () => {
+    setViewMode("memory");
+    setEditingMemory(null);
+    try {
+      const resp = await ChatDataService.listMemories();
+      setMemories(resp.data.memories || []);
+      setAutoMemory(resp.data.autoMemory);
+    } catch (e) {
+      console.log(e);
+      setError("加载记忆失败。");
+    }
+  };
+
+  const saveMemory = async () => {
+    if (!editingMemory || !editingMemory.content.trim()) return;
+    setIsSavingMemory(true);
+    try {
+      const { id, content } = editingMemory;
+      const resp = id ? await ChatDataService.updateMemory(id, content) : await ChatDataService.createMemory(content);
+      setMemories((prev) => (id ? prev.map((m) => (m.id === id ? resp.data : m)) : [...(prev || []), resp.data]));
+      setEditingMemory(null);
+      setError("");
+    } catch (err) {
+      setError(err?.response?.data?.message || "保存记忆失败。");
+    } finally {
+      setIsSavingMemory(false);
+    }
+  };
+
+  const toggleAutoMemory = async (enabled) => {
+    setAutoMemory(enabled);
+    try {
+      const resp = await ChatDataService.updateMemorySettings({ autoMemory: enabled });
+      setAutoMemory(resp.data.autoMemory);
+    } catch (err) {
+      setAutoMemory(!enabled);
+      setError(err?.response?.data?.message || "保存设置失败。");
+    }
+  };
+
+  const removeMemory = async (id) => {
+    if (!window.confirm("确定删除这条记忆吗？欣欣小助手之后将不再参考它。")) return;
+    try {
+      await ChatDataService.deleteMemory(id);
+      setMemories((prev) => (prev ? prev.filter((m) => m.id !== id) : prev));
+    } catch (err) {
+      setError(err?.response?.data?.message || "删除记忆失败。");
+    }
+  };
 
   const openHistory = async () => {
     setViewMode("history");
@@ -1118,6 +1211,16 @@ const CopilotPanel = () => {
           </div>
         );
       }
+      if (o.memory || o.forgotten) {
+        return (
+          <div key={`${e.name}-${i}`} className="copilot-memory-note">
+            <i className="fas fa-brain"></i> {o.memory ? "已记住" : "已忘记"}：{(o.memory || o.forgotten).content}
+            <button type="button" className="btn btn-sm btn-link p-0 ml-2" onClick={openMemory}>
+              查看记忆
+            </button>
+          </div>
+        );
+      }
       if (o.draft && !o.draft.createdPlanId) {
         const busy = actionBusyKey === `${message.id}:draft:${o.draft.draftId}`;
         return (
@@ -1328,6 +1431,14 @@ const CopilotPanel = () => {
               <button
                 type="button"
                 className="btn btn-sm btn-link copilot-new-btn"
+                title="欣欣小助手跨对话记住的关于您的信息"
+                onClick={() => (viewMode === "memory" ? setViewMode("chat") : openMemory())}
+              >
+                {viewMode === "memory" ? "返回" : "记忆"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-link copilot-new-btn"
                 onClick={() => (viewMode === "history" ? setViewMode("chat") : openHistory())}
               >
                 {viewMode === "history" ? "返回" : "历史"}
@@ -1338,7 +1449,85 @@ const CopilotPanel = () => {
             </div>
           </div>
 
-          {viewMode === "history" ? (
+          {viewMode === "memory" ? (
+            <div className="copilot-messages">
+              <div className="copilot-memory-intro">
+                欣欣小助手会在今后的所有对话中参考以下信息。您可以在对话中说「记住……」「忘掉……」，也可以在这里直接添加、修改或删除。
+              </div>
+              {autoMemory !== null && (
+                <label className="copilot-memory-auto" title="对话结束一段时间后，由 AI 判断其中是否有值得长期记住的信息（标注「自动」）">
+                  <input type="checkbox" checked={autoMemory} onChange={(e) => toggleAutoMemory(e.target.checked)} />
+                  允许欣欣小助手自动记住对话中的重要信息
+                </label>
+              )}
+              {memories === null && <div className="pl-empty">加载中...</div>}
+              {memories && memories.length === 0 && !editingMemory && <div className="pl-empty">暂无记忆。</div>}
+              {memories &&
+                memories.map((m) =>
+                  editingMemory && editingMemory.id === m.id ? null : (
+                    <div key={m.id} className="copilot-memory-item">
+                      <div className="copilot-memory-content">
+                        {m.origin === "auto" && (
+                          <span className="copilot-memory-badge" title="欣欣小助手根据对话自动记住的信息">
+                            自动
+                          </span>
+                        )}
+                        {m.content}
+                      </div>
+                      <div className="copilot-memory-buttons">
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-link p-0"
+                          onClick={() => setEditingMemory({ id: m.id, content: m.content })}
+                        >
+                          修改
+                        </button>
+                        <button type="button" className="btn btn-sm btn-link p-0 ml-2 text-danger" onClick={() => removeMemory(m.id)}>
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  )
+                )}
+              {editingMemory ? (
+                <div className="copilot-memory-item">
+                  <textarea
+                    className="form-control"
+                    rows={3}
+                    maxLength={300}
+                    autoFocus
+                    placeholder="如：任教五年级语文，班上约 30 名学生，多为留守儿童"
+                    value={editingMemory.content}
+                    onChange={(e) => setEditingMemory({ ...editingMemory, content: e.target.value })}
+                  />
+                  <div className="copilot-memory-buttons mt-1">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      disabled={isSavingMemory || !editingMemory.content.trim()}
+                      onClick={saveMemory}
+                    >
+                      {isSavingMemory ? "保存中..." : "保存"}
+                    </button>
+                    <button type="button" className="btn btn-sm btn-outline-secondary ml-2" onClick={() => setEditingMemory(null)}>
+                      取消
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                memories && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-primary align-self-start"
+                    onClick={() => setEditingMemory({ id: null, content: "" })}
+                  >
+                    + 添加记忆
+                  </button>
+                )
+              )}
+              {error && <div className="alert alert-info py-1 px-2 copilot-error">{error}</div>}
+            </div>
+          ) : viewMode === "history" ? (
             <div className="copilot-messages">
               {isLoadingHistory && <div className="pl-empty">加载中...</div>}
               {!isLoadingHistory && historyList && historyList.length === 0 && <div className="pl-empty">暂无历史对话。</div>}
@@ -1376,7 +1565,26 @@ const CopilotPanel = () => {
               <div className="copilot-messages">
                 {!isLoaded && <div className="pl-empty">加载中...</div>}
                 {isLoaded && messages.length === 0 && (
-                  <div className="pl-empty">{displayName ? `${displayName}，有什么可以帮您的？` : "有什么可以帮您的？"}</div>
+                  <div className="copilot-welcome">
+                    <div className="pl-empty">{displayName ? `${displayName}，有什么可以帮您的？` : "有什么可以帮您的？"}</div>
+                    {/* Starter prompts for this user's role and state -- not in a past thread or a
+                        field-focused question, which have their own context. */}
+                    {welcome && !explicitConversationId && !focusTarget && (
+                      <div className="copilot-suggestions">
+                        {welcome.suggestions.map((text) => (
+                          <button
+                            key={text}
+                            type="button"
+                            className="copilot-suggestion"
+                            disabled={isSending}
+                            onClick={() => send(null, text)}
+                          >
+                            {text}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {messages.map((m, i) => {
                   const key = m.id || `pending-${i}`;
@@ -1417,7 +1625,7 @@ const CopilotPanel = () => {
                           className="copilot-bubble-content copilot-markdown"
                           ref={(el) => (messageContentRefs.current[key] = el)}
                         >
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponentsMemo}>
                             {m.content}
                           </ReactMarkdown>
                         </div>

@@ -14,6 +14,7 @@ const webImages = require("../services/webImages");
 const copilotAttachments = require("../services/copilotAttachments");
 const copilotExport = require("../services/copilotExport");
 const copilotFocus = require("../services/copilotFocus");
+const userProfile = require("../services/copilotUserProfile");
 const multer = require("multer");
 const util = require("util");
 
@@ -45,7 +46,9 @@ const CONVERSATION_FRESH_START_MS = 24 * 60 * 60 * 1000;
 // theme and place -- generic teaching-methodology advice stays available but
 // brief, since that's the human专家's primary lane.
 const COPILOT_SYSTEM_PROMPT =
-  "你是「乡土课程项目实施与案例分享系统」的 AI 助手「欣欣小助手」，帮助教师解答关于乡土课程设计、实施与共享学习材料库的问题。" +
+  // Who exactly it's helping, and with what, comes per user from
+  // copilotUserProfile.js (role, state, memory) -- this stays role-neutral.
+  "你是「乡土课程项目实施与案例分享系统」的 AI 助手「欣欣小助手」，为系统中的教师、专家和管理员服务，根据当前用户的角色解答问题、协助其完成本职工作。" +
   "如果问题涉及某个具体的课程设计，请优先给出结合该课程具体主题、年级与学校/地区的针对性建议（本地资源、主题特有的注意事项等）；" +
   "通用教学方法方面的建议可以提及，但请保持简短，这类问题通常由人类专家给出更全面的指导。" +
   "如有需要，可调用 search_knowledge_base 工具查询共享学习材料库中的相关参考资料（可结合课程主题或所在地区检索）；不需要参考资料时无需调用。用中文简明清晰地回复。";
@@ -55,10 +58,9 @@ const COPILOT_SYSTEM_PROMPT =
 // model needs to know when to act, how to turn a drafted plan into the
 // template's own fields, and that confirm-tier actions aren't done until the
 // user clicks.
-const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员", super: "超级管理员" };
-const buildActionPrompt = ({ roles, labels, apiCount, tools }) =>
-  `\n\n当前用户角色：${roles.map((r) => ROLE_LABELS[r] || r).join("、") || "未知"}。` +
-  `你可以通过工具直接代表用户执行系统操作，范围仅限于该用户自己的权限。专用工具：${labels.join("、")}；` +
+// The role itself is described by copilotUserProfile.js#describeRoles.
+const buildActionPrompt = ({ labels, apiCount, tools }) =>
+  `\n\n你可以通过工具直接代表用户执行系统操作，范围仅限于该用户自己的权限。专用工具：${labels.join("、")}；` +
   `此外还可通过 list_available_apis 查看、通过 call_api 调用该用户有权使用的全部 ${apiCount} 个系统接口。优先使用专用工具，没有合适的专用工具时再用 call_api。` +
   // A profiled drafting request opened with a pointless list_available_apis
   // round -- each extra round is a full model call.
@@ -356,6 +358,74 @@ const linkWebCitations = (text, toolCallLog) => {
   });
 };
 
+// Plans the model saw this turn -- in tool results (list_plans rows, call_api
+// results, get_plan_details, create/update outputs, links) or in the user's
+// state block -- as { id, title }. A plan-ish object: has a title and either
+// a planId, or an id plus a plan status / type "plan".
+const PLAN_STATUSES = new Set(["draft", "submitted", "reviewed"]);
+const collectPlans = (value, out, depth = 0) => {
+  if (!value || typeof value !== "object" || depth > 6) return;
+  if (Array.isArray(value)) {
+    value.forEach((v) => collectPlans(v, out, depth + 1));
+    return;
+  }
+  const title = typeof value.title === "string" ? value.title.trim() : "";
+  const id = Number(value.planId || (value.type === "plan" || PLAN_STATUSES.has(value.status) ? value.id : 0));
+  if (title && Number.isInteger(id) && id > 0) out.push({ id, title });
+  for (const v of Object.values(value)) collectPlans(v, out, depth + 1);
+};
+
+// Links every 《title》 of a plan seen this turn that the reply left
+// unlinked, and corrects a /plans/:id link whose 《title》 names a known plan
+// under a different id. A title shared by two different plans is left alone
+// (ambiguous); code spans/blocks are never touched.
+const PLAN_LINK_RE = /^\/plans\/(\d+)(.*)$/;
+const linkKnownPlans = (text, toolCallLog, extraPlans = []) => {
+  if (!text || !text.includes("《")) return text;
+  const found = [...extraPlans];
+  for (const call of toolCallLog || []) collectPlans(call && call.output, found);
+  const idsByTitle = new Map();
+  for (const { id, title } of found) {
+    if (!idsByTitle.has(title)) idsByTitle.set(title, new Set());
+    idsByTitle.get(title).add(id);
+  }
+  const plans = [...idsByTitle].filter(([, ids]) => ids.size === 1).map(([title, ids]) => ({ title, id: [...ids][0] }));
+  if (plans.length === 0) return text;
+  const idOf = new Map(plans.map((p) => [p.title, p.id]));
+  // Longest first, so 《A——B》 isn't claimed by a plan titled A.
+  plans.sort((a, b) => b.title.length - a.title.length);
+
+  const linkPlain = (segment) => {
+    let out = segment;
+    for (const { title, id } of plans) {
+      const mention = `《${title}》`;
+      if (!out.includes(mention)) continue;
+      // Re-split each time: earlier replacements created links of their own.
+      out = out
+        .split(/(\[[^\]]*\]\([^)]*\))/)
+        .map((part, i) => (i % 2 === 1 ? part : part.split(mention).join(`[${mention}](/plans/${id})`)))
+        .join("");
+    }
+    return out;
+  };
+  const fixLink = (link) => {
+    const m = /^\[《([^\]]*)》\]\(([^)]*)\)$/.exec(link);
+    const known = m && idOf.get(m[1]);
+    const target = m && PLAN_LINK_RE.exec(m[2]);
+    return known && target && Number(target[1]) !== known ? `[《${m[1]}》](/plans/${known}${target[2]})` : link;
+  };
+  return text
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((chunk, i) => {
+      if (i % 2 === 1) return chunk; // code
+      return chunk
+        .split(/(\[[^\]]*\]\([^)]*\))/)
+        .map((part, j) => (j % 2 === 1 ? fixLink(part) : linkPlain(part)))
+        .join("");
+    })
+    .join("");
+};
+
 // Markdown link targets can't hold raw spaces/brackets/CJK reliably --
 // normalize to a fully percent-encoded URL (leaving one that's already
 // encoded, or malformed, as encoded as encodeURI makes it).
@@ -487,8 +557,22 @@ const answerUserTurn = async (conversation, userMessageId, pageContext, { onEven
   const conversationDigest = buildConversationDigest(conversation, replayed, history);
   const toolset = await copilotActions.buildToolset(conversation.userId, { conversationDigest, conversationId: conversation.id });
 
+  // Tailored to this user: what their role does, where they stand in the
+  // system right now, and what they've asked to be remembered.
+  const [userState, memories] = await Promise.all([
+    userProfile.loadUserState(conversation.userId, toolset.roles).catch((e) => {
+      console.error("加载用户状态失败（不影响消息发送）:", e.message);
+      return {};
+    }),
+    userProfile.listMemories(conversation.userId),
+  ]);
+
   let systemPrompt =
     COPILOT_SYSTEM_PROMPT +
+    userProfile.describeRoles(toolset.roles) +
+    userProfile.describeUserState(userState) +
+    userProfile.describeMemories(memories) +
+    userProfile.describeLinks(toolset.roles) +
     buildActionPrompt(toolset) +
     renderActionLog(replayed) +
     chatCompaction.renderCompactedContext(conversation) +
@@ -533,7 +617,7 @@ const answerUserTurn = async (conversation, userMessageId, pageContext, { onEven
   return ChatMessage.create({
     conversationId: conversation.id,
     role: "assistant",
-    content: linkWebCitations(result.text, result.toolCallLog),
+    content: linkKnownPlans(linkWebCitations(result.text, result.toolCallLog), result.toolCallLog, userState.recentPlans || []),
     retrievedChunkIds: result.toolCallLog.length > 0 ? result.toolCallLog : null,
     replyToMessageId: userMessageId,
   });
@@ -600,6 +684,64 @@ const readTurnBody = (body) => {
     throw err;
   }
   return { content, attachmentIds };
+};
+
+// GET /api/chat/welcome -- the empty panel's greeting and starter prompts,
+// for this user's role and current state (copilotUserProfile.js#buildWelcome).
+exports.getWelcome = async (req, res) => {
+  try {
+    const roles = await copilotActions.getUserRoles(req.userId);
+    return res.send(await userProfile.buildWelcome(req.userId, roles));
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "加载失败。" });
+  }
+};
+
+// Memory (copilotUserProfile.js) -- every call scoped to req.userId.
+const memoryView = (m) => ({ id: m.id, content: m.content, origin: m.origin, createdAt: m.createdAt, updatedAt: m.updatedAt });
+
+// { memories, autoMemory } -- the list plus the 自动记忆 switch it's shown with.
+exports.listMemories = async (req, res) => {
+  try {
+    const [memories, settings] = await Promise.all([userProfile.listMemories(req.userId), userProfile.getSettings(req.userId)]);
+    return res.send({ memories: memories.map(memoryView), autoMemory: settings.autoMemory });
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "加载记忆失败。" });
+  }
+};
+
+// PUT /api/chat/memory-settings { autoMemory }
+exports.updateMemorySettings = async (req, res) => {
+  try {
+    return res.send(await userProfile.updateSettings(req.userId, { autoMemory: req.body && req.body.autoMemory }));
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "保存设置失败。" });
+  }
+};
+
+exports.createMemory = async (req, res) => {
+  try {
+    return res.send(memoryView(await userProfile.addMemory(req.userId, req.body && req.body.content, { origin: "manual" })));
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "保存记忆失败。" });
+  }
+};
+
+exports.updateMemory = async (req, res) => {
+  try {
+    return res.send(memoryView(await userProfile.updateMemory(req.userId, req.params.id, req.body && req.body.content)));
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "修改记忆失败。" });
+  }
+};
+
+exports.deleteMemory = async (req, res) => {
+  try {
+    await userProfile.deleteMemory(req.userId, req.params.id);
+    return res.send({ message: "已删除。" });
+  } catch (err) {
+    return res.status(err.status || 500).send({ message: err.message || "删除记忆失败。" });
+  }
 };
 
 // GET /api/chat/conversations/current?planId=&reviewId=
@@ -1009,6 +1151,18 @@ const EXPORT_FORMATS = {
   html: { ext: "html", type: "text/html; charset=utf-8" },
 };
 
+// The site a download was requested from (scheme + host only), so in-app
+// links in the file can point back at it -- see copilotExport.js#
+// absolutizeLinks. The browser sends Origin on these POSTs; Referer is the
+// fallback. null when neither is a plain http(s) origin.
+const requestOrigin = (req) => {
+  for (const value of [req.headers.origin, req.headers.referer]) {
+    const m = /^(https?:\/\/[^/\s?#]+)/i.exec(String(value || ""));
+    if (m) return m[1];
+  }
+  return null;
+};
+
 // Same labels the 历史 list shows (see listConversations), for one row.
 const conversationLabel = async (conversation) => {
   const scope = parseScopeKeyToPageContext(conversation.scopeKey);
@@ -1048,7 +1202,7 @@ exports.exportConversation = async (req, res) => {
     const messages = await ChatMessage.findAll({ where, order: [["id", "ASC"]] });
     if (messages.length === 0) return res.status(422).send({ message: "没有可导出的消息。" });
 
-    const body = await renderTranscript(conversation, messages, format, "欣欣小助手对话记录");
+    const body = await renderTranscript(conversation, messages, format, "欣欣小助手对话记录", requestOrigin(req));
     return sendExport(res, body, format, "欣欣小助手对话");
   } catch (err) {
     return res.status(500).send({ message: err.message || "导出对话失败。" });
@@ -1093,7 +1247,7 @@ const loadPhotosForExport = async (messages, userId, withData) => {
 };
 
 // Shared by 导出 (above) and generate_document's source=conversation (below).
-const renderTranscript = async (conversation, messages, format, title) => {
+const renderTranscript = async (conversation, messages, format, title, siteOrigin) => {
   const attachmentsByMessage = await copilotAttachments.loadForMessages(
     messages.map((m) => m.id),
     { withImage: format !== "md" }
@@ -1106,6 +1260,7 @@ const renderTranscript = async (conversation, messages, format, title) => {
     messages,
     attachmentsByMessage,
     photosByMessage,
+    siteOrigin,
   });
   if (format === "docx") return copilotExport.toDocx(transcript);
   if (format === "md") return copilotExport.toMarkdown(transcript);
@@ -1144,7 +1299,7 @@ exports.downloadDocument = async (req, res) => {
     const format = requested === "pdf" ? "html" : requested;
     if (source === "content") {
       const args = entry.arguments ? JSON.parse(entry.arguments) : {};
-      const doc = { title, content: args.content || "" };
+      const doc = { title, content: copilotExport.absolutizeLinks(args.content || "", requestOrigin(req)) };
       let body;
       if (format === "docx") body = await copilotExport.documentToDocx(doc);
       else if (format === "md") body = copilotExport.documentToMarkdown(doc);
@@ -1156,7 +1311,7 @@ exports.downloadDocument = async (req, res) => {
       order: [["id", "ASC"]],
     });
     if (messages.length === 0) return res.status(422).send({ message: "没有可导出的消息。" });
-    return sendExport(res, await renderTranscript(conversation, messages, format, title), format, title);
+    return sendExport(res, await renderTranscript(conversation, messages, format, title, requestOrigin(req)), format, title);
   } catch (err) {
     return res.status(500).send({ message: err.message || "生成文档失败。" });
   }

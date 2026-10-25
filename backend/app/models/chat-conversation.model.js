@@ -37,6 +37,11 @@ module.exports = (sequelize, Sequelize) => {
       summarizedThroughMessageId: {
         type: Sequelize.BIGINT,
       },
+      // copilotMemoryExtractor.js's high-water mark: messages with id beyond
+      // it haven't been reviewed for things to remember about the user yet.
+      memoryReviewedThroughMessageId: {
+        type: Sequelize.BIGINT,
+      },
     },
     {
       tableName: "chat_conversations",

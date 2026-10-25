@@ -97,6 +97,35 @@ class ChatDataService {
     return http.post(`/chat/conversations/${id}/export`, { format, messageIds }, { headers: authHeader(), responseType: "blob" });
   }
 
+  // Tailoring to the user (backend copilotUserProfile.js): the empty
+  // panel's greeting/starter prompts for this user's role and state, and
+  // what 欣欣小助手 remembers about them across conversations.
+  getWelcome() {
+    return http.get("/chat/welcome", { headers: authHeader() });
+  }
+
+  listMemories() {
+    return http.get("/chat/memories", { headers: authHeader() });
+  }
+
+  createMemory(content) {
+    return http.post("/chat/memories", { content }, { headers: authHeader() });
+  }
+
+  updateMemory(id, content) {
+    return http.put(`/chat/memories/${id}`, { content }, { headers: authHeader() });
+  }
+
+  deleteMemory(id) {
+    return http.delete(`/chat/memories/${id}`, { headers: authHeader() });
+  }
+
+  // { autoMemory } -- whether 欣欣小助手 may also remember things from idle
+  // conversations on its own (backend copilotMemoryExtractor.js).
+  updateMemorySettings(settings) {
+    return http.put("/chat/memory-settings", settings, { headers: authHeader() });
+  }
+
   deleteConversation(id) {
     return http.delete(`/chat/conversations/${id}`, { headers: authHeader() });
   }

@@ -1875,6 +1875,78 @@
   margin-top: 2px;
 }
 
+/* 欣欣小助手 tailoring -- role/state-based starter prompts in an empty
+   conversation, the 记忆 view, and the 已记住 note under a reply. */
+.copilot-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.copilot-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 360px;
+}
+.copilot-suggestion {
+  text-align: left;
+  background: var(--pl-panel);
+  border: 1px solid var(--pl-line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--pl-text);
+  cursor: pointer;
+}
+.copilot-suggestion:hover:not(:disabled) {
+  background: var(--pl-accent-soft);
+  border-color: var(--pl-accent);
+}
+.copilot-memory-intro {
+  font-size: 12px;
+  color: var(--pl-muted);
+}
+.copilot-memory-item {
+  background: var(--pl-panel);
+  border: 1px solid var(--pl-line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.copilot-memory-content {
+  font-size: 13px;
+  color: var(--pl-text);
+  white-space: pre-wrap;
+}
+.copilot-memory-auto {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--pl-text);
+  cursor: pointer;
+}
+.copilot-memory-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+}
+.copilot-memory-buttons {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 12px;
+}
+.copilot-memory-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--pl-muted);
+}
+
 .copilot-input-row {
   display: flex;
   gap: 8px;

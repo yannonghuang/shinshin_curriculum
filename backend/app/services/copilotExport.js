@@ -60,7 +60,7 @@ const citationLine = (message) => {
 // entries: [{ role, time, content, attachments, actions, citations }] }.
 // photosByMessage: find_photos results per message (chat.controller.js#
 // loadPhotosForExport) -- { title, source, kind, pageUrl, imageData?, mime? }.
-function buildTranscript({ title, subtitle, messages, attachmentsByMessage, photosByMessage = new Map() }) {
+function buildTranscript({ title, subtitle, messages, attachmentsByMessage, photosByMessage = new Map(), siteOrigin }) {
   return {
     title,
     subtitle,
@@ -72,7 +72,7 @@ function buildTranscript({ title, subtitle, messages, attachmentsByMessage, phot
         time: formatTime(m.createdAt),
         // A question asked from a plan field's menu reads "这一栏…" -- the
         // tag naming that field keeps it intelligible on paper.
-        content: (m.role === "user" ? replayPrefix(m.focus) : "") + (m.content || ""),
+        content: (m.role === "user" ? replayPrefix(m.focus) : "") + absolutizeLinks(m.content || "", siteOrigin),
         attachments: attachmentsByMessage.get(m.id) || [],
         photos: photosByMessage.get(m.id) || [],
         actions: m.role === "assistant" ? actionLines(m) : [],
@@ -120,6 +120,13 @@ const escapeHtml = (s) =>
 // http(s)/mailto links survive -- a reply can echo content from an uploaded
 // file, which nobody vetted.
 const SAFE_HREF = /^(https?:|mailto:)/i;
+
+// The assistant links existing plans/pages with in-app paths (/plans/12) --
+// fine in the panel, dead in a downloaded file, so exports resolve them
+// against the site they were exported from. Without an origin they're left
+// as-is (and render as plain text, per SAFE_HREF).
+const absolutizeLinks = (markdown, siteOrigin) =>
+  siteOrigin && markdown ? String(markdown).replace(/\]\((\/(?!\/)[^)\s]*)\)/g, (m, path) => `](${siteOrigin}${path})`) : markdown;
 const htmlMarked = new Marked({ gfm: true, breaks: false });
 htmlMarked.use({
   renderer: {
@@ -518,4 +525,4 @@ const documentToHtml = ({ title, content: rawContent }) => {
   );
 };
 
-module.exports = { buildTranscript, toMarkdown, toHtml, toDocx, documentToDocx, documentToMarkdown, documentToHtml };
+module.exports = { absolutizeLinks, buildTranscript, toMarkdown, toHtml, toDocx, documentToDocx, documentToMarkdown, documentToHtml };
