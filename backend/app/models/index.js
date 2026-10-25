@@ -53,6 +53,8 @@ db.chatMessage = require("./chat-message.model.js")(sequelize, Sequelize);
 db.chatAttachment = require("./chat-attachment.model.js")(sequelize, Sequelize);
 db.chatTask = require("./chat-task.model.js")(sequelize, Sequelize);
 db.chatWebImage = require("./chat-web-image.model.js")(sequelize, Sequelize);
+db.copilotMemory = require("./copilot-memory.model.js")(sequelize, Sequelize);
+db.copilotUserSetting = require("./copilot-user-setting.model.js")(sequelize, Sequelize);
 db.aiReviewStandard = require("./ai-review-standard.model.js")(sequelize, Sequelize);
 db.aiPlanScore = require("./ai-plan-score.model.js")(sequelize, Sequelize);
 {
@@ -319,6 +321,14 @@ db.chatConversation.hasMany(db.chatMessage, {
 });
 db.chatMessage.belongsTo(db.chatConversation, {
   foreignKey: "conversationId",
+  onDelete: "CASCADE",
+});
+
+// user -> copilotMemories (what 欣欣小助手 remembers about each user across
+// conversations -- see copilotUserProfile.js)
+db.user.hasMany(db.copilotMemory, {
+  foreignKey: "userId",
+  as: "CopilotMemories",
   onDelete: "CASCADE",
 });
 

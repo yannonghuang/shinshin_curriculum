@@ -32,6 +32,16 @@ module.exports = function (app) {
   app.post("/api/chat/messages/:messageId/actions/:actionId/confirm", [authJwt.verifyToken], chat.confirmAction);
   app.post("/api/chat/messages/:messageId/actions/:actionId/cancel", [authJwt.verifyToken], chat.cancelAction);
 
+  // Tailoring to the user (see copilotUserProfile.js): the empty panel's
+  // role/state-based greeting, and the user's own memory -- every row
+  // owner-scoped by userId.
+  app.get("/api/chat/welcome", [authJwt.verifyToken], chat.getWelcome);
+  app.get("/api/chat/memories", [authJwt.verifyToken], chat.listMemories);
+  app.post("/api/chat/memories", [authJwt.verifyToken], chat.createMemory);
+  app.put("/api/chat/memories/:id", [authJwt.verifyToken], chat.updateMemory);
+  app.delete("/api/chat/memories/:id", [authJwt.verifyToken], chat.deleteMemory);
+  app.put("/api/chat/memory-settings", [authJwt.verifyToken], chat.updateMemorySettings);
+
   // Background turns (see chatTasks.js) -- owner-checked by userId.
   app.get("/api/chat/tasks/:id", [authJwt.verifyToken], chat.getTask);
   app.post("/api/chat/tasks/:id/cancel", [authJwt.verifyToken], chat.cancelTask);

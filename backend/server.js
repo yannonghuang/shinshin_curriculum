@@ -96,6 +96,21 @@ const runChatRetentionSweep = () => {
 setTimeout(runChatRetentionSweep, 10 * 1000);
 setInterval(runChatRetentionSweep, CHAT_RETENTION_SWEEP_INTERVAL_MS);
 
+// 欣欣小助手's automatic memory (copilotMemoryExtractor.js): every few
+// minutes, review conversations that have gone quiet for things worth
+// remembering about their user. Same in-process interval approach as above.
+const COPILOT_MEMORY_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+const runCopilotMemorySweep = () => {
+  require("./app/services/copilotMemoryExtractor")
+    .sweep()
+    .then(({ reviewed, added }) => {
+      if (added > 0) console.log(`Copilot memory sweep: reviewed ${reviewed} conversation(s), remembered ${added} new item(s).`);
+    })
+    .catch((err) => console.error("Copilot memory sweep failed:", err.message));
+};
+setTimeout(runCopilotMemorySweep, 60 * 1000);
+setInterval(runCopilotMemorySweep, COPILOT_MEMORY_SWEEP_INTERVAL_MS);
+
 // Background 欣欣小助手 turns live in this process (chatTasks.js) -- any still
 // marked running/queued were cut off by this restart; say so, with 重试.
 require("./app/services/chatTasks")

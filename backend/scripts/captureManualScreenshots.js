@@ -221,6 +221,62 @@ async function captureFocusShots(page) {
   await page.mouse.move(0, 0);
 }
 
+// The open panel on an empty 新对话 -- greeting plus this teacher's role/
+// state-based starter prompts (e.g. 继续完善 their real latest draft) -- then
+// the 记忆 view. A memory is something the user writes about themselves, so
+// one is added through the view's own 添加记忆 form, captured, and deleted
+// again: the account ends with no memories, as before. Expects the panel
+// open; leaves it open, back on the chat view.
+const SAMPLE_MEMORY = "任教五年级，班上不少学生是留守儿童；回复请简洁，多给可直接用于课堂的活动建议";
+
+async function captureCopilotWelcomeAndMemory(page) {
+  console.log("==> 欣欣小助手 面板 (新对话：按角色与状态推荐的提问)");
+  const panel = page.locator(".copilot-panel");
+  await panel.getByRole("button", { name: "新对话" }).click();
+  await panel.locator(".copilot-suggestion").first().waitFor();
+  await page.evaluate(() => document.activeElement && document.activeElement.blur()); // no focus ring on 新对话
+  await page.waitForTimeout(300);
+  await shoot(panel, "copilot-panel");
+
+  console.log("==> 欣欣小助手 记忆 (添加一条 -> 截图 -> 删除)");
+  await panel.getByRole("button", { name: "记忆" }).click();
+  await panel.getByRole("button", { name: "+ 添加记忆" }).click();
+  await panel.locator(".copilot-memory-item textarea").fill(SAMPLE_MEMORY);
+  await panel.getByRole("button", { name: "保存", exact: true }).click();
+  const item = panel.locator(".copilot-memory-item", { hasText: SAMPLE_MEMORY });
+  await item.waitFor();
+  await page.waitForTimeout(300);
+  try {
+    await shoot(panel, "copilot-memory");
+  } finally {
+    page.once("dialog", (d) => d.accept());
+    await item.getByRole("button", { name: "删除" }).click();
+    await item.waitFor({ state: "detached" });
+    await panel.getByRole("button", { name: "返回" }).first().click();
+  }
+}
+
+// A reply listing the teacher's own plans, each a link (a live LLM round-
+// trip, read-only), then one link clicked: the page changes underneath while
+// the panel and its conversation stay open. Expects the panel open; leaves
+// it open on the clicked plan's page.
+async function captureCopilotLinksShot(page) {
+  console.log("==> 欣欣小助手 回复中的课程设计链接 (只读查询)");
+  const panel = page.locator(".copilot-panel");
+  await panel.getByRole("button", { name: "新对话" }).click();
+  await page.waitForTimeout(500);
+  await page.locator(".copilot-input-row textarea").fill("列出我的课程设计");
+  await page.locator(".copilot-input-row textarea").press("Enter");
+  const link = panel.locator(".copilot-bubble-assistant a[href^='/plans/']").first();
+  await link.waitFor({ timeout: 180000 });
+  await page.evaluate(() => document.activeElement && document.activeElement.blur());
+  await page.waitForTimeout(500);
+  await shoot(panel, "copilot-links");
+  await link.click();
+  await page.waitForURL(/\/plans\/\d+/);
+  await panel.waitFor();
+}
+
 // 回收站 (plans-trash.component.js) needs something in it: moves a real
 // plan no other screenshot uses into the 回收站 through the app's own API,
 // captures the page, then restores it (finally) -- the plan ends up exactly
@@ -353,10 +409,12 @@ async function run() {
       });
     }
 
-    console.log("==> 欣欣小助手 面板 (打开状态)");
     await page.locator(".copilot-toggle").click();
-    await page.waitForTimeout(500);
-    await shoot(page.locator(".copilot-panel"), "copilot-panel");
+    await captureCopilotWelcomeAndMemory(page);
+    await captureCopilotLinksShot(page);
+    // Back where the next steps expect: the draft plan's page, panel open.
+    await openPlanByTitle(page, DRAFT_PLAN_TITLE);
+    await page.locator(".copilot-toggle").click();
 
     console.log("==> 欣欣小助手 代办操作：「待确认」卡片 (提交待点评 -> 取消，不改动任何数据)");
     // A real request on this still-草稿 plan: submit_plan is confirm-tier, so
@@ -535,4 +593,4 @@ async function run() {
 // lets a one-off capture reuse a single step (e.g. captureFocusShots).
 if (require.main === module) run();
 
-module.exports = { BASE_URL, loginAs, captureFocusShots, captureTrashShot, shoot };
+module.exports = { BASE_URL, loginAs, captureFocusShots, captureTrashShot, captureCopilotWelcomeAndMemory, captureCopilotLinksShot, shoot };

@@ -63,6 +63,8 @@ whole document, so it's fine to add these incrementally.
 | `upload-dropzone.png` | 五、上传 |
 | `review-panel.png` | 八、专家评审 |
 | `copilot-panel.png` | 十二、AI 聊天助手「欣欣助手」 |
+| `copilot-memory.png` | 十二、AI 聊天助手「欣欣小助手」 -- 按角色定制与记忆 |
+| `copilot-links.png` | 十二、AI 聊天助手「欣欣小助手」 -- 使用范围与上下文（回复中的课程设计链接） |
 | `copilot-action-confirm.png` | 十二、AI 聊天助手「欣欣助手」 -- 代办操作 (live LLM call; the pending 提交待点评 is 取消'd right after) |
 | `lesson-file-manager.png` | 十三、执行阶段支撑材料管理 |
 | `manual-migration-panel.png` | 十四、模板迁移 (skipped while no dev plan has 手动迁移内容 -- see `MANUAL_MIGRATION_PLAN_TITLE`) |
