@@ -76,6 +76,14 @@ module.exports = (sequelize, Sequelize) => {
         allowNull: false,
         defaultValue: false,
       },
+      // Accumulated AI tokens spent on this plan (AI 打分/点评, 欣欣小助手
+      // turns about it) -- maintained by services/aiUsage.js#recordUsage,
+      // see 20261027010000-plan-ai-tokens-used.js.
+      aiTokensUsed: {
+        type: Sequelize.BIGINT,
+        allowNull: false,
+        defaultValue: 0,
+      },
       suspended: {
         type: Sequelize.BOOLEAN,
         allowNull: false,

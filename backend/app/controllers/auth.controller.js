@@ -514,7 +514,7 @@ const getPagingData = (data, page, limit) => {
 // sortBy=name orders by chineseName (the visible "姓名" column); sortBy=school
 // orders by the joined School's name (not the raw numeric code, which
 // wouldn't group same-named schools or read as alphabetical to an admin).
-// sortBy=lastLogin/totalLoginTime order by those columns directly;
+// sortBy=lastLogin/totalLoginTime/aiTokensUsed order by those columns directly;
 // sortBy=createdAt (注册时间) breaks same-timestamp ties by id. Anything
 // else (including unset) keeps the original newest-first order. MySQL sorts
 // NULLs first in ASC / last in DESC, which is an acceptable default here (no
@@ -527,6 +527,7 @@ const buildUsersOrder = (sortBy, sortOrder) => {
   if (sortBy === "school") return [[{ model: db.school, as: "School" }, "name", direction]];
   if (sortBy === "lastLogin") return [["lastLogin", direction]];
   if (sortBy === "totalLoginTime") return [["totalLoginTime", direction]];
+  if (sortBy === "aiTokensUsed") return [["aiTokensUsed", direction], ["id", direction]];
   if (sortBy === "createdAt") return [["createdAt", direction], ["id", direction]];
   return [["id", "DESC"]];
 };
@@ -534,7 +535,13 @@ const buildUsersOrder = (sortBy, sortOrder) => {
 // The list's where/include/attributes/order for the given query-string
 // filters -- shared by findAll (one page) and exportUsers (every matching
 // row), so a download always holds exactly what the filtered list shows.
-const usersQuery = ({ keyword, role, suspended, schoolCode, online, logoutType, sortBy, sortOrder }) => {
+// AI 用量 bounds arrive in 万 tokens (what the filter inputs show); blank or
+// non-numeric = no bound.
+const TOKENS_PER_WAN = 10000;
+const tokenBound = (text) =>
+  text === undefined || text === "" || Number.isNaN(Number(text)) ? null : Math.round(Number(text) * TOKENS_PER_WAN);
+
+const usersQuery = ({ keyword, role, suspended, schoolCode, online, logoutType, aiTokensMin, aiTokensMax, sortBy, sortOrder }) => {
   // Same rule as sessionStatusOf, in SQL: a session started, not signed
   // out since, with its last activity (or login) inside the window. The
   // offline side is spelled out rather than NOT(online) -- NOT over a
@@ -584,6 +591,9 @@ const usersQuery = ({ keyword, role, suspended, schoolCode, online, logoutType, 
     },
   };
 
+  const tokensMin = tokenBound(aiTokensMin);
+  const tokensMax = tokenBound(aiTokensMax);
+
   const condition = {
     [Op.and]: [
       keyword
@@ -599,6 +609,8 @@ const usersQuery = ({ keyword, role, suspended, schoolCode, online, logoutType, 
       schoolCode !== undefined && schoolCode !== "" ? { schoolCode: Number(schoolCode) } : null,
       online === "true" ? onlineCondition : online === "false" ? offlineCondition : null,
       logoutType === "manual" || logoutType === "timeout" ? logoutTypeConditions[logoutType] : null,
+      tokensMin !== null ? { aiTokensUsed: { [Op.gte]: tokensMin } } : null,
+      tokensMax !== null ? { aiTokensUsed: { [Op.lte]: tokensMax } } : null,
     ],
   };
 
@@ -628,6 +640,7 @@ const usersQuery = ({ keyword, role, suspended, schoolCode, online, logoutType, 
       "lastLogoutAt",
       "lastLogoutType",
       "totalLoginTime",
+      "aiTokensUsed",
       "createdAt",
     ],
     order: buildUsersOrder(sortBy, sortOrder),
@@ -705,6 +718,8 @@ const USER_EXPORT_FIELDS = [
   { key: "logoutAt", label: "退出时间", width: 20, defaultOn: true, value: (u) => dateText(u.logoutAt) },
   { key: "logoutType", label: "退出方式", width: 10, value: (u) => LOGOUT_TYPE_LABELS[u.logoutType] || "" },
   { key: "totalLoginTime", label: "累计登录时长", width: 14, defaultOn: true, value: (u) => durationText(u.totalLoginTime) },
+  // A plain number (not "12.3万") so the sheet can sum/sort it.
+  { key: "aiTokensUsed", label: "AI 用量（tokens）", width: 16, defaultOn: true, value: (u) => Number(u.aiTokensUsed) || 0 },
 ];
 
 const userExportFieldOptions = () =>

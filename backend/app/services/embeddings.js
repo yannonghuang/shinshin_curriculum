@@ -25,6 +25,7 @@
 // (hence MIN_SCORE below).
 const db = require("../models");
 const { fetchWithRetry } = require("./llmClient");
+const aiUsage = require("./aiUsage");
 const { Op } = db.Sequelize;
 const KnowledgeChunk = db.knowledgeChunk;
 const KnowledgeSourceSummary = db.knowledgeSourceSummary;
@@ -72,6 +73,7 @@ async function embedTexts(texts, { instruct } = {}) {
       }),
     });
     const data = await resp.json();
+    aiUsage.recordUsage(data.usage);
     const sorted = [...data.data].sort((a, b) => a.index - b.index);
     out.push(...sorted.map((d) => d.embedding));
   }
