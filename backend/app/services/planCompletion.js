@@ -1,5 +1,5 @@
 // 完成度: how much of the 计划 (plan) the teacher has filled in, plus --
-// separately -- how much of the per-lesson 实施记录 is. Reported as separate
+// separately -- how far along each lesson's 实施 is. Reported as separate
 // percentages (no combined total), since the generic part, the per-lesson
 // design and the implementation progress at very different paces:
 //
@@ -12,10 +12,15 @@
 //                   file exists)
 //   分课时设计完成度 (lessonDesign) -- per 课时, share of the template's
 //     per-lesson fields answered, weighted over 预计课时 (see below)
-//   实施完成度 (execution) -- per 课时, share of the pinned lesson_execution
-//     template's fields answered in executionFormData, averaged evenly
-//     over 预计课时 (records are written one by one as lessons are taught,
-//     so every lesson counts the same)
+//   实施完成度 (execution) -- per 课时, 实施记录 50% + 支撑材料 50%:
+//     实施记录   -- share of the pinned lesson_execution template's fields
+//                   answered in executionFormData (an uploaded 课程实施文件
+//                   is parsed into it, so it counts here too)
+//     支撑材料   -- all or nothing: at least one artifact uploaded under
+//                   that 课时 (there's no expected file count to measure
+//                   against)
+//     averaged evenly over 预计课时 (lessons are taught and recorded one by
+//     one, so every lesson counts the same)
 //
 // Within 分课时设计, lessons weigh linearly less the later they come: with n
 // 课时, 课时1 weighs n, 课时2 n-1, ... 课时n 1 (normalized) -- e.g. 4 课时:
@@ -34,6 +39,8 @@ const EMPTY_TITLE = "未命名课程设计";
 
 // Weights within 总体设计完成度.
 const GENERAL_WEIGHTS = { basic: 0.2, design: 0.8 };
+// Weights within each 课时's 实施完成度.
+const EXECUTION_WEIGHTS = { record: 0.5, materials: 0.5 };
 
 const isFilled = (value) => {
   if (value === null || value === undefined) return false;
@@ -92,8 +99,9 @@ const weightedOverLessons = (count, ratioForLesson) => {
 
 // `plan` is a plain plan row; `planSchema`/`executionSchema` are the pinned
 // plan_design/lesson_execution template versions' schemaJson (or null);
-// `hasDesignArtifact` covers the upload-mode case.
-function computeCompletion(plan, { planSchema, executionSchema, hasDesignArtifact }) {
+// `hasDesignArtifact` covers the upload-mode case; `materialLessons` is a
+// Set of the lesson indexes that have at least one 支撑材料 artifact.
+function computeCompletion(plan, { planSchema, executionSchema, hasDesignArtifact, materialLessons = new Set() }) {
   const basicValues = [
     plan.title && plan.title.trim() !== EMPTY_TITLE ? plan.title : null,
     plan.theme,
@@ -118,11 +126,14 @@ function computeCompletion(plan, { planSchema, executionSchema, hasDesignArtifac
   );
 
   const records = Array.isArray(plan.executionFormData) ? plan.executionFormData : [];
+  const executionForLesson = (i) => {
+    const record = executionSchema ? fillRatioForSchema(executionSchema, records.find((r) => Number(r.index) === i)) : 0;
+    const materials = materialLessons.has(i) ? 1 : 0;
+    return EXECUTION_WEIGHTS.record * record + EXECUTION_WEIGHTS.materials * materials;
+  };
   const execution =
-    lessonCount > 0 && executionSchema
-      ? Array.from({ length: lessonCount }, (_, k) =>
-          fillRatioForSchema(executionSchema, records.find((r) => Number(r.index) === k + 1))
-        ).reduce((a, b) => a + b, 0) / lessonCount
+    lessonCount > 0
+      ? Array.from({ length: lessonCount }, (_, k) => executionForLesson(k + 1)).reduce((a, b) => a + b, 0) / lessonCount
       : 0;
 
   const general = GENERAL_WEIGHTS.basic * basic + GENERAL_WEIGHTS.design * design;
@@ -137,4 +148,4 @@ function computeCompletion(plan, { planSchema, executionSchema, hasDesignArtifac
   };
 }
 
-module.exports = { computeCompletion, GENERAL_WEIGHTS };
+module.exports = { computeCompletion, GENERAL_WEIGHTS, EXECUTION_WEIGHTS };

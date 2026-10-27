@@ -536,6 +536,9 @@ exports.findOne = async (req, res) => {
         planSchema: data.PlanTemplateVersion ? data.PlanTemplateVersion.schemaJson : null,
         executionSchema: data.ExecutionTemplateVersion ? data.ExecutionTemplateVersion.schemaJson : null,
         hasDesignArtifact: (data.Artifacts || []).some((a) => a.lessonIndex === null || a.lessonIndex === undefined),
+        materialLessons: new Set(
+          (data.Artifacts || []).filter((a) => a.lessonIndex !== null && a.lessonIndex !== undefined).map((a) => Number(a.lessonIndex))
+        ),
       });
       return res.send(plain);
     }

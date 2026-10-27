@@ -51,9 +51,16 @@ async function buildRows({ submittedOnly = false } = {}) {
     if (p.planTemplateVersionId) versionIds.add(p.planTemplateVersionId);
     if (p.executionTemplateVersionId) versionIds.add(p.executionTemplateVersionId);
   });
-  const [versions, designArtifacts, scoreRows, reviewRows, standard] = await Promise.all([
+  const [versions, artifactSlots, scoreRows, reviewRows, standard] = await Promise.all([
     db.templateVersion.findAll({ where: { id: { [Op.in]: Array.from(versionIds) } }, attributes: ["id", "schemaJson"] }),
-    db.artifact.findAll({ where: { planId: { [Op.in]: planIds }, lessonIndex: null }, attributes: ["planId"], raw: true }),
+    // One row per (plan, 课时) that has any file -- lessonIndex null is the
+    // plan-level 课程设计文件, 1..N that lesson's 支撑材料.
+    db.artifact.findAll({
+      where: { planId: { [Op.in]: planIds } },
+      attributes: ["planId", "lessonIndex"],
+      group: ["planId", "lessonIndex"],
+      raw: true,
+    }),
     AiPlanScore.findAll({ where: { planId: { [Op.in]: planIds } }, order: [["id", "DESC"]] }),
     Review.findAll({
       where: { planId: { [Op.in]: planIds }, reviewerType: { [Op.in]: ["ai", "expert"] }, status: "submitted" },
@@ -64,7 +71,17 @@ async function buildRows({ submittedOnly = false } = {}) {
   ]);
 
   const schemaById = new Map(versions.map((v) => [Number(v.id), v.schemaJson]));
-  const hasDesignArtifact = new Set(designArtifacts.map((a) => Number(a.planId)));
+  const hasDesignArtifact = new Set();
+  const materialLessonsByPlan = new Map();
+  artifactSlots.forEach((a) => {
+    const planId = Number(a.planId);
+    if (a.lessonIndex === null) {
+      hasDesignArtifact.add(planId);
+      return;
+    }
+    if (!materialLessonsByPlan.has(planId)) materialLessonsByPlan.set(planId, new Set());
+    materialLessonsByPlan.get(planId).add(Number(a.lessonIndex));
+  });
   const latestScore = new Map();
   scoreRows.forEach((s) => {
     if (!latestScore.has(Number(s.planId))) latestScore.set(Number(s.planId), s);
@@ -110,6 +127,7 @@ async function buildRows({ submittedOnly = false } = {}) {
         planSchema: schemaById.get(Number(p.planTemplateVersionId)) || null,
         executionSchema: schemaById.get(Number(p.executionTemplateVersionId)) || null,
         hasDesignArtifact: hasDesignArtifact.has(id),
+        materialLessons: materialLessonsByPlan.get(id),
       }),
       aiScore: s
         ? {

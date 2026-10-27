@@ -565,7 +565,7 @@ const Dashboard = () => {
           {avgGeneral !== null && `，平均总体设计完成度 ${avgGeneral}%，平均分课时设计完成度 ${avgLessonDesign}%，平均实施完成度 ${avgExecution}%`}
           {`，已打分 ${scoredRows.length} 个`}
           {avgScore !== null && `，AI 平均分 ${avgScore}`}。
-          <span className="text-muted ml-2" title="各部分按模板字段的填写比例计算。总体设计完成度 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计完成度覆盖全部课时的分课时设计，越靠前的课时权重越高（线性递减）；实施完成度覆盖全部课时的实施记录，各课时权重相同">
+          <span className="text-muted ml-2" title="各部分按模板字段的填写比例计算。总体设计完成度 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计完成度覆盖全部课时的分课时设计，越靠前的课时权重越高（线性递减）；实施完成度覆盖全部课时，各课时权重相同，每课时 = 实施记录 50% + 支撑材料 50%（已上传任一文件即计满）">
             <i className="fas fa-info-circle mr-1" />
             总体设计 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计 = 全部课时（靠前课时权重更高）；实施 = 全部课时的实施记录（各课时等权）
           </span>
