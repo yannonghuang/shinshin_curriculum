@@ -502,7 +502,7 @@ const AdminUsersList = () => {
               isClearable
             />
           </div>
-          <div className="form-group col-md-3">
+          <div className="form-group col-md-2">
             <select
               className="form-control"
               value={onlineFilter}
@@ -516,7 +516,7 @@ const AdminUsersList = () => {
               <option value="false">离线</option>
             </select>
           </div>
-          <div className="form-group col-md-3">
+          <div className="form-group col-md-2">
             <select
               className="form-control"
               value={logoutTypeFilter}
@@ -533,14 +533,15 @@ const AdminUsersList = () => {
               ))}
             </select>
           </div>
-          <div className="form-group col-md-2">
-            <div className="d-flex align-items-center" title="AI 用量（万 tokens）">
+          <div className="form-group col-md-4">
+            <div className="d-flex align-items-center" title="AI 用量，单位：万 tokens">
+              <span className="text-nowrap mr-2">AI 用量（万）</span>
               <input
                 className="form-control"
                 type="number"
                 min="0"
                 step="any"
-                placeholder="AI 用量≥(万)"
+                placeholder="最低"
                 value={aiTokensMin}
                 onChange={(e) => {
                   setAiTokensMin(e.target.value);
@@ -553,7 +554,7 @@ const AdminUsersList = () => {
                 type="number"
                 min="0"
                 step="any"
-                placeholder="≤(万)"
+                placeholder="最高"
                 value={aiTokensMax}
                 onChange={(e) => {
                   setAiTokensMax(e.target.value);
