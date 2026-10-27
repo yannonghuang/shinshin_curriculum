@@ -10,6 +10,7 @@ import TeacherManualDataService from "../services/teacher-manual.service";
 import AuthService from "../services/auth.service";
 import LessonFileManager from "./lesson-file-manager.component";
 import KnowledgeIndex from "./knowledge-index.component";
+import { useExplorerPane, ExplorerPaneBar } from "./explorer-pane";
 import "../curriculum.css";
 
 // Mirrors backend/app/constants/materialCategories.js's MANUAL_CATEGORY/
@@ -27,6 +28,9 @@ import "../curriculum.css";
 // "使用说明") gets the normal tab set, same as any other category.
 const MANUAL_CATEGORY = "使用指南";
 const MANUAL_THEME = "教师手册";
+// The tree's leaf wording, for the phone layout's bar over the content.
+const LEAF_LABELS = { basic: "基本信息", contents: "材料内容", links: "视频链接", skill: "知识卡片" };
+
 const isManualTopic = (topic) => !!topic && topic.category === MANUAL_CATEGORY && topic.theme === MANUAL_THEME;
 // Neither the 使用指南 folder nor the manual topic itself can be renamed --
 // publish finds the manual by that exact pair (enforced server-side in
@@ -65,6 +69,8 @@ const MaterialsLibrary = () => {
   const [message, setMessage] = useState("");
   const [manualBusy, setManualBusy] = useState(""); // "" | "download" | "publish"
   const [navCollapsed, setNavCollapsed] = useState(false);
+  // Phone: the topic tree or the picked topic's page, one at a time.
+  const pane = useExplorerPane();
   const [expandedCategories, setExpandedCategories] = useState({});
   const [expandedTopics, setExpandedTopics] = useState({});
   const [selected, setSelected] = useState({ topicId: null, key: null });
@@ -968,7 +974,7 @@ const MaterialsLibrary = () => {
         </div>
       )}
 
-      <div className="pl-explorer">
+      <div className={`pl-explorer ${pane.className}`}>
         <button
           type="button"
           className="pl-explorer-hide-toggle"
@@ -979,7 +985,7 @@ const MaterialsLibrary = () => {
         </button>
 
         {!navCollapsed && (
-          <div className="pl-explorer-nav">
+          <div className="pl-explorer-nav" onClick={pane.onNavClick}>
             <form onSubmit={runSearch} className="mb-2">
               <div className="input-group input-group-sm">
                 <input
@@ -1004,7 +1010,7 @@ const MaterialsLibrary = () => {
                   <ul className="list-unstyled mb-0">
                     {searchResults.map((r) => (
                       <li key={r.topicId}>
-                        <button type="button" className="btn btn-sm btn-link p-0" onClick={() => jumpToSearchResult(r)}>
+                        <button type="button" className="btn btn-sm btn-link p-0" data-explorer-leaf onClick={() => jumpToSearchResult(r)}>
                           {r.category} · {r.theme}
                         </button>
                         <div className="text-truncate" style={{ maxWidth: "220px" }}>
@@ -1193,6 +1199,7 @@ const MaterialsLibrary = () => {
                               selected.topicId === topic.id && selected.key === "manual" ? "is-active" : ""
                             }`}
                             onClick={() => select(topic.id, "manual")}
+                            data-explorer-leaf
                           >
                             <i className="fas fa-book pl-explorer-chevron"></i>
                             {topic.theme}
@@ -1291,6 +1298,14 @@ const MaterialsLibrary = () => {
         )}
 
         <div className="pl-explorer-content">
+          <ExplorerPaneBar
+            label={
+              selectedTopic
+                ? [selectedTopic.theme, LEAF_LABELS[selected.key]].filter(Boolean).join(" · ")
+                : "选择主题"
+            }
+            onBack={pane.openNav}
+          />
           {message && <div className="alert alert-info py-2">{message}</div>}
           {renderContent()}
         </div>

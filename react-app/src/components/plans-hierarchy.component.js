@@ -6,6 +6,7 @@ import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
 import { PLAN_THEMES, PLAN_DELETE_CONFIRM } from "../constants/plan-options";
 import { announceTrashChanged } from "./trash-button.component";
+import { useExplorerPane, ExplorerPaneBar } from "./explorer-pane";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
 
@@ -103,6 +104,8 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   const [plans, setPlans] = useState([]);
   const [message, setMessage] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
+  // Phone: tree or the picked teacher's plans, one at a time.
+  const pane = useExplorerPane();
   const [expandedGroups, setExpandedGroups] = useState({});
 
   // The review-status toggles/search boxes make sense on any staff browsing
@@ -330,8 +333,14 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   // params this route already had for other reasons (mine/status/
   // templateVersionId -- see plans-list.component.js) by starting from the
   // current search string rather than building a fresh one.
+  //
+  // Reads history.location (not this render's `location`) and keeps its
+  // state: on a phone, picking a teacher also pushes the ?pane=content
+  // entry (explorer-pane.js) before this runs, and that entry is the one to
+  // update.
   useEffect(() => {
-    const params = new URLSearchParams(location.search || "");
+    const current = history.location;
+    const params = new URLSearchParams(current.search || "");
     const setOrDelete = (key, value) => {
       if (value) params.set(key, value);
       else params.delete(key);
@@ -347,8 +356,8 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     setOrDelete("selTeacher", selected ? selected.teacherId : "");
 
     const nextSearch = params.toString();
-    if (nextSearch !== (location.search || "").replace(/^\?/, "")) {
-      history.replace({ pathname: location.pathname, search: nextSearch });
+    if (nextSearch !== (current.search || "").replace(/^\?/, "")) {
+      history.replace({ pathname: current.pathname, search: nextSearch, state: current.state });
     }
     // Deliberately excludes `history`/`location` -- both are stable-enough
     // router objects that including them risks re-firing this effect off of
@@ -481,7 +490,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
           </button>
         </div>
       )}
-      <div className="pl-explorer">
+      <div className={`pl-explorer ${pane.className}`}>
       <button
         type="button"
         className="pl-explorer-hide-toggle"
@@ -492,7 +501,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
       </button>
 
       {!navCollapsed && (
-        <div className="pl-explorer-nav">
+        <div className="pl-explorer-nav" onClick={pane.onNavClick}>
           {groups.length === 0 && <div className="pl-explorer-empty">暂无课程设计</div>}
           {groups.map((g) => (
             <div className="pl-explorer-group" key={g.key}>
@@ -546,6 +555,14 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
       )}
 
       <div className="pl-explorer-content">
+        <ExplorerPaneBar
+          label={
+            selectedTeacher
+              ? `${selectedTeacher.teacherName} · ${selectedGroup.year}年${selectedGroup.season || ""} · ${selectedSchool.schoolName}`
+              : "选择教师"
+          }
+          onBack={pane.openNav}
+        />
         {message && <div className="alert alert-info py-2">{message}</div>}
         {!selectedTeacher ? (
           <div className="pl-empty">请选择左侧的教师，查看其课程设计</div>
