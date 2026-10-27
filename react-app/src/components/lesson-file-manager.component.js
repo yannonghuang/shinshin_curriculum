@@ -182,6 +182,9 @@ const LessonFileManager = ({
   artifactService = ArtifactDataService,
   docCategoryLabel = "实施记录文件",
   downloadUrlBase = "/api/artifacts",
+  // Called after an upload or delete changes this space's files -- the Plan
+  // caller uses it to refresh 实施完成度, which counts 支撑材料 per 课时.
+  onFilesChange,
 }) => {
   const [folders, setFolders] = useState([]);
   const [artifacts, setArtifacts] = useState([]);
@@ -352,6 +355,7 @@ const LessonFileManager = ({
       setIsUploading(false);
       setTimeout(() => setUploadProgress(null), 600);
       await refreshAll();
+      if (onFilesChange) onFilesChange();
     }
   };
 
@@ -580,6 +584,7 @@ const LessonFileManager = ({
       setMessage("删除成功。");
       clearSelection();
       await refreshAll();
+      if (onFilesChange) onFilesChange();
     } catch (err) {
       setMessage(err?.response?.data?.message || "删除失败。");
     } finally {

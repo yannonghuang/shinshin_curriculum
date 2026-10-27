@@ -228,7 +228,8 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
 // Sent only to the owner and
 // admins/experts (plan.controller.js#findOne's canSeeCompletion) -- a peer
 // teacher never gets it, so this renders nothing for them. As of the last
-// save (retrievePlan reloads it). (AI 设计分数 sits on its AI 点评 row, see
+// save (retrievePlan reloads it), or of the last 支撑材料 upload/delete
+// (refreshCompletion). (AI 设计分数 sits on its AI 点评 row, see
 // review-list.component.js.) Its own component rather than inline JSX:
 // PlanDetail is big enough that one more conditional branch in it trips
 // react-hooks/rules-of-hooks' path counting into a false "hook called
@@ -237,7 +238,7 @@ const CompletionBadge = ({ completion }) =>
   completion ? (
     <span
       className="pl-completion"
-      title={`总体设计 = 基本信息 ${completion.basic}% · 课程设计 ${completion.design}%；分课时设计、实施记录各共 ${completion.lessonCount} 课时（按上次保存的内容计算）`}
+      title={`总体设计 = 基本信息 ${completion.basic}% · 课程设计 ${completion.design}%；分课时设计、实施各共 ${completion.lessonCount} 课时，每课时实施 = 实施记录 50% + 支撑材料 50%（按上次保存的内容计算）`}
     >
       总体设计完成度：{completion.general}% · 分课时设计完成度：{completion.lessonDesign}% · 实施完成度：{completion.execution}%
     </span>
@@ -796,6 +797,15 @@ const PlanDetail = (props) => {
 
   const toggleGroup = (name) => setExpandedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
   const select = (type, key) => setSelected({ type, key });
+
+  // 支撑材料 uploads/deletes save immediately, outside 保存草稿 -- so pull
+  // just the recomputed completion, leaving the rest of the plan (and any
+  // unsaved edits in the forms) alone.
+  const refreshCompletion = () => {
+    PlanDataService.get(planId)
+      .then((resp) => setPlan((prev) => (prev ? { ...prev, completion: resp.data.completion } : prev)))
+      .catch(() => {});
+  };
 
   const retrievePlan = useCallback(async () => {
     setIsLoadingPlan(true);
@@ -1709,7 +1719,13 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card">
           <h6>支撑材料 · 课时 {n}</h6>
-          <LessonFileManager planId={planId} lessonIndex={n} canEdit={canEditPlan} canDownload={canDownloadPlan} />
+          <LessonFileManager
+            planId={planId}
+            lessonIndex={n}
+            canEdit={canEditPlan}
+            canDownload={canDownloadPlan}
+            onFilesChange={refreshCompletion}
+          />
         </div>
       );
     }
