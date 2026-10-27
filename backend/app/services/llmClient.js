@@ -3,6 +3,8 @@
 // DashScope is the active/default provider for this app — do NOT add an
 // Anthropic branch here, per the approved plan.
 
+const aiUsage = require("./aiUsage");
+
 const DEFAULT_MODELS = { dashscope: "qwen3.8-max" };
 
 // tools/toolChoice (OpenAI-style function-calling shape -- DashScope's
@@ -99,6 +101,7 @@ async function dashscopeChat({ systemPrompt, messages, maxTokens, temperature, m
     body: JSON.stringify(body),
   });
   const data = await resp.json();
+  aiUsage.recordUsage(data.usage);
   const message = data.choices?.[0]?.message;
   const toolCalls = message?.tool_calls;
   // A tool-calling turn legitimately has no `content` -- only treat "no
@@ -160,6 +163,7 @@ async function webSearch({ prompt, model, maxTokens = 1500 }) {
         }),
       });
       const data = await resp.json();
+      aiUsage.recordUsage(data.usage);
       const message = data.output?.choices?.[0]?.message;
       const raw = message?.content;
       const text = Array.isArray(raw) ? raw.map((part) => part.text || "").join("") : raw || "";

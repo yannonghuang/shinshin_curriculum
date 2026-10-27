@@ -33,6 +33,14 @@ const formatDuration = (totalSeconds) => {
   return `${minutes}分钟`;
 };
 
+// aiTokensUsed is the accumulated token count (auth.controller.js /
+// services/aiUsage.js) -- shown in 万 once it's past five digits, with the
+// exact count on hover.
+const formatTokens = (tokens) => {
+  const n = Number(tokens) || 0;
+  return n >= 10000 ? `${(n / 10000).toFixed(1)}万` : n.toLocaleString("zh-cn");
+};
+
 // Shows each school's address as a muted second line under its name, so an
 // admin/super picking from 392 similarly-named schools (many share a
 // county/town name) has enough to tell same-named schools apart --
@@ -86,6 +94,9 @@ const AdminUsersList = () => {
   const [schoolFilter, setSchoolFilter] = useState(null);
   const [onlineFilter, setOnlineFilter] = useState("");
   const [logoutTypeFilter, setLogoutTypeFilter] = useState("");
+  // AI 用量 range, in 万 tokens (the backend converts).
+  const [aiTokensMin, setAiTokensMin] = useState("");
+  const [aiTokensMax, setAiTokensMax] = useState("");
   // Code of the school currently shown in the detail popup, or null when
   // closed -- a popup rather than navigating away (see the 学校编号 cell
   // below) so opening it never loses the list's current page/filters/sort.
@@ -98,7 +109,7 @@ const AdminUsersList = () => {
   const [schoolPlansLoading, setSchoolPlansLoading] = useState(false);
   const [schoolPlansMessage, setSchoolPlansMessage] = useState("");
   // sortBy: "" (default, newest-first) | "name" | "school" | "createdAt" |
-  // "lastLogin" | "totalLoginTime"; only one column sorts at a time, matching a typical
+  // "lastLogin" | "totalLoginTime" | "aiTokensUsed"; only one column sorts at a time, matching a typical
   // clickable-column-header table.
   const [sortBy, setSortBy] = useState("");
   const [sortOrder, setSortOrder] = useState("asc");
@@ -125,10 +136,12 @@ const AdminUsersList = () => {
       schoolCode: schoolFilter ? schoolFilter.value : undefined,
       online: onlineFilter || undefined,
       logoutType: logoutTypeFilter || undefined,
+      aiTokensMin: aiTokensMin || undefined,
+      aiTokensMax: aiTokensMax || undefined,
       sortBy: sortBy || undefined,
       sortOrder: sortBy ? sortOrder : undefined,
     }),
-    [keyword, roleFilter, suspendedFilter, schoolFilter, onlineFilter, logoutTypeFilter, sortBy, sortOrder]
+    [keyword, roleFilter, suspendedFilter, schoolFilter, onlineFilter, logoutTypeFilter, aiTokensMin, aiTokensMax, sortBy, sortOrder]
   );
 
   const retrieveAll = useCallback(async () => {
@@ -520,6 +533,35 @@ const AdminUsersList = () => {
               ))}
             </select>
           </div>
+          <div className="form-group col-md-2">
+            <div className="d-flex align-items-center" title="AI 用量（万 tokens）">
+              <input
+                className="form-control"
+                type="number"
+                min="0"
+                step="any"
+                placeholder="AI 用量≥(万)"
+                value={aiTokensMin}
+                onChange={(e) => {
+                  setAiTokensMin(e.target.value);
+                  setPage(1);
+                }}
+              />
+              <span className="mx-1">–</span>
+              <input
+                className="form-control"
+                type="number"
+                min="0"
+                step="any"
+                placeholder="≤(万)"
+                value={aiTokensMax}
+                onChange={(e) => {
+                  setAiTokensMax(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -555,6 +597,9 @@ const AdminUsersList = () => {
             <th>退出时间</th>
             <th role="button" onClick={() => onSortClick("totalLoginTime")}>
               累计登录时长{sortIndicator("totalLoginTime")}
+            </th>
+            <th role="button" onClick={() => onSortClick("aiTokensUsed")} title="累计消耗的 AI tokens（欣欣小助手、AI 点评等）">
+              AI 用量{sortIndicator("aiTokensUsed")}
             </th>
             <th>操作</th>
           </tr>
@@ -610,6 +655,9 @@ const AdminUsersList = () => {
                   )}
                 </td>
                 <td>{formatDuration(item.totalLoginTime)}</td>
+                <td title={`${(Number(item.aiTokensUsed) || 0).toLocaleString("zh-cn")} tokens`}>
+                  {formatTokens(item.aiTokensUsed)}
+                </td>
                 <td>
                   {isSelf ? (
                     <span className="text-muted">（当前账号）</span>
@@ -638,7 +686,7 @@ const AdminUsersList = () => {
           })}
           {users.length === 0 && (
             <tr>
-              <td colSpan="13">暂无数据</td>
+              <td colSpan="14">暂无数据</td>
             </tr>
           )}
         </tbody>

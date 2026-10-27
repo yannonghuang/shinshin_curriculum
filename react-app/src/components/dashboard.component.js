@@ -36,6 +36,7 @@ const sortValue = {
   lessonDesign: (r) => r.completion.lessonDesign,
   execution: (r) => r.completion.execution,
   aiScore: (r) => (r.aiScore ? r.aiScore.totalScore : null),
+  aiTokens: (r) => r.aiTokensUsed || 0,
 };
 
 // Unscored plans always sort last, whichever direction AI 分数 is sorted in
@@ -61,6 +62,12 @@ const CompletionBar = ({ pct }) => (
     <b>{pct}%</b>
   </div>
 );
+
+// aiTokensUsed is the plan's accumulated token count (backend
+// services/aiUsage.js) -- shown in 万 once it's past five digits, with the
+// exact count on hover; the filter takes 万 too.
+const TOKENS_PER_WAN = 10000;
+const formatTokens = (tokens) => (tokens >= TOKENS_PER_WAN ? `${(tokens / TOKENS_PER_WAN).toFixed(1)}万` : tokens.toLocaleString("zh-cn"));
 
 const scoreClass = (score) => (score >= 85 ? "text-success" : score >= 60 ? "" : "text-danger");
 
@@ -113,6 +120,9 @@ const Dashboard = () => {
   const [filterAiScored, setFilterAiScored] = useState(() => initialParams.get("aiScored") || "");
   const [aiScoreMin, setAiScoreMin] = useState(() => initialParams.get("aiScoreMin") || "");
   const [aiScoreMax, setAiScoreMax] = useState(() => initialParams.get("aiScoreMax") || "");
+  // In 万 tokens.
+  const [aiTokensMin, setAiTokensMin] = useState(() => initialParams.get("aiTokensMin") || "");
+  const [aiTokensMax, setAiTokensMax] = useState(() => initialParams.get("aiTokensMax") || "");
   const [sortKey, setSortKey] = useState(() => (sortValue[initialParams.get("sort")] ? initialParams.get("sort") : "school"));
   const [sortDir, setSortDir] = useState(() => (initialParams.get("dir") === "desc" ? "desc" : "asc"));
 
@@ -155,6 +165,8 @@ const Dashboard = () => {
     setOrDelete("aiScored", filterAiScored);
     setOrDelete("aiScoreMin", aiScoreMin);
     setOrDelete("aiScoreMax", aiScoreMax);
+    setOrDelete("aiTokensMin", aiTokensMin);
+    setOrDelete("aiTokensMax", aiTokensMax);
     setOrDelete("sort", sortKey === "school" ? "" : sortKey);
     setOrDelete("dir", sortDir === "asc" ? "" : sortDir);
     const nextSearch = params.toString();
@@ -179,6 +191,8 @@ const Dashboard = () => {
     filterAiScored,
     aiScoreMin,
     aiScoreMax,
+    aiTokensMin,
+    aiTokensMax,
     sortKey,
     sortDir,
   ]);
@@ -208,6 +222,8 @@ const Dashboard = () => {
     const sMin = parseBound(aiScoreMin);
     const sMax = parseBound(aiScoreMax);
     const scoreBounded = sMin !== null || sMax !== null;
+    const tMin = parseBound(aiTokensMin);
+    const tMax = parseBound(aiTokensMax);
     return rows
       .filter((r) => {
         const { general, lessonDesign, execution } = r.completion;
@@ -229,7 +245,9 @@ const Dashboard = () => {
           (filterAiScored !== "scored" || score !== null) &&
           (filterAiScored !== "unscored" || score === null) &&
           // A score range only makes sense for scored plans.
-          (!scoreBounded || (score !== null && (sMin === null || score >= sMin) && (sMax === null || score <= sMax)))
+          (!scoreBounded || (score !== null && (sMin === null || score >= sMin) && (sMax === null || score <= sMax))) &&
+          (tMin === null || r.aiTokensUsed >= tMin * TOKENS_PER_WAN) &&
+          (tMax === null || r.aiTokensUsed <= tMax * TOKENS_PER_WAN)
         );
       })
       .sort(compareBy(sortKey, sortDir));
@@ -251,12 +269,14 @@ const Dashboard = () => {
     filterAiScored,
     aiScoreMin,
     aiScoreMax,
+    aiTokensMin,
+    aiTokensMax,
     sortKey,
     sortDir,
   ]);
 
   // First click sorts in the column's natural direction (学校 A→Z; 是否提交
-  // 已提交 first; 完成度 and AI 分数 high→low); clicking the active column
+  // 已提交 first; 完成度, AI 分数 and AI 用量 high→low); clicking the active column
   // again flips it.
   const toggleSort = (key) => {
     if (sortKey === key) {
@@ -267,13 +287,14 @@ const Dashboard = () => {
     }
   };
   const sortIcon = (key) => (sortKey !== key ? "fa-sort text-muted" : sortDir === "asc" ? "fa-sort-up" : "fa-sort-down");
-  const rangeFilter = (label, min, setMin, max, setMax) => (
+  // inputProps: the bounds' own min/max/step -- percentages and scores by default.
+  const rangeFilter = (label, min, setMin, max, setMax, inputProps = { min: 0, max: 100 }) => (
     <div className="form-group col-md-2">
       <label className="text-nowrap">{label}</label>
       <div className="d-flex align-items-center">
-        <input className="form-control" type="number" min="0" max="100" placeholder="最低" value={min} onChange={(e) => setMin(e.target.value)} />
+        <input className="form-control" type="number" {...inputProps} placeholder="最低" value={min} onChange={(e) => setMin(e.target.value)} />
         <span className="mx-1">–</span>
-        <input className="form-control" type="number" min="0" max="100" placeholder="最高" value={max} onChange={(e) => setMax(e.target.value)} />
+        <input className="form-control" type="number" {...inputProps} placeholder="最高" value={max} onChange={(e) => setMax(e.target.value)} />
       </div>
     </div>
   );
@@ -300,6 +321,8 @@ const Dashboard = () => {
     setFilterAiScored("");
     setAiScoreMin("");
     setAiScoreMax("");
+    setAiTokensMin("");
+    setAiTokensMax("");
   };
 
   // Stored choice (if any) wins over the server's defaults; keys no longer
@@ -511,6 +534,7 @@ const Dashboard = () => {
           </select>
         </div>
         {rangeFilter("AI 设计分数", aiScoreMin, setAiScoreMin, aiScoreMax, setAiScoreMax)}
+        {rangeFilter("AI 用量（万 tokens）", aiTokensMin, setAiTokensMin, aiTokensMax, setAiTokensMax, { min: 0, step: "any" })}
         <div className="form-group col-md-2 d-flex align-items-end">
           <button type="button" className="btn btn-link px-0" onClick={clearFilters}>
             清除筛选
@@ -560,19 +584,20 @@ const Dashboard = () => {
             {sortableTh("execution", "实施完成度", { width: "9%" })}
             {sortableTh("aiScore", "AI 设计分数", { width: "10%" })}
             <th style={{ width: "13%" }}>专家点评</th>
+            {sortableTh("aiTokens", "AI 用量", { width: "7%" })}
           </tr>
         </thead>
         <tbody>
           {!loaded && (
             <tr>
-              <td colSpan={9} className="text-center text-muted small">
+              <td colSpan={10} className="text-center text-muted small">
                 加载中...
               </td>
             </tr>
           )}
           {loaded && visibleRows.length === 0 && (
             <tr>
-              <td colSpan={9} className="text-center text-muted small">
+              <td colSpan={10} className="text-center text-muted small">
                 没有符合筛选条件的课程。
               </td>
             </tr>
@@ -646,13 +671,16 @@ const Dashboard = () => {
                       <span className="text-muted">暂无</span>
                     )}
                   </td>
+                  <td className="small" title={`${r.aiTokensUsed.toLocaleString("zh-cn")} tokens（AI 打分/点评、关于本课程的欣欣小助手对话）`}>
+                    {formatTokens(r.aiTokensUsed)}
+                  </td>
                 </tr>
                 {/* Same breakdown as the AI 打分 page's expanded row -- shown
                     here rather than linking there, since that page lists
                     submitted plans only and a draft can carry a score too. */}
                 {s && expandedScore === r.planId && (
                   <tr>
-                    <td colSpan={9} className="bg-light small">
+                    <td colSpan={10} className="bg-light small">
                       {s.summary && <p className="mb-2">{s.summary}</p>}
                       {(s.dimensionScores || []).map((d) => (
                         <div key={d.name} className="mb-1">

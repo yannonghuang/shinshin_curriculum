@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const config = require("../config/auth.config.js");
 const db = require("../models");
 const User = db.user;
+const aiUsage = require("../services/aiUsage");
 
 // Throttles the lastActivityAt DB write (see below) to at most once per user
 // per this many seconds -- reissuing a fresh token on literally every single
@@ -71,7 +72,9 @@ verifyToken = (req, res, next) => {
     }
     req.userId = decoded.id;
     if (!isBackgroundRequest(req)) renewAndTrackActivity(decoded.id, res);
-    next();
+    // The rest of the request runs as this user, so any AI call it makes
+    // is counted toward their AI 用量 (see services/aiUsage.js).
+    aiUsage.runAsUser(decoded.id, next);
   });
 };
 
@@ -90,6 +93,7 @@ attachUserIfPresent = (req, res, next) => {
     if (!err) {
       req.userId = decoded.id;
       if (!isBackgroundRequest(req)) renewAndTrackActivity(decoded.id, res);
+      return aiUsage.runAsUser(decoded.id, next);
     } else {
       // The request itself still succeeds (see above), but the caller's
       // cached "logged in" session is stale/expired -- unlike verifyToken's

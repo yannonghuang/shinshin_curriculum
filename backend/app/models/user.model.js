@@ -72,6 +72,14 @@ module.exports = (sequelize, Sequelize) => {
         allowNull: false,
         defaultValue: false,
       },
+      // Accumulated AI tokens spent on this user's behalf -- maintained by
+      // services/aiUsage.js#recordUsage, see
+      // 20261027000000-user-ai-tokens-used.js.
+      aiTokensUsed: {
+        type: Sequelize.BIGINT,
+        allowNull: false,
+        defaultValue: 0,
+      },
       // Only meaningful for 教师 -- enforced in auth.controller.js
       // (validateSchoolFields), not here; a role is a many-to-many relation,
       // not something a Sequelize column validator can see. FK to

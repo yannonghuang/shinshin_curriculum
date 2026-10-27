@@ -22,6 +22,7 @@
 // reads the same whichever combination produced it.
 const db = require("../models");
 const llmClient = require("./llmClient");
+const aiUsage = require("./aiUsage");
 const agentLoop = require("./agentLoop");
 const { searchKnowledgeTree, searchKnowledgeBaseToolDef } = require("./knowledgeRetrieve");
 const { MANUAL_CATEGORY } = require("../constants/materialCategories");
@@ -429,20 +430,22 @@ async function evaluatePlan(
     // score; a review-only turn keeps the review's usual slight variety.
     temperature: score ? 0 : 0.3,
   };
-  const result = useTool
-    ? await agentLoop.runAgentLoop({
-        ...request,
-        tools: [searchKnowledgeBaseToolDef],
-        // Knowledge-tree retrieval (see knowledgeRetrieve.js#searchKnowledgeTree).
-        // A review is pedagogical, so 使用指南 (system usage docs) is left
-        // out, and it must not attribute anything to a named person -- no
-        // 主讲人, and person names stripped from source titles.
-        executors: {
-          search_knowledge_base: (args) =>
-            searchKnowledgeTree(args.query, { excludeCategories: [MANUAL_CATEGORY], includeTopicMeta: false, redact: true }),
-        },
-      })
-    : await llmClient.llmChat(request);
+  const result = await aiUsage.runForPlan(plan.id, () =>
+    useTool
+      ? agentLoop.runAgentLoop({
+          ...request,
+          tools: [searchKnowledgeBaseToolDef],
+          // Knowledge-tree retrieval (see knowledgeRetrieve.js#searchKnowledgeTree).
+          // A review is pedagogical, so 使用指南 (system usage docs) is left
+          // out, and it must not attribute anything to a named person -- no
+          // 主讲人, and person names stripped from source titles.
+          executors: {
+            search_knowledge_base: (args) =>
+              searchKnowledgeTree(args.query, { excludeCategories: [MANUAL_CATEGORY], includeTopicMeta: false, redact: true }),
+          },
+        })
+      : llmClient.llmChat(request)
+  );
 
   const parsedReply = parseReply(result.text, { score, review });
   const scoreFields = score ? reconcileScore(standard.content, parsedReply.parsed) : null;

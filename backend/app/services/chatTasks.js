@@ -1,4 +1,5 @@
 const db = require("../models");
+const aiUsage = require("./aiUsage");
 const ChatTask = db.chatTask;
 const ChatMessage = db.chatMessage;
 const { Op } = db.Sequelize;
@@ -121,14 +122,18 @@ async function run(taskId) {
   try {
     await task.update({ status: "running", startedAt: new Date(), steps: [], error: null });
     entry.steps = [];
-    const reply = await runner(task, {
-      context: entry.context,
-      shouldStop: () => entry.cancelled || entry.timedOut,
-      onEvent: (event) => {
-        applyEvent(entry.steps, event, labelOf);
-        persistSteps();
-      },
-    });
+    // Explicitly as the task's own user: pump() starts a queued task from
+    // whichever run just finished, which may be someone else's.
+    const reply = await aiUsage.runAsUser(entry.userId, () =>
+      runner(task, {
+        context: entry.context,
+        shouldStop: () => entry.cancelled || entry.timedOut,
+        onEvent: (event) => {
+          applyEvent(entry.steps, event, labelOf);
+          persistSteps();
+        },
+      })
+    );
     const steps = finishSteps(entry.steps);
     if (entry.timedOut && !entry.cancelled) {
       await task.update({ status: "failed", error: "处理超时，请重试或把问题拆小一些。", steps, finishedAt: new Date() });

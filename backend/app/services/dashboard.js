@@ -104,6 +104,7 @@ async function buildRows({ submittedOnly = false } = {}) {
       submitted: p.status !== "draft",
       suspended: p.suspended,
       isExcellentCase: p.isExcellentCase,
+      aiTokensUsed: Number(p.aiTokensUsed) || 0,
       updatedAt: p.contentVersionAt,
       completion: computeCompletion(p, {
         planSchema: schemaById.get(Number(p.planTemplateVersionId)) || null,
@@ -178,6 +179,8 @@ const EXPORT_FIELDS = [
   { key: "aiSummary", label: "AI 打分总结", width: 50, value: (r) => (r.aiScore ? r.aiScore.summary || "" : "") },
   { key: "aiScoredAt", label: "AI 打分时间", width: 18, value: (r) => (r.aiScore ? dateText(r.aiScore.createdAt) : "") },
   { key: "aiReviewed", label: "AI 已点评", width: 8, value: (r) => yesNo(r.aiReviewed) },
+  // A plain number (not "12.3万") so the sheet can sum/sort it.
+  { key: "aiTokensUsed", label: "AI 用量（tokens）", width: 16, defaultOn: true, value: (r) => r.aiTokensUsed },
   { key: "expertReviewCount", label: "专家点评数", width: 10, defaultOn: true, value: (r) => r.expertReviews.count },
   {
     key: "expertAverageScore",

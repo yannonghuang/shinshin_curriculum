@@ -9,6 +9,7 @@ const agentLoop = require("../services/agentLoop");
 const copilotActions = require("../services/copilotActions");
 const chatCompaction = require("../services/chatCompaction");
 const llmClient = require("../services/llmClient");
+const aiUsage = require("../services/aiUsage");
 const chatTasks = require("../services/chatTasks");
 const webImages = require("../services/webImages");
 const copilotAttachments = require("../services/copilotAttachments");
@@ -626,11 +627,26 @@ const answerUserTurn = async (conversation, userMessageId, pageContext, { onEven
 // The background runner chatTasks.js calls: `context.pageContext` is the
 // page the teacher sent from; a retry (no live context) falls back to the
 // conversation's own scope.
+// The plan a turn is about, for its AI 用量 (aiUsage.js#runForPlan): the
+// question's focus (a plan section asked about from anywhere), else the page
+// it was sent from -- a plan, or a review's plan. Null for a general turn.
+const planOfTurn = async (userMessageId, pageContext) => {
+  const question = await ChatMessage.findByPk(userMessageId, { attributes: ["focus"] });
+  if (question && question.focus && question.focus.planId) return Number(question.focus.planId);
+  if (!pageContext) return null;
+  if (pageContext.reviewId) {
+    const review = await Review.findByPk(pageContext.reviewId, { attributes: ["planId"] });
+    return review ? Number(review.planId) : null;
+  }
+  return pageContext.planId ? Number(pageContext.planId) : null;
+};
+
 chatTasks.setRunner(async (task, { context, onEvent, shouldStop }) => {
   const conversation = await ChatConversation.findByPk(task.conversationId);
   if (!conversation) throw new Error("对话已删除。");
   const pageContext = context && context.pageContext !== undefined ? context.pageContext : parseScopeKeyToPageContext(conversation.scopeKey);
-  return answerUserTurn(conversation, task.userMessageId, pageContext, { onEvent, shouldStop });
+  const planId = await planOfTurn(task.userMessageId, pageContext);
+  return aiUsage.runForPlan(planId, () => answerUserTurn(conversation, task.userMessageId, pageContext, { onEvent, shouldStop }));
 });
 
 // How long a send waits for its answer before handing back a progress card
