@@ -14,6 +14,7 @@ import { registerSessionExpiryHandler, writeLocalDraft, takeLocalDraft, isDraftS
 import { hasPendingReviewEdits, discardPendingReviewEdits, subscribePendingReviewEdits } from "../utils/pendingReviewEdits";
 import { registerCopilotSaveHandler } from "../utils/copilotSaveGuard";
 import "../curriculum.css";
+import { useExplorerPane, ExplorerPaneBar, isPaneSwitch } from "./explorer-pane";
 
 // True if an answers object (shaped like planFormData/one executionFormData
 // record) has at least one non-empty field, across however many sections the
@@ -629,6 +630,38 @@ const PLAN_SECTIONS = [
   { key: "reviews", label: "计划整体点评" },
 ];
 
+// What the phone layout's bar over the content says is open (see
+// explorer-pane.js) -- the tree entry's own wording, with its 课时 where the
+// entry alone ("实施记录") wouldn't say which.
+const paneLabelOf = (selected, anchorSections) => {
+  const n = selected.key;
+  switch (selected.type) {
+    case "plan":
+      return (PLAN_SECTIONS.find((s) => s.key === n) || { label: "计划" }).label;
+    case "planSection":
+      return (anchorSections.find((s) => s.key === n) || { label: "计划" }).label;
+    case "planManualMigration":
+      return "手动迁移内容";
+    case "planLesson":
+      return `分课时设计 · 课时 ${n}`;
+    case "executionDoc":
+      return `课时 ${n} · 课程实施文件`;
+    case "executionRecord":
+      return `课时 ${n} · 实施记录`;
+    case "execution":
+      return `课时 ${n} · 支撑材料`;
+    case "executionReviews":
+      return "实施整体点评";
+    case "admin":
+      return "管理";
+    default:
+      return "目录";
+  }
+};
+
+// A ?view= link opens on that section, on a phone too (explorer-pane.js).
+const linksToSection = (location) => !!new URLSearchParams((location && location.search) || "").get("view");
+
 // 基本信息 fields in form order, for 欣欣小助手's focus text.
 const BASIC_INFO_LABELS = [
   ["title", "标题"],
@@ -722,6 +755,8 @@ const PlanDetail = (props) => {
   // every save.
   const [metaDirty, setMetaDirty] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(false);
+  // Phone: the 计划/实施 tree or the picked section, one at a time.
+  const pane = useExplorerPane({ startOpen: linksToSection(props.location) });
   // planLessons (分课时设计, nested under 计划) starts collapsed, unlike plan/
   // execution -- it can hold as many leaves as 实施's own 课时 list, and it's
   // one level deeper, so expanding it by default would make the plan section
@@ -1060,9 +1095,12 @@ const PlanDetail = (props) => {
   // page's own WHY/WHAT/HOW/课时 tabs is local component state (see
   // `select` above), not a route push, so it never inflates this count on
   // its own.
+  //
+  // On a phone with a section open, this page's own ?pane=content entry
+  // (explorer-pane.js) sits on top -- pane.backSteps pops past it too.
   const goBack = () => {
     if (window.history.length > 1) {
-      props.history.goBack();
+      props.history.go(-pane.backSteps);
       return;
     }
     props.history.push(isOwner ? "/plans?mine=true" : "/plans");
@@ -1749,7 +1787,11 @@ const PlanDetail = (props) => {
       {/* .some() rather than another `||`: one more branch in this (very
           large) component's body overflows eslint-plugin-react-hooks' code
           path count into false "hook called conditionally" errors. */}
-      <Prompt when={[planDirty, executionDirty, metaDirty, reviewEditsPending].some(Boolean)} message="有未保存的内容，确定要离开吗？" />
+      {/* Switching the phone layout's panes stays on this page -- no prompt. */}
+      <Prompt
+        when={[planDirty, executionDirty, metaDirty, reviewEditsPending].some(Boolean)}
+        message={(next) => isPaneSwitch(props.location.pathname, next) || "有未保存的内容，确定要离开吗？"}
+      />
       {/* Sticky so 返回 and the page's single 保存草稿/提交待点评 pair stay in
           view however far down a long section the teacher has scrolled --
           that pair saves every section at once (see saveAll), replacing the
@@ -1798,7 +1840,7 @@ const PlanDetail = (props) => {
         )}
       </div>
 
-      <div className="pl-explorer">
+      <div className={`pl-explorer ${pane.className}`}>
         {/* Hide/show the whole nav panel -- distinct from each 计划/实施 group's own
             expand/collapse chevron below. When hidden, the nav is removed entirely
             (not just shrunk) and this handle is the only remaining trace of it. */}
@@ -1813,7 +1855,11 @@ const PlanDetail = (props) => {
         </button>
 
         {!navCollapsed && (
-          <div className="pl-explorer-nav" style={stickyHeaderHeight ? { top: stickyHeaderHeight + 12 } : undefined}>
+          <div
+            className="pl-explorer-nav"
+            style={stickyHeaderHeight ? { top: stickyHeaderHeight + 12 } : undefined}
+            onClick={pane.onNavClick}
+          >
             <div className="pl-explorer-group">
               <button
                 type="button"
@@ -2028,6 +2074,7 @@ const PlanDetail = (props) => {
         )}
 
         <div className="pl-explorer-content">
+          <ExplorerPaneBar label={paneLabelOf(selected, planAnchorSections)} onBack={pane.openNav} />
           {renderContent()}
         </div>
       </div>

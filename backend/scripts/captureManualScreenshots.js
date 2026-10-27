@@ -302,6 +302,54 @@ async function captureTrashShot(page, user) {
   }
 }
 
+// The phone layout (explorer-pane.js): a real plan opened at phone size
+// shows its 计划/实施 目录 first, and tapping a section shows just that
+// section under a bar leading back. Both states side by side in one image
+// -- two separate full-height phone shots would each take a whole manual
+// page. Composed by screenshotting a tiny local HTML page holding the two
+// captures, so no image library is needed.
+async function captureMobileShots(browser) {
+  console.log("==> mobile-explorer (手机：目录 / 选中板块)");
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 700 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+  });
+  try {
+    await loginAs(context, TEACHER_ID);
+    const page = await context.newPage();
+    await openPlanByTitle(page, REVIEW_PLAN_TITLE);
+    await page.locator(".pl-explorer-nav").waitFor();
+    // The emulated pointer stays where it last tapped, leaving a hover
+    // highlight (or a 小助手 hover menu) behind -- park it in the navbar.
+    const parkPointer = () => page.mouse.move(5, 5);
+    await parkPointer();
+    const tree = await page.screenshot();
+    await page.locator(".pl-explorer-nav .pl-explorer-leaf", { hasText: "WHY" }).first().click();
+    await page.locator(".pl-explorer-pane-bar").waitFor();
+    await parkPointer();
+    await page.waitForTimeout(500);
+    const section = await page.screenshot();
+
+    const img = (buffer) => `data:image/png;base64,${buffer.toString("base64")}`;
+    const panel = (buffer, caption) =>
+      `<figure><img src="${img(buffer)}"><figcaption>${caption}</figcaption></figure>`;
+    const compose = await context.newPage();
+    await compose.setViewportSize({ width: 860, height: 800 });
+    await compose.setContent(
+      `<style>body{margin:0;background:#fff;font-family:sans-serif}` +
+        `.row{display:flex;gap:40px;padding:16px 20px}` +
+        `figure{margin:0;width:390px}img{width:390px;border:1px solid #ccc;border-radius:16px;display:block}` +
+        `figcaption{text-align:center;margin-top:8px;font-size:16px;color:#333}</style>` +
+        `<div class="row">${panel(tree, "① 目录")}${panel(section, "② 点击板块后（点顶部条返回目录）")}</div>`
+    );
+    await shoot(compose.locator(".row"), "mobile-explorer");
+  } finally {
+    await context.close();
+  }
+}
+
 async function run() {
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -332,6 +380,7 @@ async function run() {
     await shoot(page.locator(".container").first(), "plans-list");
 
     await captureTrashShot(page, teacher);
+    await captureMobileShots(browser);
 
     console.log("==> plan-detail: 课程设计文件 上传区域");
     await openPlanByTitle(page, REVIEW_PLAN_TITLE);
@@ -593,4 +642,13 @@ async function run() {
 // lets a one-off capture reuse a single step (e.g. captureFocusShots).
 if (require.main === module) run();
 
-module.exports = { BASE_URL, loginAs, captureFocusShots, captureTrashShot, captureCopilotWelcomeAndMemory, captureCopilotLinksShot, shoot };
+module.exports = {
+  BASE_URL,
+  loginAs,
+  captureFocusShots,
+  captureTrashShot,
+  captureMobileShots,
+  captureCopilotWelcomeAndMemory,
+  captureCopilotLinksShot,
+  shoot,
+};
