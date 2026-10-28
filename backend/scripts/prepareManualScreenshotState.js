@@ -48,6 +48,51 @@ const REVIEW_TARGET_PLAN_ID = 145;
 // shows on the plans list, so its plan-page shots are unaffected.
 const MIGRATION_TARGET_PLAN_ID = 171;
 
+// 教师分享 (teacher-share.png): the feature is new, so no real share exists
+// yet -- the one exception to "no new content" above, kept minimal: one
+// admin 话题 and one share by the real teacher, linked to the real review
+// plan, carrying that plan's own exported 课程设计 .docx (real content). Goes
+// through the running API (design-doc export -> share upload) so the state
+// is exactly what the real UI would have produced.
+const SHARE_TOPIC_TITLE = "一堂乡土课程带来的影响";
+const SHARE_TITLE = "《黄陂三鲜》让孩子们重新认识了家乡";
+const SHARE_SUMMARY = "从学生的课堂表现、作品和家长反馈三个方面，分享这门课程带来的变化。";
+const API_BASE = "http://localhost:8080/api";
+const ADMIN_ID = 4;
+
+const ensureTeacherShare = async (plan) => {
+  const [topic] = await db.shareTopic.findOrCreate({
+    where: { title: SHARE_TOPIC_TITLE },
+    defaults: { description: "结合您实施过的乡土课程，谈谈它给学生、家长或您自己带来了哪些影响。", createdBy: ADMIN_ID },
+  });
+  if (await db.share.findOne({ where: { shareTopicId: topic.id, authorId: TEACHER_ID } })) {
+    console.log(`==> 教师分享 already has a share under「${SHARE_TOPIC_TITLE}」, leaving as-is.`);
+    return;
+  }
+  console.log(`==> Creating 教师分享 under「${SHARE_TOPIC_TITLE}」with ${plan.title}'s 课程设计 .docx...`);
+  const share = await db.share.create({
+    shareTopicId: topic.id,
+    authorId: TEACHER_ID,
+    relatedPlanId: plan.id,
+    title: SHARE_TITLE,
+    summary: SHARE_SUMMARY,
+  });
+  const jwt = require("jsonwebtoken");
+  const token = jwt.sign({ id: TEACHER_ID }, require("../app/config/auth.config.js").secret, { expiresIn: 600 });
+  const docResp = await fetch(`${API_BASE}/plans/${plan.id}/design-doc`, { headers: { "x-access-token": token } });
+  if (!docResp.ok) throw new Error(`design-doc export failed: ${docResp.status}`);
+  const form = new FormData();
+  form.append("category", "Word文档");
+  form.append("description", "");
+  form.append("file", new Blob([await docResp.arrayBuffer()]), `${plan.title}课程设计方案.docx`);
+  const upResp = await fetch(`${API_BASE}/shares/${share.id}/artifacts`, {
+    method: "POST",
+    headers: { "x-access-token": token },
+    body: form,
+  });
+  if (!upResp.ok) throw new Error(`share upload failed: ${upResp.status} ${await upResp.text()}`);
+};
+
 (async () => {
   const reviewPlan = await Plan.findByPk(REVIEW_TARGET_PLAN_ID);
   if (!reviewPlan) {
@@ -97,6 +142,8 @@ const MIGRATION_TARGET_PLAN_ID = 171;
     console.log(`==> Genericizing material filename: ${materialArtifact.attachmentName} -> ${newName}`);
     await materialArtifact.update({ attachmentName: newName });
   }
+
+  await ensureTeacherShare(reviewPlan);
 
   console.log("==> Done.");
   await db.sequelize.close();

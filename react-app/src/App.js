@@ -2,8 +2,10 @@ import React, { Component } from "react";
 import { Switch, Route, Redirect, Link, withRouter } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap/dist/js/bootstrap.min.js";
+// Webfont only -- not also js/all.js, which swaps each <i> for an <svg> and
+// leaves React holding the detached <i>: an icon whose class changes later
+// (a tree's chevron-right -> chevron-down) never updated on screen.
 import "@fortawesome/fontawesome-free/css/all.css";
-import "@fortawesome/fontawesome-free/js/all.js";
 
 import "./App.css";
 
@@ -16,6 +18,7 @@ import PlansList from "./components/plans-list.component";
 import PlanDetail from "./components/plan-detail.component";
 import PlansTrash from "./components/plans-trash.component";
 import MaterialsLibrary from "./components/materials-library.component";
+import TeacherShare from "./components/teacher-share.component";
 import CopilotPanel from "./components/copilot-panel.component";
 import AdminUsersList from "./components/admin-users-list.component";
 import TemplateAdmin from "./components/template-admin.component";
@@ -179,6 +182,13 @@ class App extends Component {
                     学习资源库
                   </Link>
                 </li>
+                {AuthService.isLogin() && (
+                  <li className="nav-item">
+                    <Link to="/shares" className="nav-link">
+                      教师分享
+                    </Link>
+                  </li>
+                )}
                 <li className="nav-item">
                   <Link to="/gallery" className="nav-link">
                     课程案例库
@@ -226,6 +236,7 @@ class App extends Component {
             <Route exact path="/profile" component={Profile} />
             <Route exact path="/gallery" render={(routeProps) => <PlansList {...routeProps} excellentOnly />} />
             <Route exact path="/materials" component={MaterialsLibrary} />
+            <Route exact path="/shares" component={TeacherShare} />
             <Route exact path="/admin/users" component={AdminUsersList} />
             <Route exact path="/admin/templates" component={TemplateAdmin} />
             <Route exact path="/ai-review/standard" component={AiReviewStandard} />

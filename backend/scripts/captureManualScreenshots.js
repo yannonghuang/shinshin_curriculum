@@ -350,6 +350,29 @@ async function captureMobileShots(browser) {
   }
 }
 
+// 教师分享: the dev teacher's own share (seeded by prepareManualScreenshotState.js's
+// ensureTeacherShare) -- the filter bar on top, its 话题 tree on the left,
+// the share with its files on the right.
+async function captureTeacherShareShot(page) {
+  console.log("==> teacher-share (教师分享)");
+  await page.goto(`${BASE_URL}/shares`, { waitUntil: "load" });
+  await page.locator("button.pl-explorer-folder", { hasText: "一堂乡土课程带来的影响" }).first().click();
+  await page.locator(".pl-explorer-leaf", { hasText: "黄陂三鲜" }).first().click();
+  await page.locator(".pl-fm").first().waitFor();
+  await page.waitForTimeout(500);
+  await page.mouse.move(5, 5);
+  const filterBox = await page.locator(".pl-page > .form-row").first().boundingBox();
+  const explorerBox = await page.locator(".pl-explorer").first().boundingBox();
+  await shoot(page, "teacher-share", {
+    clip: {
+      x: explorerBox.x,
+      y: filterBox.y,
+      width: explorerBox.width,
+      height: explorerBox.y + explorerBox.height - filterBox.y,
+    },
+  });
+}
+
 async function run() {
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -370,7 +393,11 @@ async function run() {
     // to the manual's page width -- clip to just the brand+links cluster
     // instead (see 常用导航入口's own table, which is what this illustrates).
     const navBox = await page.locator("nav.navbar").boundingBox();
-    await shoot(page, "nav-bar", { clip: { x: 0, y: navBox.y, width: 620, height: navBox.height } });
+    const lastLinkBox = await page.locator("nav.navbar ul.mr-auto > li").last().boundingBox();
+    const navClipWidth = Math.ceil(lastLinkBox.x + lastLinkBox.width + 16);
+    await shoot(page, "nav-bar", { clip: { x: 0, y: navBox.y, width: navClipWidth, height: navBox.height } });
+
+    await captureTeacherShareShot(page);
 
     console.log("==> plans-list (真实课程列表，含「待迁移」「待手动整理」标签)");
     await page.goto(`${BASE_URL}/plans?mine=true`, { waitUntil: "load" });
@@ -647,6 +674,7 @@ module.exports = {
   loginAs,
   captureFocusShots,
   captureTrashShot,
+  captureTeacherShareShot,
   captureMobileShots,
   captureCopilotWelcomeAndMemory,
   captureCopilotLinksShot,

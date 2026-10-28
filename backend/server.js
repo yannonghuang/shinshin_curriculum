@@ -54,6 +54,7 @@ require("./app/routes/ai-review.routes")(app);
 require("./app/routes/dashboard.routes")(app);
 require("./app/routes/build-info.routes")(app);
 require("./app/routes/book-recommendation.routes")(app);
+require("./app/routes/teacher-share.routes")(app);
 
 // 欣欣小助手's action layer discovers the API from the live router (lazily, on
 // first use) -- must come after every route above is registered.

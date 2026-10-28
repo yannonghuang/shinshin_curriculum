@@ -12,7 +12,8 @@ is a single-file placeholder-ish one) — read-only, never writes anything
 there. `scripts/prepareManualScreenshotState.js` adds only the one small,
 clearly-scoped nudge dev's real content needed on top of what was already
 there naturally (a `needsMigration` flag), checks the review plan still has
-its real expert/AI reviews, plus
+its real expert/AI reviews, seeds one 教师分享 话题 + share (see the table
+below), plus
 genericizes the real accounts'/file's display names (黄教师/黄专家/王专家) so
 the manual — distributed to every user — doesn't carry anyone's actual full
 name. Every screenshot is checked by hand to make sure no real person's name
@@ -69,6 +70,7 @@ whole document, so it's fine to add these incrementally.
 | `lesson-file-manager.png` | 十三、执行阶段支撑材料管理 |
 | `manual-migration-panel.png` | 十四、模板迁移 (skipped while no dev plan has 手动迁移内容 -- see `MANUAL_MIGRATION_PLAN_TITLE`) |
 | `materials-library-content.png` | 十五、学习资源库 (sourced from production) |
+| `teacher-share.png` | 十六、教师分享 (the 话题 + share are seeded by `prepareManualScreenshotState.js`'s `ensureTeacherShare` -- the feature is new, so no real share existed; its file is the real 黄陂三鲜 plan's exported 课程设计 .docx) |
 
 To add another screenshot: capture it in `captureManualScreenshots.js`,
 reference it via `screenshot("name", "caption")` at the right point in
