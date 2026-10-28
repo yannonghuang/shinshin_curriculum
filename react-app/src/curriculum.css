@@ -1303,17 +1303,11 @@
    text, or losing the cascade to .pl-fm-icon-glyph's accent color in the
    icon-grid view below), so the same kind of folder read as three different
    colors depending on where you saw it.
-   Deliberately NOT element-qualified (no "i." prefix, despite every icon
-   being authored as <i className="fas fa-folder...">) -- App.js imports
-   both @fortawesome/fontawesome-free's css/all.css (webfont) AND js/all.js,
-   and that JS auto-replaces every <i class="fa...">  in the DOM with an
-   inline <svg> at runtime, carrying the same classes over but changing the
-   tag. An "i."-qualified selector matched only the pre-replacement markup
-   and silently stopped applying (confirmed: !important on the old i.-
-   qualified rule still didn't render yellow, in two different browsers) --
-   a bare class selector matches the element regardless of which tag FA's JS
-   leaves it as. !important still guards against .pl-fm-icon-glyph's own
-   (non-important) color in the icon-grid view. */
+   Not element-qualified (no "i." prefix): App.js once also loaded Font
+   Awesome's js/all.js, which turned every <i> into an <svg>, so only a bare
+   class selector matched -- kept that way so it doesn't depend on the tag.
+   !important still guards against .pl-fm-icon-glyph's own (non-important)
+   color in the icon-grid view. */
 .pl-fm-folder-glyph,
 .pl-folder-icon {
   color: #e0a940 !important;
@@ -2050,7 +2044,6 @@
 .copilot-task-steps li.running {
   color: var(--pl-text);
 }
-.copilot-task-steps li .svg-inline--fa,
 .copilot-task-steps li i {
   width: 12px;
   font-size: 11px;

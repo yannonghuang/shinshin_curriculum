@@ -76,6 +76,7 @@ const PAGE_LINKS = [
   { label: "模板管理", path: "/admin/templates", roles: ["admin", "super"] },
   { label: "AI 点评标准", path: "/ai-review/standard", roles: ["expert", "admin", "super"] },
   { label: "学习资源库", path: "/materials", roles: null },
+  { label: "教师分享", path: "/shares", roles: null },
   { label: "课程案例库", path: "/gallery", roles: null },
 ];
 

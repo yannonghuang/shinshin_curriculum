@@ -64,6 +64,13 @@ db.aiPlanScore = require("./ai-plan-score.model.js")(sequelize, Sequelize);
   db.bookRecommendationRun = bookModels.BookRecommendationRun;
   db.agentSkillNotes = bookModels.AgentSkillNotes;
 }
+{
+  const shareModels = require("./teacher-share.model.js")(sequelize, Sequelize);
+  db.shareTopic = shareModels.ShareTopic;
+  db.share = shareModels.Share;
+  db.shareFolder = shareModels.ShareFolder;
+  db.shareArtifact = shareModels.ShareArtifact;
+}
 
 // users <-> roles (many-to-many via user_roles)
 // Explicitly pre-defined (rather than through: "user_roles" as a bare string)
@@ -365,6 +372,24 @@ db.aiPlanScore.belongsTo(db.aiReviewStandard, {
   foreignKey: "standardId",
   as: "Standard",
 });
+
+// 教师分享: shareTopic -> shares (RESTRICT -- a topic with shares can't be
+// deleted, see share-topic.controller.js), share -> author/related plan, and
+// share -> folders/artifacts, same shape as materialTopic's pair above.
+db.shareTopic.hasMany(db.share, { foreignKey: "shareTopicId", as: "Shares", onDelete: "RESTRICT" });
+db.share.belongsTo(db.shareTopic, { foreignKey: "shareTopicId", as: "Topic" });
+db.share.belongsTo(db.user, { foreignKey: "authorId", as: "Author" });
+db.share.belongsTo(db.plan, { foreignKey: "relatedPlanId", as: "RelatedPlan" });
+
+db.share.hasMany(db.shareFolder, { foreignKey: "shareId", as: "Folders", onDelete: "CASCADE", hooks: true });
+db.shareFolder.belongsTo(db.share, { foreignKey: "shareId", onDelete: "CASCADE" });
+db.shareFolder.hasMany(db.shareFolder, { foreignKey: "parentFolderId", as: "Children", onDelete: "CASCADE" });
+db.shareFolder.belongsTo(db.shareFolder, { foreignKey: "parentFolderId", as: "Parent" });
+
+db.share.hasMany(db.shareArtifact, { foreignKey: "shareId", as: "Artifacts", onDelete: "CASCADE", hooks: true });
+db.shareArtifact.belongsTo(db.share, { foreignKey: "shareId", onDelete: "CASCADE" });
+db.shareFolder.hasMany(db.shareArtifact, { foreignKey: "folderId", as: "Artifacts", onDelete: "SET NULL" });
+db.shareArtifact.belongsTo(db.shareFolder, { foreignKey: "folderId", onDelete: "SET NULL" });
 
 // Roles are exactly admin/teacher/expert/super — this app has no
 // volunteer/moderator/donor domain (see plan's "left behind" list). A real
