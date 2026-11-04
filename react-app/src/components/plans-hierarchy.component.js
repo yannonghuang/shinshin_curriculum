@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useHistory, useLocation } from "react-router-dom";
 import Select from "react-select";
 import PlanDataService from "../services/plan.service";
+import AdminUserDataService from "../services/admin-user.service";
 import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
 import { PLAN_THEMES, PLAN_DELETE_CONFIRM } from "../constants/plan-options";
@@ -67,7 +68,9 @@ const buildHierarchy = (plans) => {
     const teacherId = plan.teacherId;
     if (!schoolGroup.teachers.has(teacherId)) {
       const teacherName = (plan.Teacher && (plan.Teacher.chineseName || plan.Teacher.username)) || `教师 #${teacherId}`;
-      schoolGroup.teachers.set(teacherId, { teacherId, teacherName, plans: [] });
+      // isSeed: only present for an admin requester (plan.controller.js#findAll).
+      const isSeed = !!(plan.Teacher && plan.Teacher.isSeed);
+      schoolGroup.teachers.set(teacherId, { teacherId, teacherName, isSeed, plans: [] });
     }
     schoolGroup.teachers.get(teacherId).plans.push(plan);
   }
@@ -126,6 +129,13 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   const [filterSubmitted, setFilterSubmitted] = useState(() => initialParams.get("submitted") === "1");
   const [filterAiReviewed, setFilterAiReviewed] = useState(() => initialParams.get("aiReviewed") === "1");
   const [filterExpertReviewed, setFilterExpertReviewed] = useState(() => initialParams.get("expertReviewed") === "1");
+  // 种子教师: expert/admin may narrow to seed teachers' plans -- applied
+  // server-side (?seedTeacher=true), since only an admin's response carries
+  // each teacher's isSeed to filter on client-side. Admins additionally see
+  // the badge in the tree and set/clear the flag (canEditSeed).
+  const showSeedToggle = showReviewFilters && (AuthService.isAdmin() || AuthService.isExpert());
+  const canEditSeed = showReviewFilters && AuthService.isAdmin();
+  const [filterSeed, setFilterSeed] = useState(() => initialParams.get("seed") === "1");
   // Teacher-name/school-name (partial match) and theme (exact match)
   // filters, applied client-side alongside the review-status toggles above --
   // consistent with this component's existing "fetch everything once, filter
@@ -170,13 +180,14 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
         size: PAGE_SIZE,
         status: statusFilter || undefined,
         isExcellentCase: excellentOnly ? true : undefined,
+        seedTeacher: showSeedToggle && filterSeed ? true : undefined,
       });
       setPlans(resp.data.rows || []);
     } catch (e) {
       console.log(e);
       setMessage("加载课程设计数据失败。");
     }
-  }, [statusFilter, excellentOnly]);
+  }, [statusFilter, excellentOnly, showSeedToggle, filterSeed]);
 
   useEffect(() => {
     retrieveAll();
@@ -348,6 +359,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     setOrDelete("submitted", filterSubmitted ? "1" : "");
     setOrDelete("aiReviewed", filterAiReviewed ? "1" : "");
     setOrDelete("expertReviewed", filterExpertReviewed ? "1" : "");
+    setOrDelete("seed", filterSeed ? "1" : "");
     setOrDelete("teacherName", filterTeacherName);
     setOrDelete("schoolName", filterSchoolName);
     setOrDelete("theme", filterTheme);
@@ -370,6 +382,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     filterSubmitted,
     filterAiReviewed,
     filterExpertReviewed,
+    filterSeed,
     filterTeacherName,
     filterSchoolName,
     filterTheme,
@@ -412,6 +425,18 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     try {
       if (item.suspended) await PlanDataService.unsuspend(item.id);
       else await PlanDataService.suspend(item.id);
+      retrieveAll();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "操作失败。");
+    }
+  };
+
+  const toggleSeed = async (teacher) => {
+    const next = !teacher.isSeed;
+    if (!next && !window.confirm(`确定取消「${teacher.teacherName}」的种子教师标记吗？`)) return;
+    try {
+      const resp = await AdminUserDataService.setSeed(teacher.teacherId, next);
+      setMessage(resp.data && resp.data.message ? resp.data.message : "操作成功。");
       retrieveAll();
     } catch (err) {
       setMessage(err?.response?.data?.message || "操作失败。");
@@ -488,6 +513,16 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
           >
             专家已点评
           </button>
+          {showSeedToggle && (
+            <button
+              type="button"
+              className={`pl-filter-toggle pl-filter-toggle-seed ${filterSeed ? "is-active" : ""}`}
+              onClick={() => setFilterSeed((prev) => !prev)}
+              title="只看种子教师的课程"
+            >
+              <i className="fas fa-seedling mr-1"></i>种子教师
+            </button>
+          )}
         </div>
       )}
       <div className={`pl-explorer ${pane.className}`}>
@@ -540,6 +575,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
                                 onClick={() => selectTeacher(g.key, s.schoolKey, t.teacherId)}
                               >
                                 {t.teacherName}
+                                {canEditSeed && t.isSeed && <span className="pl-tag-seed ml-1">种子</span>}
                               </button>
                             ))}
                           </div>
@@ -572,6 +608,18 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
               {selectedTeacher.teacherName} 的{excellentOnly ? "优秀案例" : "乡土课程"} -- {selectedGroup.year}年{" "}
               {selectedGroup.season || "未设置学期"}
               （共 {selectedTeacher.plans.length} 项）
+              {canEditSeed && (
+                <>
+                  {selectedTeacher.isSeed && (
+                    <span className="pl-tag-seed ml-2">
+                      <i className="fas fa-seedling mr-1"></i>种子教师
+                    </span>
+                  )}
+                  <button type="button" className="btn btn-link btn-sm p-0 ml-2" onClick={() => toggleSeed(selectedTeacher)}>
+                    {selectedTeacher.isSeed ? "取消种子教师" : "设为种子教师"}
+                  </button>
+                </>
+              )}
             </h6>
             <div className="pl-plan-grid mt-3">
               {selectedTeacher.plans.map((item) => (

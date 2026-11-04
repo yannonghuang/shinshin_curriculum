@@ -91,6 +91,7 @@ const AdminUsersList = () => {
   const [keyword, setKeyword] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [suspendedFilter, setSuspendedFilter] = useState("");
+  const [seedFilter, setSeedFilter] = useState("");
   const [schoolFilter, setSchoolFilter] = useState(null);
   const [onlineFilter, setOnlineFilter] = useState("");
   const [logoutTypeFilter, setLogoutTypeFilter] = useState("");
@@ -133,6 +134,7 @@ const AdminUsersList = () => {
       keyword: keyword || undefined,
       role: roleFilter || undefined,
       suspended: suspendedFilter || undefined,
+      seed: seedFilter || undefined,
       schoolCode: schoolFilter ? schoolFilter.value : undefined,
       online: onlineFilter || undefined,
       logoutType: logoutTypeFilter || undefined,
@@ -141,7 +143,7 @@ const AdminUsersList = () => {
       sortBy: sortBy || undefined,
       sortOrder: sortBy ? sortOrder : undefined,
     }),
-    [keyword, roleFilter, suspendedFilter, schoolFilter, onlineFilter, logoutTypeFilter, aiTokensMin, aiTokensMax, sortBy, sortOrder]
+    [keyword, roleFilter, suspendedFilter, seedFilter, schoolFilter, onlineFilter, logoutTypeFilter, aiTokensMin, aiTokensMax, sortBy, sortOrder]
   );
 
   const retrieveAll = useCallback(async () => {
@@ -357,6 +359,18 @@ const AdminUsersList = () => {
     }
   };
 
+  // 种子教师 -- teacher accounts only (the backend refuses anything else).
+  const onToggleSeed = async (item) => {
+    const name = item.chineseName || item.username;
+    if (item.isSeed && !window.confirm(`确定取消「${name}」的种子教师标记吗？`)) return;
+    try {
+      await AdminUserDataService.setSeed(item.id, !item.isSeed);
+      retrieveAll();
+    } catch (err) {
+      setMessage(err?.response?.data?.message || "操作失败。");
+    }
+  };
+
   const onDelete = async (item) => {
     const ok = window.confirm(`此操作将永久删除用户「${item.chineseName || item.username}」，且无法撤销。确定继续吗？`);
     if (!ok) return;
@@ -461,7 +475,7 @@ const AdminUsersList = () => {
               onChange={(e) => setKeyword(e.target.value)}
             />
           </div>
-          <div className="form-group col-md-3">
+          <div className="form-group col-md-2">
             <select className="form-control" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
               <option value="">全部角色</option>
               <option value="teacher">教师</option>
@@ -470,7 +484,7 @@ const AdminUsersList = () => {
               <option value="super">超级管理员</option>
             </select>
           </div>
-          <div className="form-group col-md-3">
+          <div className="form-group col-md-2">
             <select
               className="form-control"
               value={suspendedFilter}
@@ -479,6 +493,20 @@ const AdminUsersList = () => {
               <option value="">全部状态</option>
               <option value="false">正常</option>
               <option value="true">已停用</option>
+            </select>
+          </div>
+          <div className="form-group col-md-2">
+            <select
+              className="form-control"
+              value={seedFilter}
+              onChange={(e) => {
+                setSeedFilter(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">全部教师</option>
+              <option value="true">种子教师</option>
+              <option value="false">非种子教师</option>
             </select>
           </div>
           <div className="form-group col-md-2">
@@ -611,7 +639,10 @@ const AdminUsersList = () => {
             return (
               <tr key={item.id}>
                 <td>{item.username}</td>
-                <td>{item.chineseName || "-"}</td>
+                <td>
+                  {item.chineseName || "-"}
+                  {item.isSeed && <span className="pl-tag-seed ml-1">种子</span>}
+                </td>
                 <td>{item.email}</td>
                 <td>
                   {(item.roles || []).map((r) => (
@@ -674,6 +705,11 @@ const AdminUsersList = () => {
                       ) : (
                         <button className="btn btn-link p-0 mr-2" onClick={() => onSuspend(item)}>
                           停用
+                        </button>
+                      )}
+                      {(item.roles || []).some((r) => r.name === "teacher") && (
+                        <button className="btn btn-link p-0 mr-2" onClick={() => onToggleSeed(item)}>
+                          {item.isSeed ? "取消种子" : "设为种子"}
                         </button>
                       )}
                       <button className="btn btn-link p-0 text-danger" onClick={() => onDelete(item)}>

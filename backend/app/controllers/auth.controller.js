@@ -495,6 +495,25 @@ exports.unsuspend = async (req, res) => {
   }
 };
 
+// 种子教师 on/off (PUT /api/auth/users/:id/seed {seed: bool}, authJwt.isAdmin-
+// gated -- admin and super alike, unlike the rest of user management). The
+// flag only means something on a teacher, so any other account is refused.
+exports.setSeed = async (req, res) => {
+  const id = req.params.id;
+  try {
+    const user = await User.findByPk(id, { include: [{ model: Role, attributes: ["name"], through: { attributes: [] } }] });
+    if (!user) return res.status(404).send({ message: `未找到用户 id=${id}。` });
+    if (!(user.roles || []).some((r) => r.name === "teacher")) {
+      return res.status(422).send({ message: "只有教师可以设为种子教师。" });
+    }
+    const isSeed = req.body.seed === true || req.body.seed === "true";
+    await user.update({ isSeed });
+    res.send({ isSeed, message: isSeed ? "已设为种子教师。" : "已取消种子教师。" });
+  } catch (err) {
+    res.status(500).send({ message: err.message });
+  }
+};
+
 // List/search users (GET /api/auth/users, authJwt.isSuper-gated).
 // Same paginated-envelope convention as plan/review/learning-material
 // controllers: {totalItems, rows, totalPages, currentPage}.
@@ -541,7 +560,7 @@ const TOKENS_PER_WAN = 10000;
 const tokenBound = (text) =>
   text === undefined || text === "" || Number.isNaN(Number(text)) ? null : Math.round(Number(text) * TOKENS_PER_WAN);
 
-const usersQuery = ({ keyword, role, suspended, schoolCode, online, logoutType, aiTokensMin, aiTokensMax, sortBy, sortOrder }) => {
+const usersQuery = ({ keyword, role, suspended, seed, schoolCode, online, logoutType, aiTokensMin, aiTokensMax, sortBy, sortOrder }) => {
   // Same rule as sessionStatusOf, in SQL: a session started, not signed
   // out since, with its last activity (or login) inside the window. The
   // offline side is spelled out rather than NOT(online) -- NOT over a
@@ -606,6 +625,7 @@ const usersQuery = ({ keyword, role, suspended, schoolCode, online, logoutType, 
           }
         : null,
       suspended !== undefined ? { suspended: suspended === "true" || suspended === "1" } : null,
+      seed !== undefined && seed !== "" ? { isSeed: seed === "true" || seed === "1" } : null,
       schoolCode !== undefined && schoolCode !== "" ? { schoolCode: Number(schoolCode) } : null,
       online === "true" ? onlineCondition : online === "false" ? offlineCondition : null,
       logoutType === "manual" || logoutType === "timeout" ? logoutTypeConditions[logoutType] : null,
@@ -634,6 +654,7 @@ const usersQuery = ({ keyword, role, suspended, schoolCode, online, logoutType, 
       "phone",
       "emailVerified",
       "suspended",
+      "isSeed",
       "schoolCode",
       "lastLogin",
       "lastActivityAt",
@@ -702,6 +723,7 @@ const USER_EXPORT_FIELDS = [
     defaultOn: true,
     value: (u) => (u.roles || []).map((r) => USER_ROLE_LABELS[r.name] || r.name).join("、"),
   },
+  { key: "isSeed", label: "种子教师", width: 10, value: (u) => (u.isSeed ? "是" : "") },
   { key: "schoolCode", label: "学校编号", width: 10, defaultOn: true, value: (u) => (u.schoolCode != null ? u.schoolCode : "") },
   { key: "schoolName", label: "学校名称", width: 28, value: (u) => u.schoolName || "" },
   { key: "emailVerified", label: "邮箱已验证", width: 10, defaultOn: true, value: (u) => (u.emailVerified ? "是" : "否") },
