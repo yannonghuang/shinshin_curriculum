@@ -31,6 +31,9 @@ CREATE TABLE users (
   -- Admin user-management: a suspended account can't sign in (checked
   -- between password and email-verification checks) but is not deleted.
   suspended TINYINT(1) NOT NULL DEFAULT 0,
+  -- 种子教师 flag, set by admin/super on teacher accounts only
+  -- (see migrations/20261104000000-user-is-seed.js).
+  is_seed TINYINT(1) NOT NULL DEFAULT 0,
   -- Only meaningful for 教师 -- enforced at the application layer (see
   -- auth.controller.js's validateSchoolFields), not a DB constraint, since a
   -- role is a many-to-many relation (user_roles) that a CHECK constraint

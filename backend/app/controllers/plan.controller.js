@@ -264,8 +264,23 @@ exports.create = async (req, res) => {
 
 exports.findAll = async (req, res) => {
   try {
-    const { page, size, keyword, theme, grade, year, season, teacherId, isExcellentCase, status, mine, templateVersionId, schoolCode, reviewedByMe } =
-      req.query;
+    const {
+      page,
+      size,
+      keyword,
+      theme,
+      grade,
+      year,
+      season,
+      teacherId,
+      isExcellentCase,
+      status,
+      mine,
+      templateVersionId,
+      schoolCode,
+      reviewedByMe,
+      seedTeacher,
+    } = req.query;
     const { limit, offset } = getPagination(page, size);
 
     const parsedYear = parseYear(year);
@@ -352,6 +367,17 @@ exports.findAll = async (req, res) => {
     // filter shape" reasoning as restrictToExcellent.
     const restrictToSubmitted = !viewingMine && !requesterIsAdmin && (requesterIsExpert || requesterIsTeacher);
 
+    // 种子教师 filter (?seedTeacher=true): only plans whose owning teacher is
+    // flagged. Honored for expert/admin only -- for anyone else it's silently
+    // ignored rather than letting a peer teacher or the public gallery probe
+    // who's flagged. The flag itself (Teacher.isSeed) is returned to admins
+    // only; an expert can narrow by it but isn't shown it per teacher.
+    const filterSeed = (seedTeacher === "true" || seedTeacher === "1") && (requesterIsAdmin || requesterIsExpert);
+    const teacherWhere = {
+      ...(schoolCode ? { schoolCode: { [Op.eq]: `${schoolCode}` } } : {}),
+      ...(filterSeed ? { isSeed: true } : {}),
+    };
+
     const condition = {
       [Op.and]: [
         hideSuspended ? { suspended: false } : null,
@@ -396,14 +422,15 @@ exports.findAll = async (req, res) => {
         {
           model: User,
           as: "Teacher",
-          attributes: ["id", "username", "chineseName"],
+          attributes: requesterIsAdmin ? ["id", "username", "chineseName", "isSeed"] : ["id", "username", "chineseName"],
           // Backs 用户管理's 学校信息 panel ("该校课程计划" list) -- narrows to
           // plans whose *owning teacher* is at this school (Plan itself has
           // no schoolCode of its own). Sequelize defaults an include to
           // required:true whenever it carries a `where`, which is exactly
           // the inner-join semantics wanted here (teacherId is NOT NULL, so
           // this never silently drops a plan for having no Teacher row).
-          where: schoolCode ? { schoolCode: { [Op.eq]: `${schoolCode}` } } : undefined,
+          // Same inner-join reasoning for the 种子教师 filter (filterSeed).
+          where: Object.keys(teacherWhere).length ? teacherWhere : undefined,
           include: [{ model: db.school, as: "School", attributes: ["code", "name"], required: false }],
         },
       ],

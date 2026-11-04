@@ -72,6 +72,13 @@ module.exports = (sequelize, Sequelize) => {
         allowNull: false,
         defaultValue: false,
       },
+      // 种子教师 -- admin-set importance flag, teacher accounts only (enforced
+      // in auth.controller.js#setSeed). See 20261104000000-user-is-seed.js.
+      isSeed: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       // Accumulated AI tokens spent on this user's behalf -- maintained by
       // services/aiUsage.js#recordUsage, see
       // 20261027000000-user-ai-tokens-used.js.

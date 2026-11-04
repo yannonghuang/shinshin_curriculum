@@ -56,4 +56,8 @@ module.exports = function (app) {
   app.delete("/api/auth/users/:id", [authJwt.verifyToken, authJwt.isSuper], controller.delete);
   app.put("/api/auth/users/:id/suspend", [authJwt.verifyToken, authJwt.isSuper], controller.suspend);
   app.put("/api/auth/users/:id/unsuspend", [authJwt.verifyToken, authJwt.isSuper], controller.unsuspend);
+
+  // 种子教师 flag -- admin as well as super (isAdmin accepts both), set from
+  // the 全部乡土课程 explorer as well as 用户管理. Teacher accounts only.
+  app.put("/api/auth/users/:id/seed", [authJwt.verifyToken, authJwt.isAdmin], controller.setSeed);
 };
