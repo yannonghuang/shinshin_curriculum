@@ -180,7 +180,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
         page: 0,
         size: PAGE_SIZE,
         status: statusFilter || undefined,
-        isExcellentCase: excellentOnly ? true : undefined,
+        published: excellentOnly ? true : undefined,
         seedTeacher: showSeedToggle && filterSeed ? true : undefined,
       });
       setPlans(resp.data.rows || []);
@@ -606,7 +606,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
         ) : (
           <div className="pl-card">
             <h6>
-              {tr("{selectedTeacher.teacherName} 的", { "selectedTeacher.teacherName": selectedTeacher.teacherName })}{excellentOnly ? tr("优秀案例") : tr("乡土课程")} {tr("-- {selectedGroup.year}年 ", { "selectedGroup.year": selectedGroup.year })}
+              {tr("{selectedTeacher.teacherName} 的", { "selectedTeacher.teacherName": selectedTeacher.teacherName })}{tr("乡土课程")} {tr("-- {selectedGroup.year}年 ", { "selectedGroup.year": selectedGroup.year })}
               {selectedGroup.season ? tr(selectedGroup.season) : tr("未设置学期")}
               {tr("（共 {selectedTeacher.plans.length} 项）", { "selectedTeacher.plans.length": selectedTeacher.plans.length })}
               {canEditSeed && (

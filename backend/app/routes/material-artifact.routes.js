@@ -13,14 +13,13 @@ module.exports = function (app) {
     [authJwt.verifyToken, authJwt.isAdmin],
     artifacts.bulkCreateFromZip
   );
-  app.get("/api/material-topics/:topicId/artifacts", [authJwt.verifyToken], artifacts.findByTopic);
-  app.get("/api/material-topics/:topicId/artifacts/download", [authJwt.verifyToken], artifacts.downloadByTopic);
+  app.get("/api/material-topics/:topicId/artifacts", artifacts.findByTopic);
+  app.get("/api/material-topics/:topicId/artifacts/download", artifacts.downloadByTopic);
   app.post(
     "/api/material-topics/:topicId/artifacts/download-selection",
-    [authJwt.verifyToken],
     artifacts.downloadSelection
   );
-  app.get("/api/material-artifacts/:id", [authJwt.verifyToken], artifacts.findOne);
+  app.get("/api/material-artifacts/:id", artifacts.findOne);
   app.get("/api/material-artifacts/:id/download", artifacts.download);
   app.put("/api/material-artifacts/:id", [authJwt.verifyToken, authJwt.isAdmin], artifacts.update);
   app.delete("/api/material-artifacts/:id", [authJwt.verifyToken, authJwt.isAdmin], artifacts.delete);
