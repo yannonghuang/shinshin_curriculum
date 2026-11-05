@@ -127,7 +127,6 @@ const en = {
   "新建话题": " New topic",
   "暂无分享话题。": "No share topics yet.",
   "没有符合条件的分享。": "No matching shares.",
-  "全部分享": " All shares",
 
   // template-admin
   "课程设计方案模板（WHY/WHAT/HOW）": "Course design template (WHY/WHAT/HOW)",

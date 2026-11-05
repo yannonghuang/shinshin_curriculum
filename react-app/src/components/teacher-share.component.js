@@ -834,8 +834,26 @@ const TeacherShare = () => {
               return (
                 <div className="pl-explorer-group" key={topic.id}>
                   <div className="pl-explorer-row">
-                    <button type="button" className="pl-explorer-folder pl-explorer-row-main" onClick={() => toggleTopic(topic.id)}>
-                      <i className={`fas fa-chevron-${expandedTopics[topic.id] ? "down" : "right"} pl-explorer-chevron`}></i>
+                    {/* Clicking the 话题 itself opens its share-card view on the
+                        right (there's no separate 全部分享 leaf); the chevron
+                        alone expands/collapses its share list. A click on an
+                        unselected, collapsed 话题 also expands it. */}
+                    <button
+                      type="button"
+                      className={`pl-explorer-folder pl-explorer-row-main ${selected.topicId === topic.id && selected.view === "topic" ? "is-active" : ""}`}
+                      data-explorer-leaf
+                      onClick={() => {
+                        if (!expandedTopics[topic.id]) toggleTopic(topic.id);
+                        select(topic.id, "topic");
+                      }}
+                    >
+                      <i
+                        className={`fas fa-chevron-${expandedTopics[topic.id] ? "down" : "right"} pl-explorer-chevron`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleTopic(topic.id);
+                        }}
+                      ></i>
                       <i className="fas fa-comments pl-folder-icon mr-1"></i> {topic.title}
                       <span className="text-muted ml-1">({filtersActive ? `${shares.length}/${topic.shareCount}` : topic.shareCount})</span>
                     </button>
@@ -874,13 +892,6 @@ const TeacherShare = () => {
                   </div>
                   {expandedTopics[topic.id] && (
                     <div className="pl-explorer-children">
-                      <button
-                        type="button"
-                        className={`pl-explorer-leaf ${selected.topicId === topic.id && selected.view === "topic" ? "is-active" : ""}`}
-                        onClick={() => select(topic.id, "topic")}
-                      >
-                        <i className="fas fa-th-large mr-1"></i>{tr("全部分享")}
-                      </button>
                       {shares.map((s) => (
                         <button
                           type="button"
