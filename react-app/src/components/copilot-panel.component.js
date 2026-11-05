@@ -8,6 +8,7 @@ import AiLetterIcon from "./ai-letter-icon.component";
 import AuthService from "../services/auth.service";
 import { saveBeforeCopilot } from "../utils/copilotSaveGuard";
 import "../curriculum.css";
+import { tr, LOCALE } from "../i18n";
 
 // Floating slide-in co-pilot -- mounted once in App.js for any logged-in
 // user. "Session" is a conversation *scoped* to whatever the user is
@@ -57,13 +58,13 @@ const formatRelativeTime = (dateStr) => {
   if (!dateStr) return "";
   const diffMs = Date.now() - new Date(dateStr).getTime();
   const minutes = Math.floor(diffMs / 60000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes}分钟前`;
+  if (minutes < 1) return tr("刚刚");
+  if (minutes < 60) return tr("{minutes}分钟前", { minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}小时前`;
+  if (hours < 24) return tr("{hours}小时前", { hours });
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}天前`;
-  return new Date(dateStr).toLocaleDateString("zh-cn");
+  if (days < 7) return tr("{days}天前", { days });
+  return new Date(dateStr).toLocaleDateString(LOCALE);
 };
 
 // Every action-tool entry in one message's toolCallLog (retrievedChunkIds)
@@ -98,7 +99,7 @@ const TASK_POLL_MS = 1500;
 const isTaskActive = (t) => t.status === "queued" || t.status === "running";
 const elapsedLabel = (since) => {
   const s = Math.max(0, Math.round((Date.now() - new Date(since).getTime()) / 1000));
-  return s < 60 ? `${s} 秒` : `${Math.floor(s / 60)} 分 ${s % 60} 秒`;
+  return s < 60 ? tr("{s} 秒", { s }) : tr("{0} 分 {1} 秒", { "0": Math.floor(s / 60), "1": s % 60 });
 };
 
 // Links in a reply (web sources, a 百度图片 search) open in a new tab -- a
@@ -157,7 +158,7 @@ const announceChanges = (messages) => {
   }
 };
 
-const ACTION_STATUS_LABELS = { pending: "待确认", confirmed: "已执行", cancelled: "已取消", failed: "执行失败" };
+const ACTION_STATUS_LABELS = { pending: tr("待确认"), confirmed: tr("已执行"), cancelled: tr("已取消"), failed: tr("执行失败") };
 
 // Import -- what the file picker offers. The old binary Office formats are
 // listed on purpose: the server rejects them with a "save as .docx/.pptx"
@@ -182,7 +183,7 @@ const loadImage = (file) =>
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("无法读取该图片。"));
+      reject(new Error(tr("无法读取该图片。")));
     };
     img.src = url;
   });
@@ -217,7 +218,7 @@ const namePastedFile = (file) => {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg");
-  return new File([file], `粘贴图片-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.${ext}`, { type: file.type });
+  return new File([file], tr("粘贴图片-{pad(now.getHours())}{pad(now.getMinutes())}{pad(now.getSeconds())}.{ext}", { "pad(now.getHours())": pad(now.getHours()), "pad(now.getMinutes())": pad(now.getMinutes()), "pad(now.getSeconds())": pad(now.getSeconds()), ext }), { type: file.type });
 };
 
 // Which pastes are attachments: clipboard files *without* accompanying text.
@@ -348,19 +349,19 @@ const PhotoStrip = ({ photos }) => {
             cacheKey={`${p.kind}-${p.id}`}
             alt={p.title}
             className="copilot-photo-img"
-            linkTitle="点击查看大图"
+            linkTitle={tr("点击查看大图")}
           />
           <figcaption>
             <div className="copilot-photo-title">{p.title}</div>
             {p.kind === "library" ? (
-              <div className="copilot-photo-source copilot-photo-vetted">{p.source} · 已审核</div>
+              <div className="copilot-photo-source copilot-photo-vetted">{tr("{p.source} · 已审核", { "p.source": p.source })}</div>
             ) : (
               <div className="copilot-photo-source">
-                来源：
+                {tr("来源：")}
                 <a href={p.pageUrl} target="_blank" rel="noopener noreferrer" title={p.pageTitle || p.pageUrl}>
                   {p.source}
                 </a>
-                · 网络图片，未经审核
+                {tr("· 网络图片，未经审核")}
               </div>
             )}
           </figcaption>
@@ -599,7 +600,7 @@ const CopilotPanel = () => {
       setIsLoaded(true);
     } catch (e) {
       console.log(e);
-      setError("加载对话失败。");
+      setError(tr("加载对话失败。"));
     }
   };
 
@@ -648,7 +649,7 @@ const CopilotPanel = () => {
       setAutoMemory(resp.data.autoMemory);
     } catch (e) {
       console.log(e);
-      setError("加载记忆失败。");
+      setError(tr("加载记忆失败。"));
     }
   };
 
@@ -662,7 +663,7 @@ const CopilotPanel = () => {
       setEditingMemory(null);
       setError("");
     } catch (err) {
-      setError(err?.response?.data?.message || "保存记忆失败。");
+      setError(err?.response?.data?.message || tr("保存记忆失败。"));
     } finally {
       setIsSavingMemory(false);
     }
@@ -675,17 +676,17 @@ const CopilotPanel = () => {
       setAutoMemory(resp.data.autoMemory);
     } catch (err) {
       setAutoMemory(!enabled);
-      setError(err?.response?.data?.message || "保存设置失败。");
+      setError(err?.response?.data?.message || tr("保存设置失败。"));
     }
   };
 
   const removeMemory = async (id) => {
-    if (!window.confirm("确定删除这条记忆吗？欣欣小助手之后将不再参考它。")) return;
+    if (!window.confirm(tr("确定删除这条记忆吗？欣欣小助手之后将不再参考它。"))) return;
     try {
       await ChatDataService.deleteMemory(id);
       setMemories((prev) => (prev ? prev.filter((m) => m.id !== id) : prev));
     } catch (err) {
-      setError(err?.response?.data?.message || "删除记忆失败。");
+      setError(err?.response?.data?.message || tr("删除记忆失败。"));
     }
   };
 
@@ -697,7 +698,7 @@ const CopilotPanel = () => {
       setHistoryList(resp.data || []);
     } catch (e) {
       console.log(e);
-      setError("加载历史对话失败。");
+      setError(tr("加载历史对话失败。"));
     } finally {
       setIsLoadingHistory(false);
     }
@@ -714,7 +715,7 @@ const CopilotPanel = () => {
   };
 
   const deleteThread = async (id) => {
-    if (!window.confirm("确定删除这条历史对话吗？此操作无法撤销。")) return;
+    if (!window.confirm(tr("确定删除这条历史对话吗？此操作无法撤销。"))) return;
     try {
       await ChatDataService.deleteConversation(id);
       setHistoryList((prev) => (prev ? prev.filter((c) => c.id !== id) : prev));
@@ -725,7 +726,7 @@ const CopilotPanel = () => {
         setExplicitConversationId(null);
       }
     } catch (err) {
-      setError(err?.response?.data?.message || "删除对话失败。");
+      setError(err?.response?.data?.message || tr("删除对话失败。"));
     }
   };
 
@@ -843,7 +844,7 @@ const CopilotPanel = () => {
         setInput(content);
         setPendingAttachments(keptAttachments);
       }
-      setError("页面上未保存的修改自动保存失败（原因见页面提示），本次提问未发送。");
+      setError(tr("页面上未保存的修改自动保存失败（原因见页面提示），本次提问未发送。"));
       setIsSending(false);
       return;
     }
@@ -870,7 +871,7 @@ const CopilotPanel = () => {
           setPendingAttachments(keptAttachments);
         }
       }
-      setError(err?.response?.data?.message || "发送失败，请重试。");
+      setError(err?.response?.data?.message || tr("发送失败，请重试。"));
     } finally {
       setIsSending(false);
     }
@@ -918,7 +919,7 @@ const CopilotPanel = () => {
       }
       patchAttachment(key, { status: "ready", id: resp.data.id, warning: resp.data.warning, chars: resp.data.chars });
     } catch (err) {
-      patchAttachment(key, { status: "error", error: err?.response?.data?.message || err.message || "上传失败。" });
+      patchAttachment(key, { status: "error", error: err?.response?.data?.message || err.message || tr("上传失败。") });
     }
   };
 
@@ -928,10 +929,10 @@ const CopilotPanel = () => {
     setError("");
     const room = MAX_ATTACHMENTS_PER_MESSAGE - pendingAttachments.length;
     if (room <= 0) {
-      setError(`每条消息最多添加 ${MAX_ATTACHMENTS_PER_MESSAGE} 个附件。`);
+      setError(tr("每条消息最多添加 {MAX_ATTACHMENTS_PER_MESSAGE} 个附件。", { MAX_ATTACHMENTS_PER_MESSAGE }));
       return;
     }
-    if (list.length > room) setError(`每条消息最多添加 ${MAX_ATTACHMENTS_PER_MESSAGE} 个附件，多出的文件已忽略。`);
+    if (list.length > room) setError(tr("每条消息最多添加 {MAX_ATTACHMENTS_PER_MESSAGE} 个附件，多出的文件已忽略。", { MAX_ATTACHMENTS_PER_MESSAGE }));
     list.slice(0, room).forEach(uploadOne);
   };
 
@@ -995,7 +996,7 @@ const CopilotPanel = () => {
     if (!conversationId || exportingFormat) return;
     const messageIds = exportScope === "selected" ? exportableMessages.filter((m) => selectedMessageIds.has(m.id)).map((m) => m.id) : undefined;
     if (messageIds && messageIds.length === 0) {
-      setError("请至少选择一条消息。");
+      setError(tr("请至少选择一条消息。"));
       return;
     }
     setExportingFormat(format);
@@ -1009,7 +1010,7 @@ const CopilotPanel = () => {
       }
       setIsExportMode(false);
     } catch (err) {
-      setError(await blobErrorMessage(err, "导出失败，请重试。"));
+      setError(await blobErrorMessage(err, tr("导出失败，请重试。")));
     } finally {
       setExportingFormat(null);
     }
@@ -1030,7 +1031,7 @@ const CopilotPanel = () => {
       setMessages((prev) => [...prev.map((m) => (m.id === resp.data.message.id ? resp.data.message : m)), resp.data.followUp]);
       if (confirm) announceChanges([resp.data.followUp]);
     } catch (err) {
-      setError(err?.response?.data?.message || "操作失败，请重试。");
+      setError(err?.response?.data?.message || tr("操作失败，请重试。"));
     } finally {
       setActionBusyKey(null);
     }
@@ -1056,7 +1057,7 @@ const CopilotPanel = () => {
         setMessages((prev) => (prev.some((m) => m.id === reply.id) ? prev : [...prev, reply]));
       }
     } catch (err) {
-      setError(err?.response?.data?.message || "操作失败，请重试。");
+      setError(err?.response?.data?.message || tr("操作失败，请重试。"));
     } finally {
       setTaskBusyId(null);
     }
@@ -1079,14 +1080,14 @@ const CopilotPanel = () => {
           )}
           <span className="copilot-task-title">
             {task.status === "queued"
-              ? `排队中${task.queuePosition ? `（第 ${task.queuePosition} 位）` : ""}…`
+              ? tr("排队中{0}…", { "0": task.queuePosition ? tr("（第 {task.queuePosition} 位）", { "task.queuePosition": task.queuePosition }) : "" })
               : task.status === "running"
               ? task._cancelling
-                ? "正在取消…"
-                : `正在处理，已用时 ${elapsedLabel(task.startedAt || task.createdAt)}`
+                ? tr("正在取消…")
+                : tr("正在处理，已用时 {0}", { "0": elapsedLabel(task.startedAt || task.createdAt) })
               : task.status === "interrupted"
-              ? "处理被中断"
-              : "处理失败"}
+              ? tr("处理被中断")
+              : tr("处理失败")}
           </span>
         </div>
         {steps.length > 0 && (
@@ -1108,7 +1109,7 @@ const CopilotPanel = () => {
           </ul>
         )}
         {!active && task.error && <div className="copilot-task-error">{task.error}</div>}
-        {active && <div className="copilot-task-hint">您可以继续提问，完成后回复会显示在这里。</div>}
+        {active && <div className="copilot-task-hint">{tr("您可以继续提问，完成后回复会显示在这里。")}</div>}
         <div className="copilot-task-buttons">
           {active ? (
             <button
@@ -1117,12 +1118,12 @@ const CopilotPanel = () => {
               disabled={taskBusyId === task.id || task._cancelling}
               onClick={() => taskAction(task, "cancel")}
             >
-              取消
+              {tr("取消")}
             </button>
           ) : (
             <>
               <button type="button" className="btn btn-sm btn-primary" disabled={taskBusyId === task.id} onClick={() => taskAction(task, "retry")}>
-                重试
+                {tr("重试")}
               </button>
               <button
                 type="button"
@@ -1130,7 +1131,7 @@ const CopilotPanel = () => {
                 disabled={taskBusyId === task.id}
                 onClick={() => taskAction(task, "cancel")}
               >
-                忽略
+                {tr("忽略")}
               </button>
             </>
           )}
@@ -1152,7 +1153,7 @@ const CopilotPanel = () => {
       setMessages((prev) => prev.map((m) => (m.id === resp.data.message.id ? resp.data.message : m)));
       announceChanges([resp.data.message]);
     } catch (err) {
-      setError(err?.response?.data?.message || "新建课程设计失败。");
+      setError(err?.response?.data?.message || tr("新建课程设计失败。"));
     } finally {
       setActionBusyKey(null);
     }
@@ -1173,7 +1174,7 @@ const CopilotPanel = () => {
         downloadBlob(resp.data, filenameFromDisposition(resp.headers["content-disposition"], `${doc.title}.${doc.format}`));
       }
     } catch (err) {
-      setError(await blobErrorMessage(err, "下载失败，请重试。"));
+      setError(await blobErrorMessage(err, tr("下载失败，请重试。")));
     } finally {
       setActionBusyKey(null);
     }
@@ -1196,7 +1197,7 @@ const CopilotPanel = () => {
         return (
           <div key={`${e.name}-${i}`} className="copilot-action">
             <div className="copilot-action-summary">
-              <i className="fas fa-file-download"></i> {doc.title}（{DOCUMENT_FORMAT_LABELS[doc.format] || doc.format}）
+              <i className="fas fa-file-download"></i> {doc.title}{tr("（")}{DOCUMENT_FORMAT_LABELS[doc.format] || doc.format}{tr("）")}
             </div>
             <div className="copilot-action-buttons">
               <button
@@ -1205,7 +1206,7 @@ const CopilotPanel = () => {
                 disabled={!!actionBusyKey}
                 onClick={() => downloadDocument(message, doc)}
               >
-                {busy ? "生成中..." : doc.format === "pdf" ? "打印 / 另存为 PDF" : "下载"}
+                {busy ? tr("生成中...") : doc.format === "pdf" ? tr("打印 / 另存为 PDF") : tr("下载")}
               </button>
             </div>
           </div>
@@ -1214,9 +1215,9 @@ const CopilotPanel = () => {
       if (o.memory || o.forgotten) {
         return (
           <div key={`${e.name}-${i}`} className="copilot-memory-note">
-            <i className="fas fa-brain"></i> {o.memory ? "已记住" : "已忘记"}：{(o.memory || o.forgotten).content}
+            <i className="fas fa-brain"></i> {o.memory ? tr("已记住") : tr("已忘记")}{tr("：")}{(o.memory || o.forgotten).content}
             <button type="button" className="btn btn-sm btn-link p-0 ml-2" onClick={openMemory}>
-              查看记忆
+              {tr("查看记忆")}
             </button>
           </div>
         );
@@ -1232,7 +1233,7 @@ const CopilotPanel = () => {
                 disabled={!!actionBusyKey}
                 onClick={() => createPlanFromDraft(message, o.draft)}
               >
-                {busy ? "新建中..." : "新建为课程设计"}
+                {busy ? tr("新建中...") : tr("新建为课程设计")}
               </button>
             </div>
           </div>
@@ -1260,7 +1261,7 @@ const CopilotPanel = () => {
                     disabled={!!actionBusyKey}
                     onClick={() => settleAction(message, o.actionId, true)}
                   >
-                    {busy ? "执行中..." : "确认执行"}
+                    {busy ? tr("执行中...") : tr("确认执行")}
                   </button>
                   <button
                     type="button"
@@ -1268,7 +1269,7 @@ const CopilotPanel = () => {
                     disabled={!!actionBusyKey}
                     onClick={() => settleAction(message, o.actionId, false)}
                   >
-                    取消
+                    {tr("取消")}
                   </button>
                 </div>
               )}
@@ -1276,7 +1277,7 @@ const CopilotPanel = () => {
           )}
           {link && link.type === "plan" && !deleted && (
             <button type="button" className="btn btn-sm btn-link p-0 copilot-action-link" onClick={() => history.push(`/plans/${link.id}`)}>
-              <i className="fas fa-external-link-alt"></i> 打开《{link.title}》
+              <i className="fas fa-external-link-alt"></i> {tr("打开《{link.title}》", { "link.title": link.title })}
             </button>
           )}
         </div>
@@ -1294,7 +1295,7 @@ const CopilotPanel = () => {
       setTasks([]);
       setError("");
     } catch (err) {
-      setError(err?.response?.data?.message || "新建对话失败。");
+      setError(err?.response?.data?.message || tr("新建对话失败。"));
     }
   };
 
@@ -1319,7 +1320,7 @@ const CopilotPanel = () => {
     if (titles.length === 0) return null;
     return (
       <div className="copilot-citations">
-        参考资料：{[...new Set(titles)].join("、")}
+        {tr("参考资料：")}{[...new Set(titles)].join(tr("、"))}
       </div>
     );
   };
@@ -1331,10 +1332,10 @@ const CopilotPanel = () => {
     if (sources.length === 0) return null;
     return (
       <div className="copilot-citations copilot-web-sources">
-        <i className="fas fa-globe"></i> 网络来源（未经审核，请自行核实）：
+        <i className="fas fa-globe"></i> {tr("网络来源（未经审核，请自行核实）：")}
         {sources.map((src, i) => (
           <a key={src.url} href={src.url} target="_blank" rel="noopener noreferrer" title={src.url}>
-            {i > 0 ? "、" : ""}
+            {i > 0 ? tr("、") : ""}
             {src.site ? `${src.site}·` : ""}
             {src.title || src.url}
           </a>
@@ -1381,7 +1382,7 @@ const CopilotPanel = () => {
         type="button"
         className="copilot-toggle"
         onClick={() => setIsOpen((prev) => !prev)}
-        title={isOpen ? "关闭欣欣小助手" : "打开欣欣小助手"}
+        title={isOpen ? tr("关闭欣欣小助手") : tr("打开欣欣小助手")}
       >
         {/* key'd spans -- FontAwesome's JS swaps <i> for <svg>, see the attachment-chip note */}
         {isOpen ? (
@@ -1404,17 +1405,17 @@ const CopilotPanel = () => {
           onDragLeave={onDragLeave}
           onDrop={onDrop}
         >
-          <div className="copilot-resize-handle" onMouseDown={onResizeMouseDown} title="拖动调整大小"></div>
+          <div className="copilot-resize-handle" onMouseDown={onResizeMouseDown} title={tr("拖动调整大小")}></div>
           {isDragOver && (
             <div className="copilot-drop-overlay">
               <i className="fas fa-file-upload"></i>
-              <div>松开即可添加为附件</div>
+              <div>{tr("松开即可添加为附件")}</div>
             </div>
           )}
           <div className="copilot-header">
             <span className="copilot-title">
               <AiLetterIcon size={20} />
-              欣欣小助手
+              {tr("欣欣小助手")}
             </span>
             <div>
               {viewMode === "chat" && (
@@ -1422,29 +1423,29 @@ const CopilotPanel = () => {
                   type="button"
                   className="btn btn-sm btn-link copilot-new-btn"
                   disabled={!conversationId || exportableMessages.length === 0}
-                  title="将对话导出为 Word / Markdown / PDF"
+                  title={tr("将对话导出为 Word / Markdown / PDF")}
                   onClick={() => (isExportMode ? setIsExportMode(false) : enterExportMode())}
                 >
-                  导出
+                  {tr("导出")}
                 </button>
               )}
               <button
                 type="button"
                 className="btn btn-sm btn-link copilot-new-btn"
-                title="欣欣小助手跨对话记住的关于您的信息"
+                title={tr("欣欣小助手跨对话记住的关于您的信息")}
                 onClick={() => (viewMode === "memory" ? setViewMode("chat") : openMemory())}
               >
-                {viewMode === "memory" ? "返回" : "记忆"}
+                {viewMode === "memory" ? tr("返回") : tr("记忆")}
               </button>
               <button
                 type="button"
                 className="btn btn-sm btn-link copilot-new-btn"
                 onClick={() => (viewMode === "history" ? setViewMode("chat") : openHistory())}
               >
-                {viewMode === "history" ? "返回" : "历史"}
+                {viewMode === "history" ? tr("返回") : tr("历史")}
               </button>
               <button type="button" className="btn btn-sm btn-link copilot-new-btn" onClick={startNew}>
-                新对话
+                {tr("新对话")}
               </button>
             </div>
           </div>
@@ -1452,24 +1453,24 @@ const CopilotPanel = () => {
           {viewMode === "memory" ? (
             <div className="copilot-messages">
               <div className="copilot-memory-intro">
-                欣欣小助手会在今后的所有对话中参考以下信息。您可以在对话中说「记住……」「忘掉……」，也可以在这里直接添加、修改或删除。
+                {tr("欣欣小助手会在今后的所有对话中参考以下信息。您可以在对话中说「记住……」「忘掉……」，也可以在这里直接添加、修改或删除。")}
               </div>
               {autoMemory !== null && (
-                <label className="copilot-memory-auto" title="对话结束一段时间后，由 AI 判断其中是否有值得长期记住的信息（标注「自动」）">
+                <label className="copilot-memory-auto" title={tr("对话结束一段时间后，由 AI 判断其中是否有值得长期记住的信息（标注「自动」）")}>
                   <input type="checkbox" checked={autoMemory} onChange={(e) => toggleAutoMemory(e.target.checked)} />
-                  允许欣欣小助手自动记住对话中的重要信息
+                  {tr("允许欣欣小助手自动记住对话中的重要信息")}
                 </label>
               )}
-              {memories === null && <div className="pl-empty">加载中...</div>}
-              {memories && memories.length === 0 && !editingMemory && <div className="pl-empty">暂无记忆。</div>}
+              {memories === null && <div className="pl-empty">{tr("加载中...")}</div>}
+              {memories && memories.length === 0 && !editingMemory && <div className="pl-empty">{tr("暂无记忆。")}</div>}
               {memories &&
                 memories.map((m) =>
                   editingMemory && editingMemory.id === m.id ? null : (
                     <div key={m.id} className="copilot-memory-item">
                       <div className="copilot-memory-content">
                         {m.origin === "auto" && (
-                          <span className="copilot-memory-badge" title="欣欣小助手根据对话自动记住的信息">
-                            自动
+                          <span className="copilot-memory-badge" title={tr("欣欣小助手根据对话自动记住的信息")}>
+                            {tr("自动")}
                           </span>
                         )}
                         {m.content}
@@ -1480,10 +1481,10 @@ const CopilotPanel = () => {
                           className="btn btn-sm btn-link p-0"
                           onClick={() => setEditingMemory({ id: m.id, content: m.content })}
                         >
-                          修改
+                          {tr("修改")}
                         </button>
                         <button type="button" className="btn btn-sm btn-link p-0 ml-2 text-danger" onClick={() => removeMemory(m.id)}>
-                          删除
+                          {tr("删除")}
                         </button>
                       </div>
                     </div>
@@ -1496,7 +1497,7 @@ const CopilotPanel = () => {
                     rows={3}
                     maxLength={300}
                     autoFocus
-                    placeholder="如：任教五年级语文，班上约 30 名学生，多为留守儿童"
+                    placeholder={tr("如：任教五年级语文，班上约 30 名学生，多为留守儿童")}
                     value={editingMemory.content}
                     onChange={(e) => setEditingMemory({ ...editingMemory, content: e.target.value })}
                   />
@@ -1507,10 +1508,10 @@ const CopilotPanel = () => {
                       disabled={isSavingMemory || !editingMemory.content.trim()}
                       onClick={saveMemory}
                     >
-                      {isSavingMemory ? "保存中..." : "保存"}
+                      {isSavingMemory ? tr("保存中...") : tr("保存")}
                     </button>
                     <button type="button" className="btn btn-sm btn-outline-secondary ml-2" onClick={() => setEditingMemory(null)}>
-                      取消
+                      {tr("取消")}
                     </button>
                   </div>
                 </div>
@@ -1521,7 +1522,7 @@ const CopilotPanel = () => {
                     className="btn btn-sm btn-outline-primary align-self-start"
                     onClick={() => setEditingMemory({ id: null, content: "" })}
                   >
-                    + 添加记忆
+                    {tr("+ 添加记忆")}
                   </button>
                 )
               )}
@@ -1529,8 +1530,8 @@ const CopilotPanel = () => {
             </div>
           ) : viewMode === "history" ? (
             <div className="copilot-messages">
-              {isLoadingHistory && <div className="pl-empty">加载中...</div>}
-              {!isLoadingHistory && historyList && historyList.length === 0 && <div className="pl-empty">暂无历史对话。</div>}
+              {isLoadingHistory && <div className="pl-empty">{tr("加载中...")}</div>}
+              {!isLoadingHistory && historyList && historyList.length === 0 && <div className="pl-empty">{tr("暂无历史对话。")}</div>}
               {!isLoadingHistory &&
                 historyList &&
                 historyList.map((c) => (
@@ -1538,13 +1539,13 @@ const CopilotPanel = () => {
                     <button
                       type="button"
                       className="btn btn-sm btn-link text-danger copilot-history-delete"
-                      title="删除这条历史对话"
+                      title={tr("删除这条历史对话")}
                       onClick={(e) => {
                         e.stopPropagation();
                         deleteThread(c.id);
                       }}
                     >
-                      删除
+                      {tr("删除")}
                     </button>
                     <div className="copilot-history-label">{c.label}</div>
                     {c.title && <div className="copilot-history-title">{c.title}</div>}
@@ -1556,17 +1557,17 @@ const CopilotPanel = () => {
             <>
               {explicitConversationId && (
                 <div className="copilot-thread-banner">
-                  正在查看：{currentThreadLabel || "历史对话"}
+                  {tr("正在查看：")}{currentThreadLabel || tr("历史对话")}
                   <button type="button" className="btn btn-sm btn-link p-0 ml-2" onClick={returnToCurrent}>
-                    返回当前对话
+                    {tr("返回当前对话")}
                   </button>
                 </div>
               )}
               <div className="copilot-messages">
-                {!isLoaded && <div className="pl-empty">加载中...</div>}
+                {!isLoaded && <div className="pl-empty">{tr("加载中...")}</div>}
                 {isLoaded && messages.length === 0 && (
                   <div className="copilot-welcome">
-                    <div className="pl-empty">{displayName ? `${displayName}，有什么可以帮您的？` : "有什么可以帮您的？"}</div>
+                    <div className="pl-empty">{displayName ? tr("{displayName}，有什么可以帮您的？", { displayName }) : tr("有什么可以帮您的？")}</div>
                     {/* Starter prompts for this user's role and state -- not in a past thread or a
                         field-focused question, which have their own context. */}
                     {welcome && !explicitConversationId && !focusTarget && (
@@ -1607,14 +1608,14 @@ const CopilotPanel = () => {
                           checked={!!selected}
                           onChange={() => toggleSelected(m.id)}
                           onClick={(e) => e.stopPropagation()}
-                          title="选择这条消息导出"
+                          title={tr("选择这条消息导出")}
                         />
                       )}
                       {m.role === "assistant" && !m._pending && !isExportMode && (
                         <button
                           type="button"
                           className="copilot-copy-btn"
-                          title="复制"
+                          title={tr("复制")}
                           onClick={() => copyMessage(key)}
                         >
                           <i className={`fas fa-${copiedKey === key ? "check" : "copy"}`}></i>
@@ -1632,8 +1633,8 @@ const CopilotPanel = () => {
                       ) : (
                         <>
                           {m.focus && m.focus.labelPath && (
-                            <div className="copilot-bubble-focus" title="这条消息针对课程设计中的这一部分">
-                              针对：{m.focus.labelPath.join(" › ")}
+                            <div className="copilot-bubble-focus" title={tr("这条消息针对课程设计中的这一部分")}>
+                              {tr("针对：")}{m.focus.labelPath.join(" › ")}
                             </div>
                           )}
                           {m.content && <div className="copilot-bubble-content">{m.content}</div>}
@@ -1651,7 +1652,7 @@ const CopilotPanel = () => {
                 })}
                 {isSending && (
                   <div className="copilot-bubble copilot-bubble-assistant copilot-bubble-thinking">
-                    <div className="copilot-bubble-content">思考中...</div>
+                    <div className="copilot-bubble-content">{tr("思考中...")}</div>
                   </div>
                 )}
                 <div ref={messagesEndRef} />
@@ -1663,29 +1664,29 @@ const CopilotPanel = () => {
                 <div className="copilot-export-bar">
                   <div className="copilot-export-scope">
                     <label>
-                      <input type="radio" checked={exportScope === "all"} onChange={() => setExportScope("all")} /> 整段对话
+                      <input type="radio" checked={exportScope === "all"} onChange={() => setExportScope("all")} /> {tr("整段对话")}
                     </label>
                     <label>
-                      <input type="radio" checked={exportScope === "selected"} onChange={() => setExportScope("selected")} /> 选择部分消息
+                      <input type="radio" checked={exportScope === "selected"} onChange={() => setExportScope("selected")} /> {tr("选择部分消息")}
                     </label>
                     {exportScope === "selected" && (
                       <span className="copilot-export-count">
-                        已选 {exportableMessages.filter((m) => selectedMessageIds.has(m.id)).length} 条
+                        {tr("已选")} {exportableMessages.filter((m) => selectedMessageIds.has(m.id)).length} {tr("条")}
                         <button
                           type="button"
                           className="btn btn-sm btn-link p-0 ml-2"
                           onClick={() => setSelectedMessageIds(new Set(exportableMessages.map((m) => m.id)))}
                         >
-                          全选
+                          {tr("全选")}
                         </button>
                         <button type="button" className="btn btn-sm btn-link p-0 ml-2" onClick={() => setSelectedMessageIds(new Set())}>
-                          清空
+                          {tr("清空")}
                         </button>
                       </span>
                     )}
                   </div>
                   <div className="copilot-export-actions">
-                    <span>导出为：</span>
+                    <span>{tr("导出为：")}</span>
                     {[
                       ["docx", "Word"],
                       ["md", "Markdown"],
@@ -1696,10 +1697,10 @@ const CopilotPanel = () => {
                         type="button"
                         className="btn btn-sm btn-primary"
                         disabled={!!exportingFormat}
-                        title={format === "pdf" ? "打开打印对话框，选择「另存为 PDF」" : undefined}
+                        title={format === "pdf" ? tr("打开打印对话框，选择「另存为 PDF」") : undefined}
                         onClick={() => runExport(format)}
                       >
-                        {exportingFormat === format ? "生成中..." : label}
+                        {exportingFormat === format ? tr("生成中...") : label}
                       </button>
                     ))}
                     <button
@@ -1708,19 +1709,19 @@ const CopilotPanel = () => {
                       disabled={!!exportingFormat}
                       onClick={() => setIsExportMode(false)}
                     >
-                      取消
+                      {tr("取消")}
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="copilot-composer">
                   {focusTarget && !explicitConversationId && (
-                    <div className="copilot-focus-chip" title="提问会附带这一部分的当前内容（含未保存的修改）">
+                    <div className="copilot-focus-chip" title={tr("提问会附带这一部分的当前内容（含未保存的修改）")}>
                       <span className="copilot-focus-chip-icon">
                         <AiLetterIcon size={14} />
                       </span>
-                      <span className="copilot-focus-chip-label">针对：{focusTarget.focus.labelPath.join(" › ")}</span>
-                      <button type="button" className="copilot-chip-remove" title="不再针对这一部分" onClick={() => setFocusTarget(null)}>
+                      <span className="copilot-focus-chip-label">{tr("针对：")}{focusTarget.focus.labelPath.join(" › ")}</span>
+                      <button type="button" className="copilot-chip-remove" title={tr("不再针对这一部分")} onClick={() => setFocusTarget(null)}>
                         ×
                       </button>
                     </div>
@@ -1746,15 +1747,15 @@ const CopilotPanel = () => {
                           <span className="copilot-chip-name">{a.name}</span>
                           <span className="copilot-chip-status">
                             {a.status === "uploading" &&
-                              (a.progress < 100 ? `上传 ${a.progress || 0}%` : a.kind === "image" ? "识别中..." : "解析中...")}
-                            {a.status === "error" && "失败"}
+                              (a.progress < 100 ? tr("上传 {0}%", { "0": a.progress || 0 }) : a.kind === "image" ? tr("识别中...") : tr("解析中..."))}
+                            {a.status === "error" && tr("失败")}
                             {a.status === "ready" && a.warning && (
                               <span>
                                 <i className="fas fa-exclamation-triangle"></i>
                               </span>
                             )}
                           </span>
-                          <button type="button" className="copilot-chip-remove" title="移除" onClick={() => removeAttachment(a)}>
+                          <button type="button" className="copilot-chip-remove" title={tr("移除")} onClick={() => removeAttachment(a)}>
                             ×
                           </button>
                         </div>
@@ -1765,7 +1766,7 @@ const CopilotPanel = () => {
                     <button
                       type="button"
                       className="btn btn-outline-secondary copilot-attach-btn"
-                      title="添加附件（Word、PPT、PDF、Excel、文本或图片；也可直接粘贴截图或拖入文件）"
+                      title={tr("添加附件（Word、PPT、PDF、Excel、文本或图片；也可直接粘贴截图或拖入文件）")}
                       disabled={isSending}
                       onClick={() => fileInputRef.current && fileInputRef.current.click()}
                     >
@@ -1788,10 +1789,10 @@ const CopilotPanel = () => {
                       className="form-control copilot-input"
                       placeholder={
                         pendingAttachments.length > 0
-                          ? "说明需要如何处理附件（可不填）..."
+                          ? tr("说明需要如何处理附件（可不填）...")
                           : focusTarget && !explicitConversationId
-                          ? `就「${focusTarget.focus.labelPath[focusTarget.focus.labelPath.length - 1]}」提问（Shift+Enter 换行）...`
-                          : "输入问题，或粘贴截图（Shift+Enter 换行）..."
+                          ? tr("就「{0}」提问（Shift+Enter 换行）...", { "0": focusTarget.focus.labelPath[focusTarget.focus.labelPath.length - 1] })
+                          : tr("输入问题，或粘贴截图（Shift+Enter 换行）...")
                       }
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
@@ -1803,8 +1804,8 @@ const CopilotPanel = () => {
                       type="submit"
                       className="btn btn-primary copilot-send-btn"
                       disabled={isSending || isUploading || (!input.trim() && readyAttachments.length === 0)}
-                      title={isUploading ? "附件处理中，请稍候" : "发送（Enter）"}
-                      aria-label="发送"
+                      title={isUploading ? tr("附件处理中，请稍候") : tr("发送（Enter）")}
+                      aria-label={tr("发送")}
                     >
                       {/* key'd spans, not bare <i>s -- see the FontAwesome note on the attachment chips */}
                       {isSending ? (

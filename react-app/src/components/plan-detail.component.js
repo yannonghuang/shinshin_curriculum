@@ -15,6 +15,7 @@ import { hasPendingReviewEdits, discardPendingReviewEdits, subscribePendingRevie
 import { registerCopilotSaveHandler } from "../utils/copilotSaveGuard";
 import "../curriculum.css";
 import { useExplorerPane, ExplorerPaneBar, isPaneSwitch } from "./explorer-pane";
+import { tr } from "../i18n";
 
 // True if an answers object (shaped like planFormData/one executionFormData
 // record) has at least one non-empty field, across however many sections the
@@ -200,7 +201,7 @@ const DynamicSectionFields = ({ fields, subsections, values, canEdit, onFieldCha
             {askAi && (
               <AskAiMenu
                 presets={askAi.presets}
-                unit="这一部分"
+                unit={tr("这一部分")}
                 target={{
                   ...focusBase,
                   labelPath: [...askAi.basePath, bareLabel(sub.label)],
@@ -238,9 +239,9 @@ const CompletionBadge = ({ completion }) =>
   completion ? (
     <span
       className="pl-completion"
-      title={`总体设计 = 基本信息 ${completion.basic}% · 课程设计 ${completion.design}%；分课时设计、实施各共 ${completion.lessonCount} 课时，每课时实施 = 实施记录 50% + 支撑材料 50%（按上次保存的内容计算）`}
+      title={tr("总体设计 = 基本信息 {completion.basic}% · 课程设计 {completion.design}%；分课时设计、实施各共 {completion.lessonCount} 课时，每课时实施 = 实施记录 50% + 支撑材料 50%（按上次保存的内容计算）", { "completion.basic": completion.basic, "completion.design": completion.design, "completion.lessonCount": completion.lessonCount })}
     >
-      总体设计完成度：{completion.general}% · 分课时设计完成度：{completion.lessonDesign}% · 实施完成度：{completion.execution}%
+      {tr("总体设计完成度：{completion.general}% · 分课时设计完成度：{completion.lessonDesign}% · 实施完成度：{completion.execution}%", { "completion.general": completion.general, "completion.lessonDesign": completion.lessonDesign, "completion.execution": completion.execution })}
     </span>
   ) : null;
 
@@ -259,15 +260,15 @@ const CompletionBadge = ({ completion }) =>
 // (pointer-events: none lets the hover reach the span, per Bootstrap's docs).
 const SaveSubmitButtons = ({ onSaveDraft, saveDisabled, onSubmit, submitDisabled, showSubmit = true }) => (
   <div className="d-flex">
-    <span className="d-inline-block mr-2" title={saveDisabled ? "没有未保存的修改" : undefined}>
+    <span className="d-inline-block mr-2" title={saveDisabled ? tr("没有未保存的修改") : undefined}>
       <button className="btn btn-light" type="button" onClick={onSaveDraft} disabled={saveDisabled} style={saveDisabled ? { pointerEvents: "none" } : undefined}>
-        保存草稿
+        {tr("保存草稿")}
       </button>
     </span>
     {showSubmit && (
-      <span className="d-inline-block" title={submitDisabled ? "请先填写 WHY/WHAT/HOW、分课时设计或实施记录后再提交" : undefined}>
+      <span className="d-inline-block" title={submitDisabled ? tr("请先填写 WHY/WHAT/HOW、分课时设计或实施记录后再提交") : undefined}>
         <button className="btn btn-light" type="button" onClick={onSubmit} disabled={submitDisabled} style={submitDisabled ? { pointerEvents: "none" } : undefined}>
-          提交待点评
+          {tr("提交待点评")}
         </button>
       </span>
     )}
@@ -295,7 +296,7 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadComplete }) => {
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
 
-  const fileName = () => `${(plan && plan.title) || "乡土课程设计方案"}.docx`;
+  const fileName = () => `${(plan && plan.title) || tr("乡土课程设计方案")}.docx`;
 
   const fetchDesignDocBuffer = async () => {
     const resp = await PlanDataService.downloadDesignDoc(planId);
@@ -319,7 +320,7 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadComplete }) => {
       window.URL.revokeObjectURL(url);
     } catch (e) {
       console.log(e);
-      setMessage("下载失败。");
+      setMessage(tr("下载失败。"));
     } finally {
       setWorking("");
     }
@@ -333,22 +334,22 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadComplete }) => {
     setMessage("");
     setWorking("preview");
     const win = window.open("", "_blank");
-    if (win) win.document.write(`<title>预览：${fileName()}</title><body>预览加载中...</body>`);
+    if (win) win.document.write(`<title>${tr("预览：")}${fileName()}</title><body>${tr("预览加载中...")}</body>`);
     try {
       const data = await fetchDesignDocBuffer();
       const result = await mammoth.convertToHtml({ arrayBuffer: data });
       if (win) {
         win.document.open();
         win.document.write(
-          `<!doctype html><html><head><meta charset="utf-8"><title>预览：${fileName()}</title>` +
+          `<!doctype html><html><head><meta charset="utf-8"><title>${tr("预览：")}${fileName()}</title>` +
             `<style>body{max-width:800px;margin:24px auto;padding:0 16px;font-family:sans-serif;line-height:1.6;}</style>` +
-            `</head><body>${result.value || "<p>文档内容为空。</p>"}</body></html>`
+            `</head><body>${result.value || tr("<p>文档内容为空。</p>")}</body></html>`
         );
         win.document.close();
       }
     } catch (e) {
       console.log(e);
-      setMessage("预览失败。");
+      setMessage(tr("预览失败。"));
       if (win) win.close();
     } finally {
       setWorking("");
@@ -359,12 +360,12 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadComplete }) => {
     if (!file) return;
     const ext = (file.name || "").toLowerCase().split(".").pop();
     if (ext !== "docx") {
-      setMessage("仅支持上传 .docx 文件。");
+      setMessage(tr("仅支持上传 .docx 文件。"));
       return;
     }
     if (
       !window.confirm(
-        "上传新文件将覆盖当前课程设计方案的全部在线内容（WHY/WHAT/HOW 及分课时设计），且无法撤销，确定继续吗？"
+        tr("上传新文件将覆盖当前课程设计方案的全部在线内容（WHY/WHAT/HOW 及分课时设计），且无法撤销，确定继续吗？")
       )
     ) {
       return;
@@ -378,11 +379,11 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadComplete }) => {
       // just ships the raw file and refreshes once the backend applies it.
       await PlanDataService.uploadDesignDoc(planId, file);
       await onUploadComplete("plan");
-      setMessage("课程设计文件已上传，在线内容已更新。");
+      setMessage(tr("课程设计文件已上传，在线内容已更新。"));
       setShowUpload(false);
     } catch (e) {
       console.log(e);
-      setMessage((e && e.response && e.response.data && e.response.data.message) || "上传失败，请确认文件格式。");
+      setMessage((e && e.response && e.response.data && e.response.data.message) || tr("上传失败，请确认文件格式。"));
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -400,23 +401,23 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadComplete }) => {
             type="button"
             onClick={() => setShowUpload((v) => !v)}
           >
-            上传
+            {tr("上传")}
           </button>
         )}
         <button className="btn btn-outline-primary btn-sm mr-2" type="button" onClick={handleDownload} disabled={working === "download"}>
-          {working === "download" ? "下载中..." : "下载"}
+          {working === "download" ? tr("下载中...") : tr("下载")}
         </button>
         <button className="btn btn-outline-primary btn-sm" type="button" onClick={handlePreview} disabled={working === "preview"}>
-          {working === "preview" ? "生成中..." : "预览"}
+          {working === "preview" ? tr("生成中...") : tr("预览")}
         </button>
       </div>
       <div className="text-muted small mb-3">
-        “下载”“预览”均根据课程设计方案的当前在线内容实时生成，不保存文件，每次都反映最新内容；预览将在新窗口中打开。
+        {tr("“下载”“预览”均根据课程设计方案的当前在线内容实时生成，不保存文件，每次都反映最新内容；预览将在新窗口中打开。")}
       </div>
 
       {showUpload && canEdit && (
         <div className="form-group">
-          <label>上传课程设计文件（将覆盖当前在线内容）</label>
+          <label>{tr("上传课程设计文件（将覆盖当前在线内容）")}</label>
           <div
             className={`pl-file-drop-zone ${dragActive ? "is-dragover" : ""}`}
             onClick={() => fileInputRef.current && fileInputRef.current.click()}
@@ -431,7 +432,7 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadComplete }) => {
               handleUploadFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
             }}
           >
-            {isUploading ? "正在解析并上传..." : "拖拽 .docx 文件到这里，或点击选择文件以覆盖当前内容"}
+            {isUploading ? tr("正在解析并上传...") : tr("拖拽 .docx 文件到这里，或点击选择文件以覆盖当前内容")}
           </div>
           <input
             ref={fileInputRef}
@@ -440,7 +441,7 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadComplete }) => {
             className="d-none"
             onChange={(e) => handleUploadFile(e.target.files[0])}
           />
-          <small className="form-text text-muted">上传的文件将替换当前的 WHY/WHAT/HOW 及分课时设计内容，此操作无法撤销。</small>
+          <small className="form-text text-muted">{tr("上传的文件将替换当前的 WHY/WHAT/HOW 及分课时设计内容，此操作无法撤销。")}</small>
         </div>
       )}
     </div>
@@ -466,7 +467,7 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onUploadC
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
 
-  const fileName = () => `${(plan && plan.title) || "乡土课程设计方案"}-课时${lessonIndex}-实施记录.docx`;
+  const fileName = () => tr("{0}-课时{lessonIndex}-实施记录.docx", { "0": (plan && plan.title) || tr("乡土课程设计方案"), lessonIndex });
 
   const fetchExecutionDocBuffer = async () => {
     const resp = await PlanDataService.downloadExecutionDoc(planId, lessonIndex);
@@ -490,7 +491,7 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onUploadC
       window.URL.revokeObjectURL(url);
     } catch (e) {
       console.log(e);
-      setMessage("下载失败。");
+      setMessage(tr("下载失败。"));
     } finally {
       setWorking("");
     }
@@ -500,22 +501,22 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onUploadC
     setMessage("");
     setWorking("preview");
     const win = window.open("", "_blank");
-    if (win) win.document.write(`<title>预览：${fileName()}</title><body>预览加载中...</body>`);
+    if (win) win.document.write(`<title>${tr("预览：")}${fileName()}</title><body>${tr("预览加载中...")}</body>`);
     try {
       const data = await fetchExecutionDocBuffer();
       const result = await mammoth.convertToHtml({ arrayBuffer: data });
       if (win) {
         win.document.open();
         win.document.write(
-          `<!doctype html><html><head><meta charset="utf-8"><title>预览：${fileName()}</title>` +
+          `<!doctype html><html><head><meta charset="utf-8"><title>${tr("预览：")}${fileName()}</title>` +
             `<style>body{max-width:800px;margin:24px auto;padding:0 16px;font-family:sans-serif;line-height:1.6;}</style>` +
-            `</head><body>${result.value || "<p>文档内容为空。</p>"}</body></html>`
+            `</head><body>${result.value || tr("<p>文档内容为空。</p>")}</body></html>`
         );
         win.document.close();
       }
     } catch (e) {
       console.log(e);
-      setMessage("预览失败。");
+      setMessage(tr("预览失败。"));
       if (win) win.close();
     } finally {
       setWorking("");
@@ -526,10 +527,10 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onUploadC
     if (!file) return;
     const ext = (file.name || "").toLowerCase().split(".").pop();
     if (ext !== "docx") {
-      setMessage("仅支持上传 .docx 文件。");
+      setMessage(tr("仅支持上传 .docx 文件。"));
       return;
     }
-    if (!window.confirm("上传新文件将覆盖本课时当前的实施记录内容，且无法撤销，确定继续吗？")) {
+    if (!window.confirm(tr("上传新文件将覆盖本课时当前的实施记录内容，且无法撤销，确定继续吗？"))) {
       return;
     }
     setMessage("");
@@ -542,11 +543,11 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onUploadC
       // plan.controller.js#uploadExecutionDoc.
       await PlanDataService.uploadExecutionDoc(planId, lessonIndex, file);
       await onUploadComplete("execution");
-      setMessage("课程实施文件已上传，实施记录已更新。");
+      setMessage(tr("课程实施文件已上传，实施记录已更新。"));
       setShowUpload(false);
     } catch (e) {
       console.log(e);
-      setMessage((e && e.response && e.response.data && e.response.data.message) || "上传失败，请确认文件格式。");
+      setMessage((e && e.response && e.response.data && e.response.data.message) || tr("上传失败，请确认文件格式。"));
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -564,23 +565,23 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onUploadC
             type="button"
             onClick={() => setShowUpload((v) => !v)}
           >
-            上传
+            {tr("上传")}
           </button>
         )}
         <button className="btn btn-outline-primary btn-sm mr-2" type="button" onClick={handleDownload} disabled={working === "download"}>
-          {working === "download" ? "下载中..." : "下载"}
+          {working === "download" ? tr("下载中...") : tr("下载")}
         </button>
         <button className="btn btn-outline-primary btn-sm" type="button" onClick={handlePreview} disabled={working === "preview"}>
-          {working === "preview" ? "生成中..." : "预览"}
+          {working === "preview" ? tr("生成中...") : tr("预览")}
         </button>
       </div>
       <div className="text-muted small mb-3">
-        “下载”“预览”均根据本课时的当前实施记录实时生成，不保存文件，每次都反映最新内容；预览将在新窗口中打开。
+        {tr("“下载”“预览”均根据本课时的当前实施记录实时生成，不保存文件，每次都反映最新内容；预览将在新窗口中打开。")}
       </div>
 
       {showUpload && canEdit && (
         <div className="form-group">
-          <label>上传课程实施文件（将覆盖本课时当前的实施记录）</label>
+          <label>{tr("上传课程实施文件（将覆盖本课时当前的实施记录）")}</label>
           <div
             className={`pl-file-drop-zone ${dragActive ? "is-dragover" : ""}`}
             onClick={() => fileInputRef.current && fileInputRef.current.click()}
@@ -595,7 +596,7 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onUploadC
               handleUploadFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
             }}
           >
-            {isUploading ? "正在解析并上传..." : "拖拽 .docx 文件到这里，或点击选择文件以覆盖当前内容"}
+            {isUploading ? tr("正在解析并上传...") : tr("拖拽 .docx 文件到这里，或点击选择文件以覆盖当前内容")}
           </div>
           <input
             ref={fileInputRef}
@@ -604,7 +605,7 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onUploadC
             className="d-none"
             onChange={(e) => handleUploadFile(e.target.files[0])}
           />
-          <small className="form-text text-muted">上传的文件将替换本课时当前的实施记录内容，此操作无法撤销。</small>
+          <small className="form-text text-muted">{tr("上传的文件将替换本课时当前的实施记录内容，此操作无法撤销。")}</small>
         </div>
       )}
     </div>
@@ -626,9 +627,9 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onUploadC
 const PLAN_STATUS_LABELS = Object.fromEntries(PLAN_STATUSES.map((s) => [s.value, s.label]));
 
 const PLAN_SECTIONS = [
-  { key: "basic", label: "基本信息" },
-  { key: "files", label: "课程设计文件" },
-  { key: "reviews", label: "计划整体点评" },
+  { key: "basic", label: tr("基本信息") },
+  { key: "files", label: tr("课程设计文件") },
+  { key: "reviews", label: tr("计划整体点评") },
 ];
 
 // What the phone layout's bar over the content says is open (see
@@ -638,25 +639,25 @@ const paneLabelOf = (selected, anchorSections) => {
   const n = selected.key;
   switch (selected.type) {
     case "plan":
-      return (PLAN_SECTIONS.find((s) => s.key === n) || { label: "计划" }).label;
+      return (PLAN_SECTIONS.find((s) => s.key === n) || { label: tr("计划") }).label;
     case "planSection":
-      return (anchorSections.find((s) => s.key === n) || { label: "计划" }).label;
+      return (anchorSections.find((s) => s.key === n) || { label: tr("计划") }).label;
     case "planManualMigration":
-      return "手动迁移内容";
+      return tr("手动迁移内容");
     case "planLesson":
-      return `分课时设计 · 课时 ${n}`;
+      return tr("分课时设计 · 课时 {n}", { n });
     case "executionDoc":
-      return `课时 ${n} · 课程实施文件`;
+      return tr("课时 {n} · 课程实施文件", { n });
     case "executionRecord":
-      return `课时 ${n} · 实施记录`;
+      return tr("课时 {n} · 实施记录", { n });
     case "execution":
-      return `课时 ${n} · 支撑材料`;
+      return tr("课时 {n} · 支撑材料", { n });
     case "executionReviews":
-      return "实施整体点评";
+      return tr("实施整体点评");
     case "admin":
-      return "管理";
+      return tr("管理");
     default:
-      return "目录";
+      return tr("目录");
   }
 };
 
@@ -852,12 +853,12 @@ const PlanDetail = (props) => {
           setExecutionFormData(draft.executionFormData);
           setExecutionDirty(true);
         }
-        setMessage("已恢复登录超时前未保存的内容，请检查后保存。");
+        setMessage(tr("已恢复登录超时前未保存的内容，请检查后保存。"));
       }
     } catch (e) {
       console.log(e);
       setPlan(null);
-      setMessage(e?.response?.data?.message || "加载课程设计详情失败。");
+      setMessage(e?.response?.data?.message || tr("加载课程设计详情失败。"));
     } finally {
       setIsLoadingPlan(false);
     }
@@ -883,7 +884,7 @@ const PlanDetail = (props) => {
         return;
       }
       if (planDirty || executionDirty || metaDirty) {
-        setMessage("欣欣小助手已修改了本课程设计，但当前页面有未保存的修改：保存将覆盖助手的修改；如需查看助手的修改，请放弃当前修改并刷新页面。");
+        setMessage(tr("欣欣小助手已修改了本课程设计，但当前页面有未保存的修改：保存将覆盖助手的修改；如需查看助手的修改，请放弃当前修改并刷新页面。"));
         return;
       }
       retrievePlan();
@@ -1014,14 +1015,14 @@ const PlanDetail = (props) => {
         try {
           await PlanDataService.update(planId, payload);
         } catch (err) {
-          setMessage(`向欣欣小助手提问前自动保存失败：${err?.response?.data?.message || "保存失败。"}`);
+          setMessage(tr("向欣欣小助手提问前自动保存失败：{0}", { "0": err?.response?.data?.message || tr("保存失败。") }));
           return false;
         }
         const now = expiryStateRef.current;
         if (now.metaForm === sent.metaForm) setMetaDirty(false);
         if (now.formData === sent.formData) setPlanDirty(false);
         if (now.executionFormData === sent.executionFormData) setExecutionDirty(false);
-        setMessage("已自动保存，欣欣小助手将基于保存后的内容回答。");
+        setMessage(tr("已自动保存，欣欣小助手将基于保存后的内容回答。"));
         PlanDataService.get(planId)
           .then((resp) => setPlan(resp.data))
           .catch(() => {});
@@ -1140,10 +1141,10 @@ const PlanDetail = (props) => {
       setMetaDirty(false);
       setPlanDirty(false);
       setExecutionDirty(false);
-      setMessage(submitStatus === "submitted" ? "课程设计已提交待点评。" : "已保存。");
+      setMessage(submitStatus === "submitted" ? tr("课程设计已提交待点评。") : tr("已保存。"));
       retrievePlan();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "保存失败。");
+      setMessage(err?.response?.data?.message || tr("保存失败。"));
     }
   };
 
@@ -1196,13 +1197,13 @@ const PlanDetail = (props) => {
   // style disappear immediately afterward since retrievePlan() re-derives
   // formData from the now-empty server state.
   const handleRemoveManualMigration = async () => {
-    if (!window.confirm("确定删除手动迁移板块吗？此操作无法撤销。")) return;
+    if (!window.confirm(tr("确定删除手动迁移板块吗？此操作无法撤销。"))) return;
     try {
       await PlanDataService.removeManualMigration(planId);
       select("plan", "basic");
       retrievePlan();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除手动迁移板块失败。");
+      setMessage(err?.response?.data?.message || tr("删除手动迁移板块失败。"));
     }
   };
 
@@ -1235,13 +1236,13 @@ const PlanDetail = (props) => {
       await PlanDataService.update(planId, { isExcellentCase: !plan.isExcellentCase });
       retrievePlan();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
   const toggleSuspend = async () => {
     if (!plan.suspended) {
-      const ok = window.confirm(`确定停用「${plan.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。`);
+      const ok = window.confirm(tr("确定停用「{plan.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。", { "plan.title": plan.title }));
       if (!ok) return;
     }
     try {
@@ -1252,14 +1253,14 @@ const PlanDetail = (props) => {
       }
       retrievePlan();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
   if (isLoadingPlan) {
     return (
       <div className="container pl-page">
-        <div className="pl-empty">加载中...</div>
+        <div className="pl-empty">{tr("加载中...")}</div>
       </div>
     );
   }
@@ -1267,7 +1268,7 @@ const PlanDetail = (props) => {
   if (!plan) {
     return (
       <div className="container pl-page">
-        <div className="alert alert-danger py-2 mb-0">{message || "加载课程设计详情失败。"}</div>
+        <div className="alert alert-danger py-2 mb-0">{message || tr("加载课程设计详情失败。")}</div>
       </div>
     );
   }
@@ -1307,7 +1308,7 @@ const PlanDetail = (props) => {
   // backend gets the same relationship, see copilotFocus.js).
   const askAiPresetList = askAiPresets({ isAuthor: isOwner, isExpert: AuthService.isExpert(), isAdmin });
   const sectionHeadingAskAi = (kind, label, extra, getDraft) => (
-    <AskAiMenu presets={askAiPresetList} unit="这一部分" target={{ kind, ...extra, labelPath: [label], getDraft }} />
+    <AskAiMenu presets={askAiPresetList} unit={tr("这一部分")} target={{ kind, ...extra, labelPath: [label], getDraft }} />
   );
 
   // 基本信息's own 小助手 menus -- the section heading plus 标题 / 乡土主题,
@@ -1322,14 +1323,14 @@ const PlanDetail = (props) => {
   const basicFieldAskAi = (fieldKey, label, keys) => (
     <AskAiMenu
       presets={basicInfoPresets(basicRole, keys)}
-      target={{ kind: "planBasic", fieldKey, labelPath: ["基本信息", label], getDraft: () => String((liveFormRef.current.metaForm || {})[fieldKey] ?? "") }}
+      target={{ kind: "planBasic", fieldKey, labelPath: [tr("基本信息"), label], getDraft: () => String((liveFormRef.current.metaForm || {})[fieldKey] ?? "") }}
     />
   );
 
   const reviewFlags = {
     aiReviewed: planReviews.some((r) => r.reviewerType === "ai"),
     expertReviewed: expertReviews.length > 0,
-    expertReviewerNames: [...new Set(expertReviews.map((r) => (r.Reviewer ? r.Reviewer.chineseName || r.Reviewer.username : "专家")))],
+    expertReviewerNames: [...new Set(expertReviews.map((r) => (r.Reviewer ? r.Reviewer.chineseName || r.Reviewer.username : tr("专家"))))],
   };
 
   const renderContent = () => {
@@ -1337,18 +1338,18 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card">
           <h6 className="ai-ask-host">
-            基本信息
-            <AskAiMenu presets={basicInfoPresets(basicRole)} unit="这一部分" target={{ kind: "planBasic", labelPath: ["基本信息"], getDraft: basicDraft }} />
+            {tr("基本信息")}
+            <AskAiMenu presets={basicInfoPresets(basicRole)} unit={tr("这一部分")} target={{ kind: "planBasic", labelPath: [tr("基本信息")], getDraft: basicDraft }} />
           </h6>
           <div className="mb-3">
             <span className={`pl-plan-card-status status-${plan.status || "draft"}`}>
               {(PLAN_STATUSES.find((s) => s.value === plan.status) || PLAN_STATUSES[0]).label}
             </span>
-            {reviewFlags.aiReviewed && <span className="pl-tag-ai ml-2">AI已点评</span>}
-            {reviewFlags.expertReviewed && <span className="pl-tag-expert ml-2">专家已点评</span>}
+            {reviewFlags.aiReviewed && <span className="pl-tag-ai ml-2">{tr("AI已点评")}</span>}
+            {reviewFlags.expertReviewed && <span className="pl-tag-expert ml-2">{tr("专家已点评")}</span>}
             {reviewFlags.expertReviewed && (
               <span className="text-muted ml-2" style={{ fontSize: "12px" }}>
-                （{reviewFlags.expertReviewerNames.join("、")}）
+                {tr("（")}{reviewFlags.expertReviewerNames.join(tr("、"))}{tr("）")}
               </span>
             )}
           </div>
@@ -1361,8 +1362,8 @@ const PlanDetail = (props) => {
             }}
           >
             <div className="form-group ai-ask-host">
-              <label>标题</label>
-              {basicFieldAskAi("title", "标题", ["suggestTitles", "checkMatch"])}
+              <label>{tr("标题")}</label>
+              {basicFieldAskAi("title", tr("标题"), ["suggestTitles", "checkMatch"])}
               {/* textarea (not a single-line input) so a long 标题 (project
                   titles here routinely run past what a single-line input can
                   show, e.g. "伞韵米香·寻味五溪——...") wraps and stays fully
@@ -1381,7 +1382,7 @@ const PlanDetail = (props) => {
             </div>
             <div className="form-row">
               <div className="form-group col-md-3">
-                <label>年份</label>
+                <label>{tr("年份")}</label>
                 <input
                   className="form-control"
                   type="number"
@@ -1392,34 +1393,34 @@ const PlanDetail = (props) => {
                 />
               </div>
               <div className="form-group col-md-3">
-                <label>学季</label>
+                <label>{tr("学季")}</label>
                 <select className="form-control" value={metaForm.season} onChange={(e) => updateMetaForm({ season: e.target.value })} disabled={!canEditPlan}>
                   {PLAN_SEASONS.map((s) => (
                     <option key={s} value={s}>
-                      {s}
+                      {tr(s)}
                     </option>
                   ))}
                 </select>
               </div>
               <div className="form-group col-md-3 ai-ask-host">
-                <label>乡土主题</label>
-                {basicFieldAskAi("theme", "乡土主题", ["suggestThemes", "suggestTitles"])}
+                <label>{tr("乡土主题")}</label>
+                {basicFieldAskAi("theme", tr("乡土主题"), ["suggestThemes", "suggestTitles"])}
                 <select className="form-control" value={metaForm.theme} onChange={(e) => updateMetaForm({ theme: e.target.value })} disabled={!canEditPlan}>
-                  <option value="">不限</option>
+                  <option value="">{tr("不限")}</option>
                   {themeOptions.map((t) => (
                     <option key={t} value={t}>
-                      {t}
+                      {tr(t)}
                     </option>
                   ))}
                 </select>
               </div>
               <div className="form-group col-md-3">
-                <label>年级</label>
+                <label>{tr("年级")}</label>
                 <select className="form-control" value={metaForm.grade} onChange={(e) => updateMetaForm({ grade: e.target.value })} disabled={!canEditPlan}>
-                  <option value="">不限</option>
+                  <option value="">{tr("不限")}</option>
                   {PLAN_GRADES.map((g) => (
                     <option key={g} value={g}>
-                      {g}
+                      {tr(g)}
                     </option>
                   ))}
                 </select>
@@ -1427,7 +1428,7 @@ const PlanDetail = (props) => {
             </div>
             <div className="form-row">
               <div className="form-group col-md-4">
-                <label>学生人数</label>
+                <label>{tr("学生人数")}</label>
                 <input
                   className="form-control"
                   type="number"
@@ -1438,7 +1439,7 @@ const PlanDetail = (props) => {
                 />
               </div>
               <div className="form-group col-md-4">
-                <label>执教人</label>
+                <label>{tr("执教人")}</label>
                 <input
                   className="form-control"
                   type="text"
@@ -1448,7 +1449,7 @@ const PlanDetail = (props) => {
                 />
               </div>
               <div className="form-group col-md-4">
-                <label>预计课时</label>
+                <label>{tr("预计课时")}</label>
                 <input
                   className="form-control"
                   type="number"
@@ -1519,9 +1520,9 @@ const PlanDetail = (props) => {
       const entries = formData._manualMigration || [];
       return (
         <div className="pl-card">
-          <h6>手动迁移内容</h6>
+          <h6>{tr("手动迁移内容")}</h6>
           <p className="text-muted">
-            以下内容来自旧版模板，新版模板中没有对应字段，请手动将需要保留的内容复制到相应板块后删除本板块。本板块不会包含在下载的文档中。
+            {tr("以下内容来自旧版模板，新版模板中没有对应字段，请手动将需要保留的内容复制到相应板块后删除本板块。本板块不会包含在下载的文档中。")}
           </p>
           {entries.map((entry, idx) => (
             <div key={idx} className="pl-card mb-2">
@@ -1531,7 +1532,7 @@ const PlanDetail = (props) => {
           ))}
           {canEditPlan && (
             <button className="btn btn-outline-danger" type="button" onClick={handleRemoveManualMigration}>
-              删除本板块
+              {tr("删除本板块")}
             </button>
           )}
         </div>
@@ -1542,7 +1543,7 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card">
           <div className="mb-2">
-            <h6 className="mb-0">课程设计文件</h6>
+            <h6 className="mb-0">{tr("课程设计文件")}</h6>
           </div>
           <DesignDocPanel planId={planId} plan={plan} canEdit={canEditPlan} onUploadComplete={onUploadComplete} />
         </div>
@@ -1552,7 +1553,7 @@ const PlanDetail = (props) => {
     if (selected.type === "plan" && selected.key === "reviews") {
       return (
         <div className="pl-card">
-          <h6>计划整体点评</h6>
+          <h6>{tr("计划整体点评")}</h6>
           <ReviewList
             planId={planId}
             lessonIndex={null}
@@ -1593,7 +1594,7 @@ const PlanDetail = (props) => {
       // ignored by DynamicSectionFields, which only reads its own field keys).
       const lesson = formData.lessons.find((l) => Number(l.index) === n) || EMPTY_LESSON;
       const lessonSchema = planTemplateSchema.lessonSchema;
-      const lessonLabel = `分课时设计 · 课时 ${n}`;
+      const lessonLabel = tr("分课时设计 · 课时 {n}", { n });
       const getLessonValues = () => ((liveFormRef.current.formData || {}).lessons || []).find((l) => Number(l.index) === n) || {};
       return (
         <div className="pl-card pl-why-what-how">
@@ -1623,7 +1624,7 @@ const PlanDetail = (props) => {
             // repeating 课时-marker pattern (or parsed before this existed).
             <>
               <div className="form-group">
-                <label>课时标题</label>
+                <label>{tr("课时标题")}</label>
                 <input
                   className="form-control"
                   value={lesson.title}
@@ -1632,7 +1633,7 @@ const PlanDetail = (props) => {
                 />
               </div>
               <div className="form-group">
-                <label>课时设计内容</label>
+                <label>{tr("课时设计内容")}</label>
                 <textarea
                   className="form-control"
                   rows="10"
@@ -1665,7 +1666,7 @@ const PlanDetail = (props) => {
       const n = selected.key;
       const record = executionFormData.find((r) => Number(r.index) === n) || {};
       const section = executionTemplateSchema.sections[0] || { fields: [] };
-      const recordLabel = `实施记录 · 课时 ${n}`;
+      const recordLabel = tr("实施记录 · 课时 {n}", { n });
       const getRecordValues = () => (liveFormRef.current.executionFormData || []).find((r) => Number(r.index) === n) || {};
       return (
         <div className="pl-card pl-why-what-how">
@@ -1701,7 +1702,7 @@ const PlanDetail = (props) => {
       return (
         <div className="pl-card">
           <div className="mb-2">
-            <h6 className="mb-0">课程实施文件 · 课时 {n}</h6>
+            <h6 className="mb-0">{tr("课程实施文件 · 课时 {n}", { n })}</h6>
           </div>
           <LessonExecutionDocPanel
             planId={planId}
@@ -1718,7 +1719,7 @@ const PlanDetail = (props) => {
       const n = selected.key;
       return (
         <div className="pl-card">
-          <h6>支撑材料 · 课时 {n}</h6>
+          <h6>{tr("支撑材料 · 课时 {n}", { n })}</h6>
           <LessonFileManager
             planId={planId}
             lessonIndex={n}
@@ -1733,7 +1734,7 @@ const PlanDetail = (props) => {
     if (selected.type === "executionReviews") {
       return (
         <div className="pl-card">
-          <h6>实施整体点评</h6>
+          <h6>{tr("实施整体点评")}</h6>
           <ReviewList
             planId={planId}
             lessonIndex={null}
@@ -1765,20 +1766,20 @@ const PlanDetail = (props) => {
     if (selected.type === "admin") {
       return (
         <div className="pl-card">
-          <h6>管理员操作</h6>
+          <h6>{tr("管理员操作")}</h6>
           <div className="form-group">
-            <label>优秀案例</label>
+            <label>{tr("优秀案例")}</label>
             <div>
               <button className="btn btn-outline-primary btn-sm" type="button" onClick={toggleExcellent}>
-                {plan.isExcellentCase ? "取消优秀案例标记" : "设为优秀案例"}
+                {plan.isExcellentCase ? tr("取消优秀案例标记") : tr("设为优秀案例")}
               </button>
             </div>
           </div>
           <div className="form-group mb-0">
-            <label>停用状态</label>
+            <label>{tr("停用状态")}</label>
             <div>
               <button className="btn btn-outline-secondary btn-sm" type="button" onClick={toggleSuspend}>
-                {plan.suspended ? "启用" : "停用"}
+                {plan.suspended ? tr("启用") : tr("停用")}
               </button>
             </div>
           </div>
@@ -1806,7 +1807,7 @@ const PlanDetail = (props) => {
       {/* Switching the phone layout's panes stays on this page -- no prompt. */}
       <Prompt
         when={[planDirty, executionDirty, metaDirty, reviewEditsPending].some(Boolean)}
-        message={(next) => isPaneSwitch(props.location.pathname, next) || "有未保存的内容，确定要离开吗？"}
+        message={(next) => isPaneSwitch(props.location.pathname, next) || tr("有未保存的内容，确定要离开吗？")}
       />
       {/* Sticky so 返回 and the page's single 保存草稿/提交待点评 pair stay in
           view however far down a long section the teacher has scrolled --
@@ -1817,7 +1818,7 @@ const PlanDetail = (props) => {
         <div className="pl-hero">
           <div className="d-flex justify-content-between align-items-center flex-wrap mb-2">
             <button type="button" className="btn btn-primary" onClick={goBack}>
-              返回
+              {tr("返回")}
             </button>
             {canEditPlan && (
               <SaveSubmitButtons
@@ -1833,23 +1834,23 @@ const PlanDetail = (props) => {
             <div>
               <h4 className="pl-title">
                 {plan.title}
-                {plan.suspended && <span className="pl-tag pl-tag-warn ml-2">已停用</span>}
+                {plan.suspended && <span className="pl-tag pl-tag-warn ml-2">{tr("已停用")}</span>}
               </h4>
               <p className="pl-subtitle">
-                {plan.theme || "-"} · {plan.grade || "-"} · {plan.year} · 状态：{PLAN_STATUS_LABELS[plan.status] || plan.status}
-                {plan.isExcellentCase ? " · 优秀案例" : ""}
+                {tr(plan.theme) || "-"} · {tr(plan.grade) || "-"} {tr("· {plan.year} · 状态：", { "plan.year": plan.year })}{PLAN_STATUS_LABELS[plan.status] || plan.status}
+                {plan.isExcellentCase ? tr(" · 优秀案例") : ""}
               </p>
             </div>
             <CompletionBadge completion={plan.completion} />
           </div>
           {plan.suspended && !isAdmin && (
-            <div className="alert alert-warning py-2 mb-0">该课程设计已被管理员停用，如需修改请联系管理员。</div>
+            <div className="alert alert-warning py-2 mb-0">{tr("该课程设计已被管理员停用，如需修改请联系管理员。")}</div>
           )}
         </div>
         {message && (
           <div className="alert alert-info py-2 mt-2 mb-0 d-flex justify-content-between align-items-center">
             <span>{message}</span>
-            <button type="button" className="close" aria-label="关闭" onClick={() => setMessage("")}>
+            <button type="button" className="close" aria-label={tr("关闭")} onClick={() => setMessage("")}>
               <span aria-hidden="true">&times;</span>
             </button>
           </div>
@@ -1864,7 +1865,7 @@ const PlanDetail = (props) => {
           type="button"
           className={`pl-explorer-hide-toggle ${navCollapsed && unseenAny ? "pl-flash-unseen" : ""}`}
           onClick={() => setNavCollapsed((prev) => !prev)}
-          title={navCollapsed ? (unseenAny ? "显示导航（有新的点评）" : "显示导航") : "隐藏导航"}
+          title={navCollapsed ? (unseenAny ? tr("显示导航（有新的点评）") : tr("显示导航")) : tr("隐藏导航")}
         >
           <i className={`fas fa-${navCollapsed ? "angle-double-right" : "angle-double-left"}`}></i>
           {navCollapsed && unseenAny && <span className="pl-unseen-dot" />}
@@ -1880,7 +1881,7 @@ const PlanDetail = (props) => {
               <button
                 type="button"
                 className={`pl-explorer-folder ${!expandedGroups.plan && unseenReviews.design ? "pl-flash-unseen" : ""}`}
-                title={!expandedGroups.plan && unseenReviews.design ? "计划整体点评有新的点评" : undefined}
+                title={!expandedGroups.plan && unseenReviews.design ? tr("计划整体点评有新的点评") : undefined}
                 onClick={() => {
                   toggleGroup("plan");
                   // 计划 itself has no content of its own -- unlike the other
@@ -1892,7 +1893,7 @@ const PlanDetail = (props) => {
                 }}
               >
                 <i className={`fas fa-chevron-${expandedGroups.plan ? "down" : "right"} pl-explorer-chevron`}></i>
-                <i className="fas fa-folder-open pl-folder-icon mr-1"></i> 计划
+                <i className="fas fa-folder-open pl-folder-icon mr-1"></i> {tr("计划")}
                 {!expandedGroups.plan && unseenReviews.design && <span className="pl-unseen-dot" />}
               </button>
               {expandedGroups.plan && (
@@ -1902,7 +1903,7 @@ const PlanDetail = (props) => {
                     className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === "basic" ? "is-active" : ""}`}
                     onClick={() => select("plan", "basic")}
                   >
-                    基本信息
+                    {tr("基本信息")}
                   </button>
                   {/* WHY/WHAT/HOW-equivalent leaves, one per anchoring-level
                       section (see anchorSections and the "planSection"
@@ -1936,7 +1937,7 @@ const PlanDetail = (props) => {
                       }`}
                       onClick={() => select("planManualMigration", "manual")}
                     >
-                      手动迁移内容
+                      {tr("手动迁移内容")}
                     </button>
                   )}
                   {/* 第二部分：分课时设计 -- part of the design document (see the
@@ -1954,7 +1955,7 @@ const PlanDetail = (props) => {
                         }}
                       >
                         <i className={`fas fa-chevron-${expandedGroups.planLessons ? "down" : "right"} pl-explorer-chevron`}></i>
-                        分课时设计
+                        {tr("分课时设计")}
                       </button>
                       {expandedGroups.planLessons && (
                         <div className="pl-explorer-children pl-explorer-children-nested">
@@ -1965,10 +1966,10 @@ const PlanDetail = (props) => {
                               className={`pl-explorer-leaf ${selected.type === "planLesson" && selected.key === n ? "is-active" : ""}`}
                               onClick={() => select("planLesson", n)}
                             >
-                              课时 {n}
+                              {tr("课时 {n}", { n })}
                             </button>
                           ))}
-                          {lessons.length === 0 && <div className="pl-explorer-empty">尚未设置预计课时</div>}
+                          {lessons.length === 0 && <div className="pl-explorer-empty">{tr("尚未设置预计课时")}</div>}
                         </div>
                       )}
                     </div>
@@ -1983,7 +1984,7 @@ const PlanDetail = (props) => {
                       className={`pl-explorer-leaf ${selected.type === "plan" && selected.key === s.key ? "is-active" : ""} ${
                         unseenReviews.design ? "pl-flash-unseen" : ""
                       }`}
-                      title={unseenReviews.design ? "有新的点评" : undefined}
+                      title={unseenReviews.design ? tr("有新的点评") : undefined}
                       onClick={() => select("plan", s.key)}
                     >
                       {s.label}
@@ -1998,14 +1999,14 @@ const PlanDetail = (props) => {
               <button
                 type="button"
                 className={`pl-explorer-folder ${!expandedGroups.execution && unseenReviews.implementation ? "pl-flash-unseen" : ""}`}
-                title={!expandedGroups.execution && unseenReviews.implementation ? "实施整体点评有新的点评" : undefined}
+                title={!expandedGroups.execution && unseenReviews.implementation ? tr("实施整体点评有新的点评") : undefined}
                 onClick={() => {
                   toggleGroup("execution");
                   select("none");
                 }}
               >
                 <i className={`fas fa-chevron-${expandedGroups.execution ? "down" : "right"} pl-explorer-chevron`}></i>
-                <i className="fas fa-folder-open pl-folder-icon mr-1"></i> 实施
+                <i className="fas fa-folder-open pl-folder-icon mr-1"></i> {tr("实施")}
                 {!expandedGroups.execution && unseenReviews.implementation && <span className="pl-unseen-dot" />}
               </button>
               {expandedGroups.execution && (
@@ -2034,7 +2035,7 @@ const PlanDetail = (props) => {
                         }}
                       >
                         <i className={`fas fa-chevron-${expandedGroups[`exec_${n}`] ? "down" : "right"} pl-explorer-chevron`}></i>
-                        课时 {n}
+                        {tr("课时 {n}", { n })}
                       </button>
                       {expandedGroups[`exec_${n}`] && (
                         <div className="pl-explorer-children pl-explorer-children-nested">
@@ -2043,20 +2044,20 @@ const PlanDetail = (props) => {
                             className={`pl-explorer-leaf ${selected.type === "executionRecord" && selected.key === n ? "is-active" : ""}`}
                             onClick={() => select("executionRecord", n)}
                           >
-                            实施记录
+                            {tr("实施记录")}
                           </button>
                           <button
                             type="button"
                             className={`pl-explorer-leaf ${selected.type === "execution" && selected.key === n ? "is-active" : ""}`}
                             onClick={() => select("execution", n)}
                           >
-                            支撑材料
+                            {tr("支撑材料")}
                           </button>
                         </div>
                       )}
                     </div>
                   ))}
-                  {lessons.length === 0 && <div className="pl-explorer-empty">尚未设置预计课时</div>}
+                  {lessons.length === 0 && <div className="pl-explorer-empty">{tr("尚未设置预计课时")}</div>}
                   {/* 实施 section review, as a sibling of the 课时N subgroups --
                       mirrors 计划's own "reviews" leaf above, but aggregates
                       segment reviews from both 设计 and 实施 (see the
@@ -2067,10 +2068,10 @@ const PlanDetail = (props) => {
                     className={`pl-explorer-leaf ${selected.type === "executionReviews" ? "is-active" : ""} ${
                       unseenReviews.implementation ? "pl-flash-unseen" : ""
                     }`}
-                    title={unseenReviews.implementation ? "有新的点评" : undefined}
+                    title={unseenReviews.implementation ? tr("有新的点评") : undefined}
                     onClick={() => select("executionReviews")}
                   >
-                    实施整体点评
+                    {tr("实施整体点评")}
                     {unseenReviews.implementation && <span className="pl-unseen-dot" />}
                   </button>
                 </div>
@@ -2083,7 +2084,7 @@ const PlanDetail = (props) => {
                 className={`pl-explorer-leaf pl-explorer-top-leaf ${selected.type === "admin" ? "is-active" : ""}`}
                 onClick={() => select("admin")}
               >
-                <i className="fas fa-cog mr-1"></i> 管理
+                <i className="fas fa-cog mr-1"></i> {tr("管理")}
               </button>
             )}
           </div>

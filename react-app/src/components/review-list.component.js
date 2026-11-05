@@ -4,6 +4,7 @@ import AuthService from "../services/auth.service";
 import { takeLocalDraft, isDraftStale } from "../utils/sessionExpiryGuard";
 import { getPendingReviewEdit, setPendingReviewEdit, clearPendingReviewEdit, reviewPayload } from "../utils/pendingReviewEdits";
 import { aiDesignScoreText } from "../utils/aiDesignScore";
+import { tr, LOCALE } from "../i18n";
 
 // Migrated from shinshin's comments-list.component.js (inline textarea-submit + list-below
 // pattern), extended with:
@@ -75,19 +76,19 @@ const AiScorePanel = ({ score: s }) => {
   return (
     <div>
       <div className="mb-2">
-        <b>AI 设计分数：{aiDesignScoreText(s)}</b>
+        <b>{tr("AI 设计分数：{aiDesignScoreText(s)}", { "aiDesignScoreText(s)": aiDesignScoreText(s) })}</b>
         <span className="text-muted small ml-2">
-          评分标准：{s.standardTitle || "AI 点评标准"}（#{s.standardId}）
-          {s.scoredAt && ` · 打分于 ${new Date(s.scoredAt).toLocaleString()}`}
+          {tr("评分标准：")}{s.standardTitle || tr("AI 点评标准")}{tr("（#")}{s.standardId}{tr("）")}
+          {s.scoredAt && tr(" · 打分于 {new Date(s.scoredAt).toLocaleString(LOCALE)}", { "new Date(s.scoredAt).toLocaleString(LOCALE)": new Date(s.scoredAt).toLocaleString(LOCALE) })}
         </span>
       </div>
       <table className="table table-sm table-bordered mb-2 pl-ai-score-table">
         <thead>
           <tr>
-            <th style={{ width: "16%" }}>维度</th>
-            <th style={{ width: "11%" }}>得分</th>
-            <th style={{ width: "38%" }}>评分理由</th>
-            <th>考察要点</th>
+            <th style={{ width: "16%" }}>{tr("维度")}</th>
+            <th style={{ width: "11%" }}>{tr("得分")}</th>
+            <th style={{ width: "38%" }}>{tr("评分理由")}</th>
+            <th>{tr("考察要点")}</th>
           </tr>
         </thead>
         <tbody>
@@ -117,7 +118,7 @@ const AiScorePanel = ({ score: s }) => {
           })}
         </tbody>
       </table>
-      {s.summary && <div>总评：{s.summary}</div>}
+      {s.summary && <div>{tr("总评：{s.summary}", { "s.summary": s.summary })}</div>}
     </div>
   );
 };
@@ -144,9 +145,9 @@ const DESIGN_SEGMENT_KEYS = ["WHY", "WHAT", "HOW", "LESSON_DESIGN"];
 // current schema no longer has, or a template whose real "WHY"/"WHAT"/"HOW"
 // keys already read fine unresolved).
 const sectionLabel = (key, lessonIdx, labels) => {
-  if (key === "LESSON_DESIGN") return `分课时设计·课时${lessonIdx}`;
-  if (key === "EXECUTION_RECORD") return `实施记录·课时${lessonIdx}`;
-  if (key === "IMPLEMENTATION_OVERALL") return "实施整体";
+  if (key === "LESSON_DESIGN") return tr("分课时设计·课时{lessonIdx}", { lessonIdx });
+  if (key === "EXECUTION_RECORD") return tr("实施记录·课时{lessonIdx}", { lessonIdx });
+  if (key === "IMPLEMENTATION_OVERALL") return tr("实施整体");
   return (labels && labels[key]) || key;
 };
 
@@ -256,7 +257,7 @@ const EditableDraftRow = ({ meta, colSpan, showModule, showScore, text, score, s
             min="0"
             max="100"
             step="0.5"
-            placeholder="可选"
+            placeholder={tr("可选")}
             value={score}
             onChange={(e) => setScore(e.target.value)}
           />
@@ -264,19 +265,19 @@ const EditableDraftRow = ({ meta, colSpan, showModule, showScore, text, score, s
       )}
       {/* The 已保存·未提交 tag under 类型 already says the rest. */}
       <td className="text-muted small" style={{ whiteSpace: "nowrap" }}>
-        {isDirty ? "有未保存的修改" : "已保存"}
+        {isDirty ? tr("有未保存的修改") : tr("已保存")}
       </td>
       <td style={{ whiteSpace: "nowrap" }}>{meta.reviewer}</td>
       <td>{meta.time}</td>
       <td style={{ whiteSpace: "nowrap" }}>
         <button className="btn btn-outline-primary btn-sm mr-1" type="button" onClick={onSave} disabled={!isDirty}>
-          保存
+          {tr("保存")}
         </button>
         <button className="btn btn-primary btn-sm mr-1" type="button" onClick={onSubmit}>
-          提交
+          {tr("提交")}
         </button>
         <button className="btn btn-link btn-sm p-0 text-danger" type="button" onClick={onDelete}>
-          删除
+          {tr("删除")}
         </button>
       </td>
     </tr>
@@ -314,16 +315,16 @@ const OtherSpotDraftRow = ({ review, userId, onPersisted, onMessage, ...rowProps
 
   const persist = async (status) => {
     if (!text.trim()) {
-      onMessage("请填写点评内容。");
+      onMessage(tr("请填写点评内容。"));
       return;
     }
     try {
       await ReviewDataService.create(review.planId, reviewPayload({ sectionKey, lessonIndex: lessonIdx, text, score }, status));
       clearPendingReviewEdit(key);
-      onMessage(status === "saved" ? "点评已保存（尚未提交，仅自己可见）。" : "");
+      onMessage(status === "saved" ? tr("点评已保存（尚未提交，仅自己可见）。") : "");
       onPersisted();
     } catch (e) {
-      onMessage(e?.response?.data?.message || (status === "saved" ? "保存点评失败。" : "提交点评失败。"));
+      onMessage(e?.response?.data?.message || (status === "saved" ? tr("保存点评失败。") : tr("提交点评失败。")));
     }
   };
 
@@ -483,7 +484,7 @@ const ReviewList = (props) => {
           if (stash && !(draft && isDraftStale(stash, draft.updatedAt))) {
             setText(stash.text || "");
             setScore(stash.score || "");
-            setMessage("已恢复登录超时前未保存的点评，请检查后保存或提交。");
+            setMessage(tr("已恢复登录超时前未保存的点评，请检查后保存或提交。"));
           }
         }
       }
@@ -500,7 +501,7 @@ const ReviewList = (props) => {
       }
     } catch (e) {
       console.log(e);
-      setMessage("加载点评列表失败。");
+      setMessage(tr("加载点评列表失败。"));
     }
   }, [planId, lessonIndex, sectionKey, aggregateScope, sectionLabels, trackSeen, onSeen, isExpertReviewer, isOwnDraft, localDraftKey, userId]);
 
@@ -518,7 +519,7 @@ const ReviewList = (props) => {
   // "submitted" (提交点评) publishes it, replacing that draft server-side.
   const persist = async (status) => {
     if (!text.trim()) {
-      setMessage("请填写点评内容。");
+      setMessage(tr("请填写点评内容。"));
       return;
     }
     try {
@@ -532,7 +533,7 @@ const ReviewList = (props) => {
       await ReviewDataService.create(planId, data);
       if (status === "saved") {
         setBaseline({ text, score });
-        setMessage("点评已保存（尚未提交，仅自己可见）。");
+        setMessage(tr("点评已保存（尚未提交，仅自己可见）。"));
       } else {
         setText("");
         setScore("");
@@ -541,7 +542,7 @@ const ReviewList = (props) => {
       }
       retrieveReviews();
     } catch (e) {
-      setMessage(e?.response?.data?.message || (status === "saved" ? "保存点评失败。" : "提交点评失败。"));
+      setMessage(e?.response?.data?.message || (status === "saved" ? tr("保存点评失败。") : tr("提交点评失败。")));
     }
   };
 
@@ -565,12 +566,12 @@ const ReviewList = (props) => {
       // kept rather than generating another.
       setMessage(
         data.alreadyCurrent
-          ? "当前课程内容已有按现行标准生成的 AI 点评（见下方列表），无需重复生成；修改课程内容后可再次请求。"
-          : `AI 点评已生成${data.aiModel ? `（${data.aiModel}）` : ""}。`
+          ? tr("当前课程内容已有按现行标准生成的 AI 点评（见下方列表），无需重复生成；修改课程内容后可再次请求。")
+          : tr("AI 点评已生成{0}。", { "0": data.aiModel ? `（${data.aiModel}）` : "" })
       );
       retrieveReviews();
     } catch (e) {
-      setMessage(e?.response?.data?.message || "AI 点评生成失败。");
+      setMessage(e?.response?.data?.message || tr("AI 点评生成失败。"));
     } finally {
       setAiLoading(false);
     }
@@ -658,7 +659,7 @@ const ReviewList = (props) => {
     if (review.sectionKey) {
       return { label: sectionLabel(review.sectionKey, review.lessonIndex, sectionLabels), navKey: review.sectionKey, clickable: !isOwnAggregateRow(review) };
     }
-    return { label: "整体", clickable: false };
+    return { label: tr("整体"), clickable: false };
   };
 
   const isMine = (review) => !!review.reviewerId && !!currentUser && String(review.reviewerId) === String(currentUser.id);
@@ -673,13 +674,13 @@ const ReviewList = (props) => {
 
   const deleteReview = async (review) => {
     if (!canDelete(review)) return;
-    if (!window.confirm(review.status === "saved" ? "确定要删除该已保存的点评吗？" : "确定要删除该点评吗？")) return;
+    if (!window.confirm(review.status === "saved" ? tr("确定要删除该已保存的点评吗？") : tr("确定要删除该点评吗？"))) return;
     try {
       await ReviewDataService.delete(review.id);
       if (isMyOtherDraft(review)) clearPendingReviewEdit(draftKeyOf(review, userId));
       retrieveReviews();
     } catch (e) {
-      setMessage(e?.response?.data?.message || "删除失败。");
+      setMessage(e?.response?.data?.message || tr("删除失败。"));
     }
   };
 
@@ -688,10 +689,10 @@ const ReviewList = (props) => {
   const columnCount = 5 + (isAggregateView ? 1 : 0) + (showScore ? 1 : 0);
 
   const headerLabel = sectionKey
-    ? `点评（${sectionLabel(sectionKey, lessonIndex, sectionLabels)}）`
+    ? tr("点评（{0}）", { "0": sectionLabel(sectionKey, lessonIndex, sectionLabels) })
     : aggregateScope === "implementation"
-    ? "点评（实施整体）"
-    : "点评（整体）";
+    ? tr("点评（实施整体）")
+    : tr("点评（整体）");
 
   return (
     <div className={embedded ? "" : "pl-card"}>
@@ -699,7 +700,7 @@ const ReviewList = (props) => {
         <h6 className="mb-0">{headerLabel}</h6>
         {canTriggerAi && (
           <button type="button" className="btn btn-sm btn-outline-primary" onClick={triggerAiReview} disabled={aiLoading}>
-            {aiLoading ? "AI点评生成中..." : "请AI点评"}
+            {aiLoading ? tr("AI点评生成中...") : tr("请AI点评")}
           </button>
         )}
       </div>
@@ -711,7 +712,7 @@ const ReviewList = (props) => {
         <form onSubmit={submit} className="mb-3">
           <div className="form-row">
             <div className="form-group col-md-2">
-              <label>评分（可选）</label>
+              <label>{tr("评分（可选）")}</label>
               <input
                 className="form-control form-control-sm"
                 type="number"
@@ -728,23 +729,23 @@ const ReviewList = (props) => {
             className="form-control mb-2"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={sectionKey ? `请针对 ${sectionLabel(sectionKey, lessonIndex, sectionLabels)} 部分填写点评...` : "请填写点评内容..."}
+            placeholder={sectionKey ? tr("请针对 {0} 部分填写点评...", { "0": sectionLabel(sectionKey, lessonIndex, sectionLabels) }) : tr("请填写点评内容...")}
           />
           <button className="btn btn-outline-primary btn-sm mr-2" type="button" onClick={() => persist("saved")} disabled={!isDirty}>
-            保存点评
+            {tr("保存点评")}
           </button>
           <button className="btn btn-primary btn-sm" type="submit">
-            提交点评
+            {tr("提交点评")}
           </button>
-          <small className="text-muted ml-2">{isDirty ? "有未保存的修改" : null}</small>
+          <small className="text-muted ml-2">{isDirty ? tr("有未保存的修改") : null}</small>
         </form>
       )}
 
       {!isExpertReviewer && !embedded && (
         <form onSubmit={submit} className="mb-3">
-          <textarea rows="3" className="form-control mb-2" value={text} onChange={(e) => setText(e.target.value)} placeholder="请填写留言..." />
+          <textarea rows="3" className="form-control mb-2" value={text} onChange={(e) => setText(e.target.value)} placeholder={tr("请填写留言...")} />
           <button className="btn btn-primary btn-sm" type="submit">
-            提交
+            {tr("提交")}
           </button>
         </form>
       )}
@@ -752,21 +753,21 @@ const ReviewList = (props) => {
       {/* aiLoading takes priority over message: it's the one that must
           survive a remount (see the aiPending/setAiPending comment above),
           so it can't be baked into the local, mount-scoped message state. */}
-      {(aiLoading || message) && <div className="alert alert-info py-2">{aiLoading ? "AI点评生成中…" : message}</div>}
+      {(aiLoading || message) && <div className="alert alert-info py-2">{aiLoading ? tr("AI点评生成中…") : message}</div>}
 
-      {reviews.length === 0 && <div className="pl-empty">暂无点评</div>}
+      {reviews.length === 0 && <div className="pl-empty">{tr("暂无点评")}</div>}
 
       {reviews.length > 0 && (
         <table className="table table-sm table-bordered mb-0">
           <thead>
             <tr>
-              <th>类型</th>
-              {isAggregateView && <th>模块</th>}
-              {showScore && <th>评分</th>}
-              <th>内容</th>
-              <th>点评人</th>
-              <th>时间</th>
-              <th>操作</th>
+              <th>{tr("类型")}</th>
+              {isAggregateView && <th>{tr("模块")}</th>}
+              {showScore && <th>{tr("评分")}</th>}
+              <th>{tr("内容")}</th>
+              <th>{tr("点评人")}</th>
+              <th>{tr("时间")}</th>
+              <th>{tr("操作")}</th>
             </tr>
           </thead>
           <tbody>
@@ -774,27 +775,27 @@ const ReviewList = (props) => {
               const isLong = review.content && review.content.length > CONTENT_PREVIEW_LENGTH;
               const isExpanded = expandedIds.has(review.id);
               const updatedBadge = showUpdatedBadge(review) && (
-                <span className="pl-tag pl-tag-warn ml-1" title="课程内容已在此点评后被修改">
-                  内容已更新
+                <span className="pl-tag pl-tag-warn ml-1" title={tr("课程内容已在此点评后被修改")}>
+                  {tr("内容已更新")}
                 </span>
               );
               const typeTags = (
                 <>
                   {review.reviewerType === "ai" ? (
-                    <span className="pl-tag-ai" title={[review.aiModel && `模型：${review.aiModel}`, review.standardId && `依据 AI 点评标准 #${review.standardId}`].filter(Boolean).join(" · ") || undefined}>
-                      AI点评
+                    <span className="pl-tag-ai" title={[review.aiModel && tr("模型：{review.aiModel}", { "review.aiModel": review.aiModel }), review.standardId && tr("依据 AI 点评标准 #{review.standardId}", { "review.standardId": review.standardId })].filter(Boolean).join(" · ") || undefined}>
+                      {tr("AI点评")}
                     </span>
                   ) : review.reviewerType === "admin" ? (
-                    <span className="pl-tag-admin">管理员点评</span>
+                    <span className="pl-tag-admin">{tr("管理员点评")}</span>
                   ) : (
-                    <span className="pl-tag-expert">专家点评</span>
+                    <span className="pl-tag-expert">{tr("专家点评")}</span>
                   )}
                   {review.status === "saved" && (
-                    <span className="pl-tag ml-1" title="仅自己可见，提交后教师与其他人才能看到">
-                      已保存·未提交
+                    <span className="pl-tag ml-1" title={tr("仅自己可见，提交后教师与其他人才能看到")}>
+                      {tr("已保存·未提交")}
                     </span>
                   )}
-                  {newIds.has(review.id) && <span className="pl-tag pl-tag-new ml-1">新</span>}
+                  {newIds.has(review.id) && <span className="pl-tag pl-tag-new ml-1">{tr("新")}</span>}
                   {!isAggregateView && updatedBadge}
                 </>
               );
@@ -815,8 +816,8 @@ const ReviewList = (props) => {
                     </>
                   );
                 })();
-              const reviewerName = review.reviewerType === "ai" ? "AI智能体" : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-";
-              const timeText = review.createdAt ? new Date(review.createdAt).toLocaleString("zh-cn") : "-";
+              const reviewerName = review.reviewerType === "ai" ? tr("AI智能体") : review.Reviewer ? review.Reviewer.chineseName || review.Reviewer.username : "-";
+              const timeText = review.createdAt ? new Date(review.createdAt).toLocaleString(LOCALE) : "-";
               const meta = { tags: typeTags, module: moduleContent, reviewer: reviewerName, time: timeText };
 
               if (isExpertReviewer && isOwnDraft(review)) {
@@ -867,7 +868,7 @@ const ReviewList = (props) => {
                 <button
                   type="button"
                   className={`btn btn-link btn-sm p-0${scoreOpen ? " font-weight-bold" : ""}`}
-                  title={scoreOpen ? "返回点评内容" : "查看各维度得分与评分标准"}
+                  title={scoreOpen ? tr("返回点评内容") : tr("查看各维度得分与评分标准")}
                   aria-pressed={scoreOpen}
                   onClick={() => showScoreView(review.id, !scoreOpen)}
                 >
@@ -892,15 +893,15 @@ const ReviewList = (props) => {
                     <button
                       type="button"
                       className="btn btn-link p-0 mr-2"
-                      title="打开欣欣小助手，就这条点评继续提问"
+                      title={tr("打开欣欣小助手，就这条点评继续提问")}
                       onClick={() => window.dispatchEvent(new CustomEvent("copilot:open", { detail: { reviewId: review.id } }))}
                     >
-                      讨论
+                      {tr("讨论")}
                     </button>
                   )}
                   {canDelete(review) ? (
                     <button className="btn btn-link p-0 text-danger" onClick={() => deleteReview(review)}>
-                      删除
+                      {tr("删除")}
                     </button>
                   ) : null}
                 </>
@@ -917,7 +918,7 @@ const ReviewList = (props) => {
                 const collapsed = isLongAi && !isExpanded;
                 const toggle = isLongAi && (
                   <button type="button" className="btn btn-link btn-sm p-0" onClick={() => toggleExpanded(review.id)}>
-                    {isExpanded ? "收起" : "展开全文"}
+                    {isExpanded ? tr("收起") : tr("展开全文")}
                   </button>
                 );
                 return (
@@ -929,10 +930,10 @@ const ReviewList = (props) => {
                       <td className="small" style={{ whiteSpace: "nowrap" }}>
                         {scoreOpen ? (
                           <button type="button" className="btn btn-link btn-sm p-0" onClick={() => showScoreView(review.id, false)}>
-                            查看点评
+                            {tr("查看点评")}
                           </button>
                         ) : (
-                          toggle || <span className="text-muted">见下方</span>
+                          toggle || <span className="text-muted">{tr("见下方")}</span>
                         )}
                       </td>
                       <td style={{ whiteSpace: "nowrap" }}>{reviewerName}</td>
@@ -962,7 +963,7 @@ const ReviewList = (props) => {
                     {isLong && !isExpanded ? `${review.content.slice(0, CONTENT_PREVIEW_LENGTH)}...` : review.content}
                     {isLong && (
                       <button type="button" className="btn btn-link btn-sm p-0 ml-1" onClick={() => toggleExpanded(review.id)}>
-                        {isExpanded ? "收起" : "展开"}
+                        {isExpanded ? tr("收起") : tr("展开")}
                       </button>
                     )}
                   </td>

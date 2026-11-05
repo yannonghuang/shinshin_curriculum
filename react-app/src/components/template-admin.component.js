@@ -6,10 +6,11 @@ import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
 import { PLAN_DELETE_CONFIRM } from "../constants/plan-options";
 import "../curriculum.css";
+import { tr, LOCALE } from "../i18n";
 
 const TEMPLATE_KEYS = [
-  { key: "plan_design", label: "课程设计方案模板（WHY/WHAT/HOW）" },
-  { key: "lesson_execution", label: "课时实施记录模板" },
+  { key: "plan_design", label: tr("课程设计方案模板（WHY/WHAT/HOW）") },
+  { key: "lesson_execution", label: tr("课时实施记录模板") },
 ];
 
 // Recursively renders one schema section's true nested outline (section.
@@ -92,7 +93,7 @@ const TemplateAdmin = () => {
         version,
         plans: [],
         loading: false,
-        message: err?.response?.data?.message || "加载相关课程计划失败。",
+        message: err?.response?.data?.message || tr("加载相关课程计划失败。"),
       });
     }
   };
@@ -115,13 +116,13 @@ const TemplateAdmin = () => {
       await PlanDataService.update(item.id, { isExcellentCase: !item.isExcellentCase });
       patchDependentPlan(item.id, { isExcellentCase: !item.isExcellentCase });
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
   const toggleDependentSuspend = async (item) => {
     if (!item.suspended) {
-      const ok = window.confirm(`确定停用「${item.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。`);
+      const ok = window.confirm(tr("确定停用「{item.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。", { "item.title": item.title }));
       if (!ok) return;
     }
     try {
@@ -132,7 +133,7 @@ const TemplateAdmin = () => {
       }
       patchDependentPlan(item.id, { suspended: !item.suspended });
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
@@ -160,7 +161,7 @@ const TemplateAdmin = () => {
       // page by hand.
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除失败。");
+      setMessage(err?.response?.data?.message || tr("删除失败。"));
     }
   };
 
@@ -174,7 +175,7 @@ const TemplateAdmin = () => {
       setVersionsByKey(next);
     } catch (e) {
       console.log(e);
-      setMessage("加载模板版本失败。");
+      setMessage(tr("加载模板版本失败。"));
     }
   }, []);
 
@@ -188,10 +189,10 @@ const TemplateAdmin = () => {
     setUploadingKey(templateKey);
     try {
       await TemplateDataService.upload(templateKey, file);
-      setMessage("模板已上传为新版本（未启用）。请查看字段，确认无误后手动设为启用。");
+      setMessage(tr("模板已上传为新版本（未启用）。请查看字段，确认无误后手动设为启用。"));
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "模板上传失败。");
+      setMessage(err?.response?.data?.message || tr("模板上传失败。"));
     } finally {
       setUploadingKey("");
     }
@@ -200,15 +201,15 @@ const TemplateAdmin = () => {
   const toggleExpanded = (id) => setExpandedVersionId((prev) => (prev === id ? null : id));
 
   const handleActivate = async (templateKey, version) => {
-    if (!window.confirm(`确定将 v${version.version} 设为启用版本吗？此后新建的乡土课程设计将使用该版本的字段。`)) return;
+    if (!window.confirm(tr("确定将 v{version.version} 设为启用版本吗？此后新建的乡土课程设计将使用该版本的字段。", { "version.version": version.version }))) return;
     setMessage("");
     setBusyVersionId(version.id);
     try {
       await TemplateDataService.activate(templateKey, version.id);
-      setMessage(`v${version.version} 已启用。`);
+      setMessage(tr("v{version.version} 已启用。", { "version.version": version.version }));
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "启用失败。");
+      setMessage(err?.response?.data?.message || tr("启用失败。"));
     } finally {
       setBusyVersionId(null);
     }
@@ -217,7 +218,7 @@ const TemplateAdmin = () => {
   const handleMigrate = async (templateKey, version) => {
     if (
       !window.confirm(
-        `确定为 v${version.version} 发起迁移吗？使用该版本的 ${version.dependentPlanCount} 个乡土课程设计将提示相关教师迁移到当前启用版本。`
+        tr("确定为 v{version.version} 发起迁移吗？使用该版本的 {version.dependentPlanCount} 个乡土课程设计将提示相关教师迁移到当前启用版本。", { "version.version": version.version, "version.dependentPlanCount": version.dependentPlanCount })
       )
     )
       return;
@@ -225,25 +226,25 @@ const TemplateAdmin = () => {
     setBusyVersionId(version.id);
     try {
       const resp = await TemplateDataService.migrate(templateKey, version.id);
-      setMessage(resp.data && resp.data.message ? resp.data.message : "已发起迁移。");
+      setMessage(resp.data && resp.data.message ? resp.data.message : tr("已发起迁移。"));
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "发起迁移失败。");
+      setMessage(err?.response?.data?.message || tr("发起迁移失败。"));
     } finally {
       setBusyVersionId(null);
     }
   };
 
   const handleDelete = async (templateKey, version) => {
-    if (!window.confirm(`确定永久删除 v${version.version} 吗？此操作无法撤销。`)) return;
+    if (!window.confirm(tr("确定永久删除 v{version.version} 吗？此操作无法撤销。", { "version.version": version.version }))) return;
     setMessage("");
     setBusyVersionId(version.id);
     try {
       await TemplateDataService.delete(templateKey, version.id, true);
-      setMessage(`v${version.version} 已删除。`);
+      setMessage(tr("v{version.version} 已删除。", { "version.version": version.version }));
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除失败。");
+      setMessage(err?.response?.data?.message || tr("删除失败。"));
     } finally {
       setBusyVersionId(null);
     }
@@ -273,7 +274,7 @@ const TemplateAdmin = () => {
       setTimeout(() => window.URL.revokeObjectURL(url), 60000);
     } catch (err) {
       console.log(err);
-      setMessage("模板下载失败。");
+      setMessage(tr("模板下载失败。"));
     }
   };
 
@@ -285,22 +286,22 @@ const TemplateAdmin = () => {
     setMessage("");
     const label = version.sourceFileName || `${templateKey}-v${version.version}.docx`;
     const win = window.open("", "_blank");
-    if (win) win.document.write(`<title>预览：${label}</title><body>预览加载中...</body>`);
+    if (win) win.document.write(`<title>${tr("预览：")}${label}</title><body>${tr("预览加载中...")}</body>`);
     try {
       const resp = await TemplateDataService.download(templateKey, version.id);
       const result = await mammoth.convertToHtml({ arrayBuffer: resp.data });
       if (win) {
         win.document.open();
         win.document.write(
-          `<!doctype html><html><head><meta charset="utf-8"><title>预览：${label}</title>` +
+          `<!doctype html><html><head><meta charset="utf-8"><title>${tr("预览：")}${label}</title>` +
             `<style>body{max-width:800px;margin:24px auto;padding:0 16px;font-family:sans-serif;line-height:1.6;}</style>` +
-            `</head><body>${result.value || "<p>文档内容为空。</p>"}</body></html>`
+            `</head><body>${result.value || tr("<p>文档内容为空。</p>")}</body></html>`
         );
         win.document.close();
       }
     } catch (err) {
       console.log(err);
-      setMessage("模板预览失败。");
+      setMessage(tr("模板预览失败。"));
       if (win) win.close();
     }
   };
@@ -324,7 +325,7 @@ const TemplateAdmin = () => {
       setNoteDraft("");
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "保存备注失败。");
+      setMessage(err?.response?.data?.message || tr("保存备注失败。"));
     } finally {
       setBusyVersionId(null);
     }
@@ -332,7 +333,7 @@ const TemplateAdmin = () => {
 
   return (
     <div className="container pl-page">
-      <h4 className="pl-title mb-3">模板管理</h4>
+      <h4 className="pl-title mb-3">{tr("模板管理")}</h4>
       {message && <div className="alert alert-info py-2">{message}</div>}
 
       {TEMPLATE_KEYS.map((t) => {
@@ -342,7 +343,7 @@ const TemplateAdmin = () => {
             <div className="d-flex justify-content-between align-items-center mb-2">
               <h6 className="mb-0">{t.label}</h6>
               <label className="btn btn-outline-primary btn-sm mb-0">
-                {uploadingKey === t.key ? "上传中..." : "上传新版本"}
+                {uploadingKey === t.key ? tr("上传中...") : tr("上传新版本")}
                 <input
                   type="file"
                   accept=".docx"
@@ -357,29 +358,29 @@ const TemplateAdmin = () => {
             </div>
 
             {versions.length === 0 ? (
-              <div className="pl-empty">暂无版本。</div>
+              <div className="pl-empty">{tr("暂无版本。")}</div>
             ) : (
               <table className="table table-sm">
                 <thead>
                   <tr>
-                    <th>版本</th>
-                    <th>状态</th>
-                    <th>备注</th>
-                    <th>来源文件</th>
-                    <th>上传人</th>
-                    <th>创建时间</th>
-                    <th>字段</th>
+                    <th>{tr("版本")}</th>
+                    <th>{tr("状态")}</th>
+                    <th>{tr("备注")}</th>
+                    <th>{tr("来源文件")}</th>
+                    <th>{tr("上传人")}</th>
+                    <th>{tr("创建时间")}</th>
+                    <th>{tr("字段")}</th>
                     <th
                       role="button"
                       onClick={toggleDependentSort}
                       style={{ cursor: "pointer", userSelect: "none" }}
-                      title="点击排序"
+                      title={tr("点击排序")}
                     >
-                      相关课程计划
+                      {tr("相关课程计划")}
                       {dependentSortDir === "desc" && " ▼"}
                       {dependentSortDir === "asc" && " ▲"}
                     </th>
-                    <th>操作</th>
+                    <th>{tr("操作")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -387,7 +388,7 @@ const TemplateAdmin = () => {
                     <React.Fragment key={v.id}>
                       <tr>
                         <td>v{v.version}</td>
-                        <td>{v.isActive ? <span className="pl-tag">启用中</span> : "-"}</td>
+                        <td>{v.isActive ? <span className="pl-tag">{tr("启用中")}</span> : "-"}</td>
                         <td style={{ minWidth: 180 }}>
                           {editingNoteId === v.id ? (
                             <div>
@@ -403,27 +404,27 @@ const TemplateAdmin = () => {
                                 disabled={busyVersionId === v.id}
                                 onClick={() => saveNote(t.key, v)}
                               >
-                                保存
+                                {tr("保存")}
                               </button>
                               <button className="btn btn-outline-secondary btn-sm" type="button" onClick={cancelEditNote}>
-                                取消
+                                {tr("取消")}
                               </button>
                             </div>
                           ) : (
                             <div>
                               {v.notes ? <div className="mb-1" style={{ whiteSpace: "pre-wrap" }}>{v.notes}</div> : null}
                               <button className="btn btn-link p-0" type="button" onClick={() => startEditNote(v)}>
-                                {v.notes ? "编辑备注" : "添加备注"}
+                                {v.notes ? tr("编辑备注") : tr("添加备注")}
                               </button>
                             </div>
                           )}
                         </td>
-                        <td>{v.sourceFileName || "（初始模板）"}</td>
+                        <td>{v.sourceFileName || tr("（初始模板）")}</td>
                         <td>{v.Uploader ? v.Uploader.chineseName || v.Uploader.username : "-"}</td>
-                        <td>{v.createdAt ? new Date(v.createdAt).toLocaleString() : "-"}</td>
+                        <td>{v.createdAt ? new Date(v.createdAt).toLocaleString(LOCALE) : "-"}</td>
                         <td>
                           <button className="btn btn-link p-0" type="button" onClick={() => toggleExpanded(v.id)}>
-                            {expandedVersionId === v.id ? "收起" : "查看字段"}
+                            {expandedVersionId === v.id ? tr("收起") : tr("查看字段")}
                           </button>
                         </td>
                         <td>
@@ -441,14 +442,14 @@ const TemplateAdmin = () => {
                             type="button"
                             onClick={() => handleDownload(t.key, v)}
                           >
-                            下载
+                            {tr("下载")}
                           </button>
                           <button
                             className="btn btn-outline-primary btn-sm mr-1"
                             type="button"
                             onClick={() => handlePreview(t.key, v)}
                           >
-                            预览
+                            {tr("预览")}
                           </button>
                           {/* Migration (plan_design only -- see
                               templateMigration.js) only makes sense for a
@@ -472,9 +473,9 @@ const TemplateAdmin = () => {
                             v.migrationInitiatedAt ? (
                               <span
                                 className="pl-tag mr-1"
-                                title={`发起于 ${new Date(v.migrationInitiatedAt).toLocaleString()}`}
+                                title={tr("发起于 {0}", { "0": new Date(v.migrationInitiatedAt).toLocaleString(LOCALE) })}
                               >
-                                已发起迁移
+                                {tr("已发起迁移")}
                               </span>
                             ) : (
                               <button
@@ -483,7 +484,7 @@ const TemplateAdmin = () => {
                                 disabled={busyVersionId === v.id}
                                 onClick={() => handleMigrate(t.key, v)}
                               >
-                                发起迁移
+                                {tr("发起迁移")}
                               </button>
                             )
                           )}
@@ -494,7 +495,7 @@ const TemplateAdmin = () => {
                               disabled={busyVersionId === v.id}
                               onClick={() => handleActivate(t.key, v)}
                             >
-                              设为启用
+                              {tr("设为启用")}
                             </button>
                           )}
                           {!v.isActive && (
@@ -504,7 +505,7 @@ const TemplateAdmin = () => {
                               disabled={busyVersionId === v.id}
                               onClick={() => handleDelete(t.key, v)}
                             >
-                              删除
+                              {tr("删除")}
                             </button>
                           )}
                         </td>
@@ -525,9 +526,9 @@ const TemplateAdmin = () => {
                                 key="lessonSchema"
                                 depth={0}
                                 section={{
-                                  label: `${v.schemaJson.lessonBreakdownLabel || "分课时设计"} · 每课时重复（如：${renderLessonMarkerPlaceholder(
+                                  label: tr("{0} · 每课时重复（如：{1}）", { "0": v.schemaJson.lessonBreakdownLabel || tr("分课时设计"), "1": renderLessonMarkerPlaceholder(
                                     v.schemaJson.lessonSchema.marker
-                                  )}）`,
+                                  ) }),
                                   fields: v.schemaJson.lessonSchema.fields,
                                   ownFields: v.schemaJson.lessonSchema.fields,
                                   subsections: v.schemaJson.lessonSchema.subsections,
@@ -550,17 +551,17 @@ const TemplateAdmin = () => {
         <div className="pl-modal-backdrop" onClick={closeDependentModal}>
           <div className="pl-modal pl-modal-wide" onClick={(e) => e.stopPropagation()}>
             <div className="d-flex justify-content-between align-items-center mb-2">
-              <h6 className="mb-0">相关课程计划 · v{dependentModal.version.version}</h6>
+              <h6 className="mb-0">{tr("相关课程计划 · v{dependentModal.version.version}", { "dependentModal.version.version": dependentModal.version.version })}</h6>
               <button className="btn btn-link p-0" type="button" onClick={closeDependentModal}>
-                关闭
+                {tr("关闭")}
               </button>
             </div>
             {dependentModal.loading ? (
-              <div className="pl-empty">加载中...</div>
+              <div className="pl-empty">{tr("加载中...")}</div>
             ) : dependentModal.message ? (
               <div className="alert alert-danger py-2">{dependentModal.message}</div>
             ) : dependentModal.plans.length === 0 ? (
-              <div className="pl-empty">暂无相关课程计划。</div>
+              <div className="pl-empty">{tr("暂无相关课程计划。")}</div>
             ) : (
               // The actual plan list, in place -- same PlanCard used by
               // plans-list.component.js/plans-hierarchy.component.js, tags

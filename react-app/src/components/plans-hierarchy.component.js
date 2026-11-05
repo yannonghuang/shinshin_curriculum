@@ -10,6 +10,7 @@ import { announceTrashChanged } from "./trash-button.component";
 import { useExplorerPane, ExplorerPaneBar } from "./explorer-pane";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
+import { tr } from "../i18n";
 
 const formatSchoolOptionLabel = (option) => (
   <div>
@@ -41,7 +42,7 @@ const seasonRank = (season) => (season === "秋季" ? 2 : season === "春季" ? 
 // Plans whose teacher has no school on file (legacy data predating the
 // school-required enforcement) are bucketed here rather than hidden.
 const UNASSIGNED_SCHOOL_KEY = "__unassigned__";
-const UNASSIGNED_SCHOOL_NAME = "未分配学校";
+const UNASSIGNED_SCHOOL_NAME = tr("未分配学校");
 
 // Groups a flat plan list into { key, year, season, schoolList: [{ schoolKey,
 // schoolName, teacherList: [{ teacherId, teacherName, plans }] }] }, sorted
@@ -67,7 +68,7 @@ const buildHierarchy = (plans) => {
 
     const teacherId = plan.teacherId;
     if (!schoolGroup.teachers.has(teacherId)) {
-      const teacherName = (plan.Teacher && (plan.Teacher.chineseName || plan.Teacher.username)) || `教师 #${teacherId}`;
+      const teacherName = (plan.Teacher && (plan.Teacher.chineseName || plan.Teacher.username)) || tr("教师 #{teacherId}", { teacherId });
       // isSeed: only present for an admin requester (plan.controller.js#findAll).
       const isSeed = !!(plan.Teacher && plan.Teacher.isSeed);
       schoolGroup.teachers.set(teacherId, { teacherId, teacherName, isSeed, plans: [] });
@@ -185,7 +186,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
       setPlans(resp.data.rows || []);
     } catch (e) {
       console.log(e);
-      setMessage("加载课程设计数据失败。");
+      setMessage(tr("加载课程设计数据失败。"));
     }
   }, [statusFilter, excellentOnly, showSeedToggle, filterSeed]);
 
@@ -402,11 +403,11 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     if (!ok) return;
     try {
       await PlanDataService.delete(item.id, true);
-      setMessage("课程设计已移入回收站。");
+      setMessage(tr("课程设计已移入回收站。"));
       announceTrashChanged();
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除失败。");
+      setMessage(err?.response?.data?.message || tr("删除失败。"));
     }
   };
   const toggleExcellent = async (item) => {
@@ -414,12 +415,12 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
       await PlanDataService.update(item.id, { isExcellentCase: !item.isExcellentCase });
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
   const toggleSuspend = async (item) => {
     if (!item.suspended) {
-      const ok = window.confirm(`确定停用「${item.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。`);
+      const ok = window.confirm(tr("确定停用「{item.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。", { "item.title": item.title }));
       if (!ok) return;
     }
     try {
@@ -427,19 +428,19 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
       else await PlanDataService.suspend(item.id);
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
   const toggleSeed = async (teacher) => {
     const next = !teacher.isSeed;
-    if (!next && !window.confirm(`确定取消「${teacher.teacherName}」的种子教师标记吗？`)) return;
+    if (!next && !window.confirm(tr("确定取消「{teacher.teacherName}」的种子教师标记吗？", { "teacher.teacherName": teacher.teacherName }))) return;
     try {
       const resp = await AdminUserDataService.setSeed(teacher.teacherId, next);
-      setMessage(resp.data && resp.data.message ? resp.data.message : "操作成功。");
+      setMessage(resp.data && resp.data.message ? resp.data.message : tr("操作成功。"));
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
@@ -453,34 +454,34 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
         <div className="mb-3">
           <div className="form-row">
             <div className="form-group col-md-4">
-              <label>教师姓名筛选</label>
+              <label>{tr("教师姓名筛选")}</label>
               <input
                 className="form-control"
-                placeholder="按教师姓名搜索"
+                placeholder={tr("按教师姓名搜索")}
                 value={filterTeacherName}
                 onChange={(e) => setFilterTeacherName(e.target.value)}
               />
             </div>
             <div className="form-group col-md-4">
-              <label htmlFor="schoolFilter">学校名称筛选</label>
+              <label htmlFor="schoolFilter">{tr("学校名称筛选")}</label>
               <Select
                 inputId="schoolFilter"
                 options={schoolOptions}
                 value={schoolOptions.find((o) => o.label === filterSchoolName) || null}
                 onChange={(option) => setFilterSchoolName(option ? option.label : "")}
-                placeholder="搜索并选择学校（支持名称/代码）..."
+                placeholder={tr("搜索并选择学校（支持名称/代码）...")}
                 formatOptionLabel={formatSchoolOptionLabel}
                 filterOption={schoolFilterOption}
                 isClearable
               />
             </div>
             <div className="form-group col-md-4">
-              <label>主题筛选</label>
+              <label>{tr("主题筛选")}</label>
               <select className="form-control" value={filterTheme} onChange={(e) => setFilterTheme(e.target.value)}>
-                <option value="">全部主题</option>
+                <option value="">{tr("全部主题")}</option>
                 {themeOptions.map((theme) => (
                   <option key={theme} value={theme}>
-                    {theme}
+                    {tr(theme)}
                   </option>
                 ))}
               </select>
@@ -496,7 +497,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
               className={`pl-filter-toggle ${filterSubmitted ? "is-active" : ""}`}
               onClick={() => setFilterSubmitted((prev) => !prev)}
             >
-              已提交
+              {tr("已提交")}
             </button>
           )}
           <button
@@ -504,23 +505,23 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
             className={`pl-filter-toggle pl-filter-toggle-ai ${filterAiReviewed ? "is-active" : ""}`}
             onClick={() => setFilterAiReviewed((prev) => !prev)}
           >
-            AI已点评
+            {tr("AI已点评")}
           </button>
           <button
             type="button"
             className={`pl-filter-toggle pl-filter-toggle-expert ${filterExpertReviewed ? "is-active" : ""}`}
             onClick={() => setFilterExpertReviewed((prev) => !prev)}
           >
-            专家已点评
+            {tr("专家已点评")}
           </button>
           {showSeedToggle && (
             <button
               type="button"
               className={`pl-filter-toggle pl-filter-toggle-seed ${filterSeed ? "is-active" : ""}`}
               onClick={() => setFilterSeed((prev) => !prev)}
-              title="只看种子教师的课程"
+              title={tr("只看种子教师的课程")}
             >
-              <i className="fas fa-seedling mr-1"></i>种子教师
+              <i className="fas fa-seedling mr-1"></i>{tr("种子教师")}
             </button>
           )}
         </div>
@@ -530,19 +531,19 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
         type="button"
         className="pl-explorer-hide-toggle"
         onClick={() => setNavCollapsed((prev) => !prev)}
-        title={navCollapsed ? "显示导航" : "隐藏导航"}
+        title={navCollapsed ? tr("显示导航") : tr("隐藏导航")}
       >
         <i className={`fas fa-${navCollapsed ? "angle-double-right" : "angle-double-left"}`}></i>
       </button>
 
       {!navCollapsed && (
         <div className="pl-explorer-nav" onClick={pane.onNavClick}>
-          {groups.length === 0 && <div className="pl-explorer-empty">暂无课程设计</div>}
+          {groups.length === 0 && <div className="pl-explorer-empty">{tr("暂无课程设计")}</div>}
           {groups.map((g) => (
             <div className="pl-explorer-group" key={g.key}>
               <button type="button" className="pl-explorer-folder" onClick={() => toggleGroup(g.key)}>
                 <i className={`fas fa-chevron-${expandedGroups[g.key] ? "down" : "right"} pl-explorer-chevron`}></i>
-                <i className="fas fa-folder-open pl-folder-icon mr-1"></i> {g.year}年 {g.season || "未设置学期"}
+                <i className="fas fa-folder-open pl-folder-icon mr-1"></i> {tr("{g.year}年", { "g.year": g.year })} {g.season ? tr(g.season) : tr("未设置学期")}
               </button>
               {expandedGroups[g.key] && (
                 <div className="pl-explorer-children">
@@ -575,7 +576,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
                                 onClick={() => selectTeacher(g.key, s.schoolKey, t.teacherId)}
                               >
                                 {t.teacherName}
-                                {canEditSeed && t.isSeed && <span className="pl-tag-seed ml-1">种子</span>}
+                                {canEditSeed && t.isSeed && <span className="pl-tag-seed ml-1">{tr("种子")}</span>}
                               </button>
                             ))}
                           </div>
@@ -594,29 +595,29 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
         <ExplorerPaneBar
           label={
             selectedTeacher
-              ? `${selectedTeacher.teacherName} · ${selectedGroup.year}年${selectedGroup.season || ""} · ${selectedSchool.schoolName}`
-              : "选择教师"
+              ? tr("{selectedTeacher.teacherName} · {selectedGroup.year}年{2} · {selectedSchool.schoolName}", { "selectedTeacher.teacherName": selectedTeacher.teacherName, "selectedGroup.year": selectedGroup.year, "2": selectedGroup.season || "", "selectedSchool.schoolName": selectedSchool.schoolName })
+              : tr("选择教师")
           }
           onBack={pane.openNav}
         />
         {message && <div className="alert alert-info py-2">{message}</div>}
         {!selectedTeacher ? (
-          <div className="pl-empty">请选择左侧的教师，查看其课程设计</div>
+          <div className="pl-empty">{tr("请选择左侧的教师，查看其课程设计")}</div>
         ) : (
           <div className="pl-card">
             <h6>
-              {selectedTeacher.teacherName} 的{excellentOnly ? "优秀案例" : "乡土课程"} -- {selectedGroup.year}年{" "}
-              {selectedGroup.season || "未设置学期"}
-              （共 {selectedTeacher.plans.length} 项）
+              {tr("{selectedTeacher.teacherName} 的", { "selectedTeacher.teacherName": selectedTeacher.teacherName })}{excellentOnly ? tr("优秀案例") : tr("乡土课程")} {tr("-- {selectedGroup.year}年 ", { "selectedGroup.year": selectedGroup.year })}
+              {selectedGroup.season ? tr(selectedGroup.season) : tr("未设置学期")}
+              {tr("（共 {selectedTeacher.plans.length} 项）", { "selectedTeacher.plans.length": selectedTeacher.plans.length })}
               {canEditSeed && (
                 <>
                   {selectedTeacher.isSeed && (
                     <span className="pl-tag-seed ml-2">
-                      <i className="fas fa-seedling mr-1"></i>种子教师
+                      <i className="fas fa-seedling mr-1"></i>{tr("种子教师")}
                     </span>
                   )}
                   <button type="button" className="btn btn-link btn-sm p-0 ml-2" onClick={() => toggleSeed(selectedTeacher)}>
-                    {selectedTeacher.isSeed ? "取消种子教师" : "设为种子教师"}
+                    {selectedTeacher.isSeed ? tr("取消种子教师") : tr("设为种子教师")}
                   </button>
                 </>
               )}

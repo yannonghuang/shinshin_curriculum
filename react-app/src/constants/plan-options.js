@@ -1,3 +1,5 @@
+import { tr } from "../i18n";
+
 // 乡土主题 taxonomy for 乡土课程设计 theme tagging/browsing -- kept in sync with
 // backend/app/models/index.js's db.PLAN_THEMES (server-side validation).
 export const PLAN_THEMES = [
@@ -31,14 +33,14 @@ export const currentSeason = () => {
 };
 
 export const PLAN_MODES = [
-  { value: "upload", label: "上传文件" },
-  { value: "online", label: "在线填写" },
+  { value: "upload", label: tr("上传文件") },
+  { value: "online", label: tr("在线填写") },
 ];
 
 export const PLAN_STATUSES = [
-  { value: "draft", label: "草稿" },
-  { value: "submitted", label: "已提交" },
-  { value: "reviewed", label: "已点评" },
+  { value: "draft", label: tr("草稿") },
+  { value: "submitted", label: tr("已提交") },
+  { value: "reviewed", label: tr("已点评") },
 ];
 
 // artifacts.category values, split by scope (plan-level 课程设计文件 vs per-课时 实施记录).
@@ -63,4 +65,4 @@ export const EMPTY_LESSON = { title: "", content: "" };
 // backend services/planTrash.js) -- keep the day count in sync with
 // TRASH_RETENTION_DAYS there.
 export const PLAN_TRASH_RETENTION_DAYS = 30;
-export const PLAN_DELETE_CONFIRM = `确定删除该课程设计吗？删除后将移入回收站，${PLAN_TRASH_RETENTION_DAYS} 天内可在回收站中恢复，之后将永久删除。`;
+export const PLAN_DELETE_CONFIRM = tr("确定删除该课程设计吗？删除后将移入回收站，{PLAN_TRASH_RETENTION_DAYS} 天内可在回收站中恢复，之后将永久删除。", { PLAN_TRASH_RETENTION_DAYS });

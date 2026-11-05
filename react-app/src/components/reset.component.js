@@ -7,12 +7,13 @@ import { Link } from "react-router-dom";
 
 import AuthService from "../services/auth.service";
 import "../curriculum.css";
+import { tr } from "../i18n";
 
 const required = (value) => {
   if (!value) {
     return (
       <div className="alert alert-danger" role="alert">
-        必须填写!
+        {tr("必须填写!")}
       </div>
     );
   }
@@ -22,7 +23,7 @@ const email = (value) => {
   if (!isEmail(value)) {
     return (
       <div className="alert alert-danger" role="alert">
-        邮件地址不正确
+        {tr("邮件地址不正确")}
       </div>
     );
   }
@@ -32,7 +33,7 @@ const vpassword = (value) => {
   if (value && value.length > 0 && (value.length < 6 || value.length > 40)) {
     return (
       <div className="alert alert-danger" role="alert">
-        密码应含6至40个字节
+        {tr("密码应含6至40个字节")}
       </div>
     );
   }
@@ -78,7 +79,7 @@ export default class Reset extends Component {
     if (this.checkBtn.context._errors.length > 0) return;
 
     if (this.state.passwordVerified !== this.state.password) {
-      this.setState({ message: "请再次确认密码。" });
+      this.setState({ message: tr("请再次确认密码。") });
       return;
     }
 
@@ -86,7 +87,7 @@ export default class Reset extends Component {
 
     AuthService.reset(this.state.email, this.state.password)
       .then((response) => {
-        alert("密码已经成功重置");
+        alert(tr("密码已经成功重置"));
         if (!AuthService.getCurrentUser()) {
           this.props.history.push("/login?username=" + (response.data ? response.data.username : ""));
           window.location.reload();
@@ -100,8 +101,8 @@ export default class Reset extends Component {
           loading: false,
           message:
             status === 404
-              ? "该邮箱尚未注册，请确认后重试。"
-              : (error.response && error.response.data && error.response.data.message) || "密码重置失败，请重试。",
+              ? tr("该邮箱尚未注册，请确认后重试。")
+              : (error.response && error.response.data && error.response.data.message) || tr("密码重置失败，请重试。"),
         });
       });
   }
@@ -113,8 +114,8 @@ export default class Reset extends Component {
           <div className="auth-badge">
             <i className="fas fa-lock"></i>
           </div>
-          <h2 className="auth-title">重置密码</h2>
-          <p className="auth-subtitle">请输入您的注册邮箱和新密码</p>
+          <h2 className="auth-title">{tr("重置密码")}</h2>
+          <p className="auth-subtitle">{tr("请输入您的注册邮箱和新密码")}</p>
 
           <Form
             onSubmit={this.handleReset}
@@ -123,7 +124,7 @@ export default class Reset extends Component {
             }}
           >
             <div className="form-group">
-              <label htmlFor="email">注册邮箱</label>
+              <label htmlFor="email">{tr("注册邮箱")}</label>
               <Input
                 type="text"
                 className="form-control"
@@ -135,7 +136,7 @@ export default class Reset extends Component {
             </div>
 
             <div className="form-group">
-              <label htmlFor="password">新密码</label>
+              <label htmlFor="password">{tr("新密码")}</label>
               <Input
                 type="password"
                 className="form-control"
@@ -147,7 +148,7 @@ export default class Reset extends Component {
             </div>
 
             <div className="form-group">
-              <label htmlFor="passwordVerified">新密码再确认</label>
+              <label htmlFor="passwordVerified">{tr("新密码再确认")}</label>
               <Input
                 type="password"
                 className="form-control"
@@ -161,7 +162,7 @@ export default class Reset extends Component {
             <div className="form-group">
               <button className="auth-btn-primary" disabled={this.state.loading}>
                 {this.state.loading && <span className="spinner-border spinner-border-sm mr-2"></span>}
-                <span>提交</span>
+                <span>{tr("提交")}</span>
               </button>
             </div>
 
@@ -182,7 +183,7 @@ export default class Reset extends Component {
           </Form>
 
           <p className="auth-footnote">
-            <Link to="/login">返回登录</Link>
+            <Link to="/login">{tr("返回登录")}</Link>
           </p>
         </div>
       </div>

@@ -18,6 +18,9 @@ app.use(express.json({ limit: "25mb" }));
 // parse requests of content-type - application/x-www-form-urlencoded
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
+// req.lang + English response messages for X-Lang: en requests (app/i18n).
+app.use(require("./app/middleware/lang"));
+
 const db = require("./app/models");
 
 // Schema is owned by sequelize-cli migrations now (run by
