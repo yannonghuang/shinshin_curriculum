@@ -3,6 +3,7 @@ import mammoth from "mammoth/mammoth.browser";
 
 import ArtifactDataService from "../services/artifact.service";
 import FolderDataService from "../services/folder.service";
+import { tr, LOCALE } from "../i18n";
 
 // A "mini cloud file system" for one 课时's 实施记录 file space (Google-Drive-
 // style: whole panel is the drop target, real user-created folders, list/icon
@@ -105,7 +106,7 @@ const resolveFolder = async (name, parentFolderId, planId, lessonIndex, folderCa
 const uploadOneFile = async (file, folderId, planId, lessonIndex, artifactCache, artifactService, docCategoryLabel) => {
   const existing = artifactCache.find((a) => (a.folderId || null) === (folderId || null) && a.attachmentName === file.name);
   if (existing) {
-    if (!window.confirm(`"${file.name}" 已存在，是否替换？`)) return null;
+    if (!window.confirm(tr("\"{file.name}\" 已存在，是否替换？", { "file.name": file.name }))) return null;
     const formData = new FormData();
     formData.append("file", file);
     await artifactService.update(existing.id, formData);
@@ -218,7 +219,7 @@ const LessonFileManager = ({
       setFolders(Array.isArray(resp.data) ? resp.data : []);
     } catch (e) {
       console.log(e);
-      setMessage("加载文件夹列表失败。");
+      setMessage(tr("加载文件夹列表失败。"));
     }
   }, [planId, lessonIndex, folderService]);
 
@@ -229,7 +230,7 @@ const LessonFileManager = ({
       setArtifacts(list);
     } catch (e) {
       console.log(e);
-      setMessage("加载附件列表失败。");
+      setMessage(tr("加载附件列表失败。"));
     }
   }, [planId, lessonIndex, artifactService]);
 
@@ -346,11 +347,11 @@ const LessonFileManager = ({
       }
       setMessage(
         uploadedCount === toUpload.length
-          ? `已上传 ${uploadedCount} 个文件。`
-          : `已上传 ${uploadedCount} 个文件，跳过 ${toUpload.length - uploadedCount} 个。`
+          ? tr("已上传 {uploadedCount} 个文件。", { uploadedCount })
+          : tr("已上传 {uploadedCount} 个文件，跳过 {1} 个。", { uploadedCount, "1": toUpload.length - uploadedCount })
       );
     } catch (err) {
-      setMessage(err?.response?.data?.message || "上传失败。");
+      setMessage(err?.response?.data?.message || tr("上传失败。"));
     } finally {
       setIsUploading(false);
       setTimeout(() => setUploadProgress(null), 600);
@@ -392,7 +393,7 @@ const LessonFileManager = ({
         await uploadResolvedFiles(toUpload);
       } catch (err) {
         console.log(err);
-        setMessage("上传失败。");
+        setMessage(tr("上传失败。"));
         await refreshAll();
       }
       return;
@@ -425,7 +426,7 @@ const LessonFileManager = ({
       setNewFolderName("");
       refreshFolders();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "新建文件夹失败。");
+      setMessage(err?.response?.data?.message || tr("新建文件夹失败。"));
     }
   };
 
@@ -451,7 +452,7 @@ const LessonFileManager = ({
       cancelRenameFolder();
       await refreshFolders();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "重命名失败。");
+      setMessage(err?.response?.data?.message || tr("重命名失败。"));
     } finally {
       setIsRenamingFolder(false);
     }
@@ -481,7 +482,7 @@ const LessonFileManager = ({
     const isDocx = ext === "docx" || mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
     const win = window.open("", "_blank");
-    if (win) win.document.write("<title>预览：" + artifact.attachmentName + "</title><body>预览加载中...</body>");
+    if (win) win.document.write("<title>" + tr("预览：") + artifact.attachmentName + "</title><body>" + tr("预览加载中...") + "</body>");
     try {
       const resp = await artifactService.download(artifact.id);
       if (isDocx) {
@@ -489,9 +490,9 @@ const LessonFileManager = ({
         if (win) {
           win.document.open();
           win.document.write(
-            `<!doctype html><html><head><meta charset="utf-8"><title>预览：${artifact.attachmentName}</title>` +
+            `<!doctype html><html><head><meta charset="utf-8"><title>${tr("预览：")}${artifact.attachmentName}</title>` +
               `<style>body{max-width:800px;margin:24px auto;padding:0 16px;font-family:sans-serif;line-height:1.6;}</style>` +
-              `</head><body>${result.value || "<p>文档内容为空。</p>"}</body></html>`
+              `</head><body>${result.value || tr("<p>文档内容为空。</p>")}</body></html>`
           );
           win.document.close();
         }
@@ -501,7 +502,7 @@ const LessonFileManager = ({
       }
     } catch (e) {
       console.log(e);
-      setMessage("预览失败。若为 .doc 文件，请使用下载。");
+      setMessage(tr("预览失败。若为 .doc 文件，请使用下载。"));
       if (win) win.close();
     }
   };
@@ -519,7 +520,7 @@ const LessonFileManager = ({
       window.URL.revokeObjectURL(url);
     } catch (e) {
       console.log(e);
-      setMessage("下载失败。");
+      setMessage(tr("下载失败。"));
     }
   };
 
@@ -538,14 +539,14 @@ const LessonFileManager = ({
       const url = window.URL.createObjectURL(new Blob([resp.data], { type: "application/zip" }));
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", lessonIndex ? `课时${lessonIndex}-支撑材料.zip` : "材料.zip");
+      link.setAttribute("download", lessonIndex ? tr("课时{lessonIndex}-支撑材料.zip", { lessonIndex }) : tr("材料.zip"));
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (e) {
       console.log(e);
-      setMessage("打包下载失败。");
+      setMessage(tr("打包下载失败。"));
     }
   };
 
@@ -566,7 +567,7 @@ const LessonFileManager = ({
   const deleteSelected = async () => {
     if (selectionCount === 0) return;
     const ok = window.confirm(
-      `此操作将永久删除已选择的 ${selectionCount} 项${selectedFolderIds.size > 0 ? "（含文件夹内的所有内容）" : ""}，且无法撤销。确定继续吗？`
+      tr("此操作将永久删除已选择的 {selectionCount} 项{1}，且无法撤销。确定继续吗？", { selectionCount, "1": selectedFolderIds.size > 0 ? tr("（含文件夹内的所有内容）") : "" })
     );
     if (!ok) return;
     setIsDeleting(true);
@@ -581,12 +582,12 @@ const LessonFileManager = ({
         // eslint-disable-next-line no-await-in-loop
         await folderService.delete(id, true);
       }
-      setMessage("删除成功。");
+      setMessage(tr("删除成功。"));
       clearSelection();
       await refreshAll();
       if (onFilesChange) onFilesChange();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除失败。");
+      setMessage(err?.response?.data?.message || tr("删除失败。"));
     } finally {
       setIsDeleting(false);
     }
@@ -613,7 +614,7 @@ const LessonFileManager = ({
       clearSelection();
       refreshAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "移动失败。");
+      setMessage(err?.response?.data?.message || tr("移动失败。"));
     }
   };
 
@@ -648,7 +649,7 @@ const LessonFileManager = ({
   // undefined value, and a materials artifact still mid-ingestion right
   // after upload, both render nothing rather than a false alarm.
   const EXTRACTION_WARNING_TITLE =
-    "未能从该文件提取到可用于知识库/知识卡片的文本内容——可能是扫描件、没有文字层，或提取仍在后台处理中，可稍后刷新页面重试。";
+    tr("未能从该文件提取到可用于知识库/知识卡片的文本内容——可能是扫描件、没有文字层，或提取仍在后台处理中，可稍后刷新页面重试。");
   const renderExtractionWarning = (artifact) =>
     artifact.hasExtractedContent === false ? (
       <i className="fas fa-exclamation-triangle ml-1" style={{ color: "var(--pl-warn)" }} title={EXTRACTION_WARNING_TITLE}></i>
@@ -710,9 +711,9 @@ const LessonFileManager = ({
           <i className="fas fa-folder pl-fm-folder-glyph mr-2"></i>
           {renderFolderName(folder)}
         </td>
-        <td>文件夹</td>
+        <td>{tr("文件夹")}</td>
         <td>-</td>
-        <td>{folder.updatedAt ? new Date(folder.updatedAt).toLocaleString("zh-cn") : "-"}</td>
+        <td>{folder.updatedAt ? new Date(folder.updatedAt).toLocaleString(LOCALE) : "-"}</td>
       </tr>
     );
   };
@@ -741,7 +742,7 @@ const LessonFileManager = ({
         </td>
         <td>{artifact.type}</td>
         <td>{formatBytes(artifact.attachmentSize)}</td>
-        <td>{artifact.createdAt ? new Date(artifact.createdAt).toLocaleString("zh-cn") : "-"}</td>
+        <td>{artifact.createdAt ? new Date(artifact.createdAt).toLocaleString(LOCALE) : "-"}</td>
       </tr>
     );
   };
@@ -778,7 +779,7 @@ const LessonFileManager = ({
         <div className="pl-fm-toolbar">
           <div className="pl-fm-breadcrumb">
             <button type="button" className="btn btn-link p-0" onClick={() => enterFolder(null)}>
-              根目录
+              {tr("根目录")}
             </button>
             {breadcrumb.map((f) => (
               <React.Fragment key={f.id}>
@@ -797,14 +798,14 @@ const LessonFileManager = ({
                   className="btn btn-sm btn-outline-secondary mr-2"
                   onClick={() => fileInputRef.current && fileInputRef.current.click()}
                 >
-                  <i className="fas fa-upload mr-1"></i>上传
+                  <i className="fas fa-upload mr-1"></i>{tr("上传")}
                 </button>
                 <input ref={fileInputRef} type="file" multiple className="d-none" onChange={handleFileInputChange} />
               </>
             )}
             {canEdit && !isCreatingFolder && (
               <button type="button" className="btn btn-sm btn-outline-secondary mr-2" onClick={startCreateFolder}>
-                <i className="fas fa-folder-plus mr-1"></i>新建文件夹
+                <i className="fas fa-folder-plus mr-1"></i>{tr("新建文件夹")}
               </button>
             )}
             <div className="btn-group btn-group-sm" role="group">
@@ -812,7 +813,7 @@ const LessonFileManager = ({
                 type="button"
                 className={`btn btn-outline-secondary ${viewMode === "list" ? "active" : ""}`}
                 onClick={() => setViewMode("list")}
-                title="列表视图"
+                title={tr("列表视图")}
               >
                 <i className="fas fa-list"></i>
               </button>
@@ -820,7 +821,7 @@ const LessonFileManager = ({
                 type="button"
                 className={`btn btn-outline-secondary ${viewMode === "icon" ? "active" : ""}`}
                 onClick={() => setViewMode("icon")}
-                title="图标视图"
+                title={tr("图标视图")}
               >
                 <i className="fas fa-th-large"></i>
               </button>
@@ -835,7 +836,7 @@ const LessonFileManager = ({
               className="form-control form-control-sm d-inline-block"
               style={{ width: "240px" }}
               autoFocus
-              placeholder="文件夹名称"
+              placeholder={tr("文件夹名称")}
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
               onBlur={submitCreateFolder}
@@ -845,19 +846,19 @@ const LessonFileManager = ({
 
         {selectionCount > 0 && (
           <div className="pl-fm-selection-bar">
-            <span>已选择 {selectionCount} 项</span>
+            <span>{tr("已选择 {selectionCount} 项", { selectionCount })}</span>
             {onlyOneFileSelected && (
               <button
                 type="button"
                 className="btn btn-sm btn-link"
                 onClick={() => openPreview(childArtifacts.find((a) => selectedArtifactIds.has(a.id)))}
               >
-                预览
+                {tr("预览")}
               </button>
             )}
             {selectionCount > 0 && (
               <button type="button" className="btn btn-sm btn-link" onClick={downloadSelected}>
-                下载
+                {tr("下载")}
               </button>
             )}
             {canEdit && onlyOneFolderSelected && (
@@ -867,18 +868,18 @@ const LessonFileManager = ({
                 disabled={renamingFolderId != null}
                 onClick={() => startRenameFolder(childFolders.find((f) => selectedFolderIds.has(f.id)))}
               >
-                重命名
+                {tr("重命名")}
               </button>
             )}
             {canEdit && (
               <button type="button" className="btn btn-sm btn-link" disabled={isDeleting} onClick={openMoveDialog}>
-                移动到...
+                {tr("移动到...")}
               </button>
             )}
             {canEdit && (
               <button type="button" className="btn btn-sm btn-link text-danger" disabled={isDeleting} onClick={deleteSelected}>
                 {isDeleting && <span className="spinner-border spinner-border-sm mr-1" role="status"></span>}
-                删除
+                {tr("删除")}
               </button>
             )}
           </div>
@@ -886,12 +887,12 @@ const LessonFileManager = ({
 
         {message && <div className="alert alert-info py-2">{message}</div>}
         {isUploading && (
-          <div className="alert alert-info py-2">上传中...{uploadProgress !== null ? `${uploadProgress}%` : ""}</div>
+          <div className="alert alert-info py-2">{tr("上传中...")}{uploadProgress !== null ? `${uploadProgress}%` : ""}</div>
         )}
 
         {childFolders.length === 0 && childArtifacts.length === 0 ? (
           <div className="pl-fm-empty">
-            {canEdit ? "此文件夹为空 -- 将文件或文件夹拖拽到此处，或点击上方“上传”" : "此文件夹为空"}
+            {canEdit ? tr("此文件夹为空 -- 将文件或文件夹拖拽到此处，或点击上方“上传”") : tr("此文件夹为空")}
           </div>
         ) : viewMode === "list" ? (
           <table className="table table-sm table-hover pl-fm-table">
@@ -900,10 +901,10 @@ const LessonFileManager = ({
                 <th style={{ width: "32px" }}>
                   {canDownload && (childFolders.length > 0 || childArtifacts.length > 0) && renderItemCheckbox(allSelected, toggleSelectAll)}
                 </th>
-                <th>名称</th>
-                <th style={{ width: "100px" }}>类型</th>
-                <th style={{ width: "100px" }}>大小</th>
-                <th style={{ width: "180px" }}>修改时间</th>
+                <th>{tr("名称")}</th>
+                <th style={{ width: "100px" }}>{tr("类型")}</th>
+                <th style={{ width: "100px" }}>{tr("大小")}</th>
+                <th style={{ width: "180px" }}>{tr("修改时间")}</th>
               </tr>
             </thead>
             <tbody>
@@ -922,10 +923,10 @@ const LessonFileManager = ({
       {moveDialogOpen && (
         <div className="pl-fm-modal-backdrop" onClick={() => setMoveDialogOpen(false)}>
           <div className="pl-fm-modal" onClick={(e) => e.stopPropagation()}>
-            <h6>移动到...</h6>
+            <h6>{tr("移动到...")}</h6>
             <div className="pl-fm-breadcrumb mb-2">
               <button type="button" className="btn btn-link p-0" onClick={() => setMoveDialogFolderId(null)}>
-                根目录
+                {tr("根目录")}
               </button>
               {moveDialogBreadcrumb.map((f) => (
                 <React.Fragment key={f.id}>
@@ -937,7 +938,7 @@ const LessonFileManager = ({
               ))}
             </div>
             <div className="pl-fm-modal-list">
-              {moveDialogChildFolders.length === 0 && <div className="pl-empty">（此文件夹下没有子文件夹）</div>}
+              {moveDialogChildFolders.length === 0 && <div className="pl-empty">{tr("（此文件夹下没有子文件夹）")}</div>}
               {moveDialogChildFolders.map((f) => (
                 <div key={f.id} className="pl-fm-modal-row" onClick={() => setMoveDialogFolderId(f.id)}>
                   <i className="fas fa-folder pl-fm-folder-glyph mr-2"></i>
@@ -947,10 +948,10 @@ const LessonFileManager = ({
             </div>
             <div className="d-flex justify-content-end mt-3">
               <button type="button" className="btn btn-secondary btn-sm mr-2" onClick={() => setMoveDialogOpen(false)}>
-                取消
+                {tr("取消")}
               </button>
               <button type="button" className="btn btn-primary btn-sm" onClick={confirmMove}>
-                移动到此处
+                {tr("移动到此处")}
               </button>
             </div>
           </div>

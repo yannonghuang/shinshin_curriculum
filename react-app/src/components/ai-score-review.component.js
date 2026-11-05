@@ -7,6 +7,7 @@ import PlanDataService from "../services/plan.service";
 import { PLAN_THEMES } from "../constants/plan-options";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
+import { tr, LOCALE } from "../i18n";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -19,10 +20,10 @@ const formatSchoolOptionLabel = (option) => (
   </div>
 );
 
-const UNASSIGNED_SCHOOL_NAME = "未分配学校";
+const UNASSIGNED_SCHOOL_NAME = tr("未分配学校");
 const seasonRank = (season) => (season === "秋季" ? 2 : season === "春季" ? 1 : 0);
 const termKey = (p) => `${p.year}|${p.season || ""}`;
-const termLabel = (year, season) => `${year}年 ${season || "未设置学期"}`;
+const termLabel = (year, season) => tr("{year}年 {1}", { year, "1": season ? tr(season) : tr("未设置学期") });
 
 // Text columns sort A→Z first, numeric ones high→low (see toggleSort);
 // unscored plans always sort last on 总分, whichever direction.
@@ -54,7 +55,7 @@ const errorText = (e) => (e.response && e.response.data && e.response.data.messa
 
 const formatElapsed = (ms) => {
   const sec = Math.max(0, Math.floor(ms / 1000));
-  return sec >= 60 ? `${Math.floor(sec / 60)} 分 ${sec % 60} 秒` : `${sec} 秒`;
+  return sec >= 60 ? tr("{0} 分 {1} 秒", { "0": Math.floor(sec / 60), "1": sec % 60 }) : tr("{sec} 秒", { sec });
 };
 
 const scoreClass = (score, weight) => {
@@ -64,7 +65,7 @@ const scoreClass = (score, weight) => {
   return "text-danger";
 };
 
-const STEP_LABELS = { combined: "打分加点评中", score: "打分中", review: "点评中" };
+const STEP_LABELS = { combined: tr("打分加点评中"), score: tr("打分中"), review: tr("点评中") };
 
 // Filter + sort state lives in the URL (same pattern as
 // plans-hierarchy.component.js), so returning from a plan -- its 返回 is a
@@ -223,7 +224,7 @@ const AiScoreReview = () => {
   }, [plans, filters, sortKey, sortDir]);
 
   if (!allowed) {
-    return <div className="alert alert-warning">AI 打分加点评仅对专家和管理员开放。</div>;
+    return <div className="alert alert-warning">{tr("AI 打分加点评仅对专家和管理员开放。")}</div>;
   }
 
   const toggleSort = (key) => {
@@ -258,9 +259,7 @@ const AiScoreReview = () => {
     // the counts before starting.
     if (
       !window.confirm(
-        `将为当前显示的 ${pending.length} 个课程处理：其中 ${combinedCount} 个同时打分加点评，${scoreCount - combinedCount} 个仅打分，${
-          reviewCount - combinedCount
-        } 个仅点评（每个课程一次 AI 调用，约需 1-2 分钟），确定开始吗？`
+        tr("将为当前显示的 {pending.length} 个课程处理：其中 {combinedCount} 个同时打分加点评，{2} 个仅打分，{3} 个仅点评（每个课程一次 AI 调用，约需 1-2 分钟），确定开始吗？", { "pending.length": pending.length, combinedCount, "2": scoreCount - combinedCount, "3": reviewCount - combinedCount })
       )
     )
       return;
@@ -287,32 +286,32 @@ const AiScoreReview = () => {
   return (
     <div className="container">
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <h4 className="mb-0">AI 打分加点评</h4>
+        <h4 className="mb-0">{tr("AI 打分加点评")}</h4>
         {canRun && (
           <button className="btn btn-primary btn-sm" disabled={running || !standard || pending.length === 0} onClick={run}>
-            开始（{pending.length} 个待处理课程）
+            {tr("开始（{pending.length} 个待处理课程）", { "pending.length": pending.length })}
           </button>
         )}
       </div>
       <p className="text-muted small">
-        每个已提交课程都有一份 AI 打分与 AI 计划整体点评，出自同一次 AI 调用，
+        {tr("每个已提交课程都有一份 AI 打分与 AI 计划整体点评，出自同一次 AI 调用，")}
         {standard ? (
           <>
-            依据当前生效的
-            <Link to="/ai-review/standard" className="mx-1">AI 点评标准（版本 #{standard.id}）</Link>
-            （满分 {standard.totalScore}），
+            {tr("依据当前生效的")}
+            <Link to="/ai-review/standard" className="mx-1">{tr("AI 点评标准（版本 #{standard.id}）", { "standard.id": standard.id })}</Link>
+            {tr("（满分 {standard.totalScore}），", { "standard.totalScore": standard.totalScore })}
           </>
         ) : (
-          "依据当前生效的 AI 点评标准，"
+          tr("依据当前生效的 AI 点评标准，")
         )}
-        并核查课程的目标一致性与完整性。打分与点评在教师或专家「请AI点评」时生成
-        {canRun ? "，也可在此为当前显示的待处理课程统一生成（每个课程只补齐所缺的部分）。" : "，或由管理员统一生成。"}
-        设计/实施完成度与<Link to="/dashboard" className="mx-1">数据看板</Link>一致。
+        {tr("并核查课程的目标一致性与完整性。打分与点评在教师或专家「请AI点评」时生成")}
+        {canRun ? tr("，也可在此为当前显示的待处理课程统一生成（每个课程只补齐所缺的部分）。") : tr("，或由管理员统一生成。")}
+        {tr("设计/实施完成度与")}<Link to="/dashboard" className="mx-1">{tr("数据看板")}</Link>{tr("一致。")}
       </p>
 
       {loaded && !standard && (
         <div className="alert alert-warning">
-          尚未制定 AI 点评标准，请先在 <Link to="/ai-review/standard">AI 点评标准</Link> 中生成。
+          {tr("尚未制定 AI 点评标准，请先在")} <Link to="/ai-review/standard">{tr("AI 点评标准")}</Link> {tr("中生成。")}
         </div>
       )}
       {message && <div className="alert alert-danger">{message}</div>}
@@ -320,13 +319,12 @@ const AiScoreReview = () => {
       {running && (
         <div className="alert alert-info">
           <span className="spinner-border spinner-border-sm mr-2" role="status" />
-          正在处理：已完成 {processed} / {job.queued}（已打分 {job.scored} / {job.scoreQueued}，已点评 {job.reviewed} /{" "}
-          {job.reviewQueued}）
-          <span className="ml-2 text-muted">已用时 {formatElapsed(now - new Date(job.startedAt).getTime())}</span>
+          {tr("正在处理：已完成 {processed} / {job.queued}（已打分 {job.scored} / {job.scoreQueued}，已点评 {job.reviewed} / {job.reviewQueued}）", { processed, "job.queued": job.queued, "job.scored": job.scored, "job.scoreQueued": job.scoreQueued, "job.reviewed": job.reviewed, "job.reviewQueued": job.reviewQueued })}
+          <span className="ml-2 text-muted">{tr("已用时")} {formatElapsed(now - new Date(job.startedAt).getTime())}</span>
           {job.inProgress && job.inProgress.length > 0 && (
             <div className="small mt-1">
-              进行中：
-              {job.inProgress.map((p) => `《${p.title || `课程 #${p.planId}`}》${STEP_LABELS[p.step] || ""}`).join("、")}
+              {tr("进行中：")}
+              {job.inProgress.map((p) => `《${p.title || tr("课程 #{p.planId}", { "p.planId": p.planId })}》${STEP_LABELS[p.step] || ""}`).join(tr("、"))}
             </div>
           )}
           <div className="progress mt-2" style={{ height: 8 }}>
@@ -339,29 +337,27 @@ const AiScoreReview = () => {
       )}
       {canRun && job && !running && job.finishedAt && (
         <div className={`alert ${job.failed ? "alert-warning" : "alert-success"} small`}>
-          最近一次运行完成于 {new Date(job.finishedAt).toLocaleString()}：
+          {tr("最近一次运行完成于")} {new Date(job.finishedAt).toLocaleString(LOCALE)}{tr("：")}
           {job.queued === 0
-            ? "没有需要处理的课程。"
-            : `新打分 ${job.scored} 个，新点评 ${job.reviewed} 个（其中 ${job.combined} 个同时完成）${
-                job.failed ? `，失败 ${job.failed} 个` : ""
-              }。`}
+            ? tr("没有需要处理的课程。")
+            : tr("新打分 {job.scored} 个，新点评 {job.reviewed} 个（其中 {job.combined} 个同时完成）{3}。", { "job.scored": job.scored, "job.reviewed": job.reviewed, "job.combined": job.combined, "3": job.failed ? tr("，失败 {job.failed} 个", { "job.failed": job.failed }) : "" })}
           {job.errors.map((e) => (
             <div key={e.planId}>
-              《{e.title || `课程 #${e.planId}`}》：{e.message}
+              {tr("《")}{e.title || tr("课程 #{e.planId}", { "e.planId": e.planId })}{tr("》：")}{e.message}
             </div>
           ))}
         </div>
       )}
 
-      {loaded && plans.length === 0 && <p className="text-muted">暂无已提交的课程。</p>}
+      {loaded && plans.length === 0 && <p className="text-muted">{tr("暂无已提交的课程。")}</p>}
 
       {plans.length > 0 && (
         <>
           <div className="form-row">
             <div className="form-group col-md-3">
-              <label>学期筛选</label>
+              <label>{tr("学期筛选")}</label>
               <select className="form-control" value={filters.term} onChange={(e) => setFilter("term")(e.target.value)}>
-                <option value="">全部学期</option>
+                <option value="">{tr("全部学期")}</option>
                 {termOptions.map((t) => (
                   <option key={t.key} value={t.key}>
                     {termLabel(t.year, t.season)}
@@ -370,34 +366,34 @@ const AiScoreReview = () => {
               </select>
             </div>
             <div className="form-group col-md-3">
-              <label>教师姓名筛选</label>
+              <label>{tr("教师姓名筛选")}</label>
               <input
                 className="form-control"
-                placeholder="按教师姓名搜索"
+                placeholder={tr("按教师姓名搜索")}
                 value={filters.teacherName}
                 onChange={(e) => setFilter("teacherName")(e.target.value)}
               />
             </div>
             <div className="form-group col-md-3">
-              <label htmlFor="aiScoreReviewSchoolFilter">学校名称筛选</label>
+              <label htmlFor="aiScoreReviewSchoolFilter">{tr("学校名称筛选")}</label>
               <Select
                 inputId="aiScoreReviewSchoolFilter"
                 options={schoolOptions}
                 value={schoolOptions.find((o) => o.label === filters.schoolName) || null}
                 onChange={(option) => setFilter("schoolName")(option ? option.label : "")}
-                placeholder="搜索学校（名称/代码）"
+                placeholder={tr("搜索学校（名称/代码）")}
                 formatOptionLabel={formatSchoolOptionLabel}
                 filterOption={schoolFilterOption}
                 isClearable
               />
             </div>
             <div className="form-group col-md-3">
-              <label>主题筛选</label>
+              <label>{tr("主题筛选")}</label>
               <select className="form-control" value={filters.theme} onChange={(e) => setFilter("theme")(e.target.value)}>
-                <option value="">全部主题</option>
+                <option value="">{tr("全部主题")}</option>
                 {themeOptions.map((theme) => (
                   <option key={theme} value={theme}>
-                    {theme}
+                    {tr(theme)}
                   </option>
                 ))}
               </select>
@@ -405,31 +401,31 @@ const AiScoreReview = () => {
           </div>
           <div className="d-flex flex-wrap align-items-center mb-3">
             <div className="form-inline mr-4 mb-2">
-              <label className="mr-2">总体设计完成度</label>
-              {rangeInput("minGeneral", "不限", 100)}
-              <span className="mx-2">% 至</span>
-              {rangeInput("maxGeneral", "不限", 100)}
+              <label className="mr-2">{tr("总体设计完成度")}</label>
+              {rangeInput("minGeneral", tr("不限"), 100)}
+              <span className="mx-2">{tr("% 至")}</span>
+              {rangeInput("maxGeneral", tr("不限"), 100)}
               <span className="ml-2">%</span>
             </div>
             <div className="form-inline mr-4 mb-2">
-              <label className="mr-2">分课时设计完成度</label>
-              {rangeInput("minLessonDesign", "不限", 100)}
-              <span className="mx-2">% 至</span>
-              {rangeInput("maxLessonDesign", "不限", 100)}
+              <label className="mr-2">{tr("分课时设计完成度")}</label>
+              {rangeInput("minLessonDesign", tr("不限"), 100)}
+              <span className="mx-2">{tr("% 至")}</span>
+              {rangeInput("maxLessonDesign", tr("不限"), 100)}
               <span className="ml-2">%</span>
             </div>
             <div className="form-inline mr-4 mb-2">
-              <label className="mr-2">实施完成度</label>
-              {rangeInput("minExecution", "不限", 100)}
-              <span className="mx-2">% 至</span>
-              {rangeInput("maxExecution", "不限", 100)}
+              <label className="mr-2">{tr("实施完成度")}</label>
+              {rangeInput("minExecution", tr("不限"), 100)}
+              <span className="mx-2">{tr("% 至")}</span>
+              {rangeInput("maxExecution", tr("不限"), 100)}
               <span className="ml-2">%</span>
             </div>
             <div className="form-inline mr-4 mb-2">
-              <label className="mr-2">AI 设计分数</label>
-              {rangeInput("minScore", "不限")}
-              <span className="mx-2">至</span>
-              {rangeInput("maxScore", "不限")}
+              <label className="mr-2">{tr("AI 设计分数")}</label>
+              {rangeInput("minScore", tr("不限"))}
+              <span className="mx-2">{tr("至")}</span>
+              {rangeInput("maxScore", tr("不限"))}
             </div>
             <div className="pl-filter-bar mb-2">
               {/* No 已提交 toggle (unlike 全部乡土课程): every plan here is
@@ -437,52 +433,51 @@ const AiScoreReview = () => {
               <button
                 type="button"
                 className={`pl-filter-toggle ${filters.pending ? "is-active" : ""}`}
-                title="尚缺最新 AI 打分或 AI 点评的课程"
+                title={tr("尚缺最新 AI 打分或 AI 点评的课程")}
                 onClick={() => setFilter("pending")(!filters.pending)}
               >
-                待处理
+                {tr("待处理")}
               </button>
               <button
                 type="button"
                 className={`pl-filter-toggle pl-filter-toggle-ai ${filters.aiReviewed ? "is-active" : ""}`}
                 onClick={() => setFilter("aiReviewed")(!filters.aiReviewed)}
               >
-                AI已点评
+                {tr("AI已点评")}
               </button>
               <button
                 type="button"
                 className={`pl-filter-toggle pl-filter-toggle-expert ${filters.expertReviewed ? "is-active" : ""}`}
                 onClick={() => setFilter("expertReviewed")(!filters.expertReviewed)}
               >
-                专家已点评
+                {tr("专家已点评")}
               </button>
             </div>
           </div>
 
           <p className="small mb-2">
-            {visiblePlans.length === plans.length ? `共 ${plans.length} 个课程` : `筛选出 ${visiblePlans.length} / ${plans.length} 个课程`}
-            ，已打分 {scored.length} 个
-            {average !== null && `，平均分 ${average}`}，待处理 {pending.length} 个（待打分 {scoreCount}，待点评 {reviewCount}）。
-            点击行查看各维度打分理由与 AI 点评。设置总分条件时，未打分的课程不在范围内。
+            {visiblePlans.length === plans.length ? tr("共 {plans.length} 个课程", { "plans.length": plans.length }) : tr("筛选出 {visiblePlans.length} / {plans.length} 个课程", { "visiblePlans.length": visiblePlans.length, "plans.length": plans.length })}
+            {tr("，已打分 {scored.length} 个", { "scored.length": scored.length })}
+            {average !== null && tr("，平均分 {average}", { average })}{tr("，待处理 {pending.length} 个（待打分 {scoreCount}，待点评 {reviewCount}）。 点击行查看各维度打分理由与 AI 点评。设置总分条件时，未打分的课程不在范围内。", { "pending.length": pending.length, scoreCount, reviewCount })}
           </p>
           <table className="table table-bordered table-sm table-hover">
             <thead className="thead-light">
               <tr>
-                {sortableHeader("title", "课程")}
-                {sortableHeader("school", "学校 / 教师", "14%")}
-                {sortableHeader("general", "总体设计完成度", "7%")}
-                {sortableHeader("lessonDesign", "分课时设计完成度", "7%")}
-                {sortableHeader("execution", "实施完成度", "7%")}
-                {sortableHeader("score", "总分", "8%")}
-                <th style={{ width: "21%" }}>各维度得分</th>
-                <th style={{ width: "15%" }}>打分 / 点评时间</th>
+                {sortableHeader("title", tr("课程"))}
+                {sortableHeader("school", tr("学校 / 教师"), "14%")}
+                {sortableHeader("general", tr("总体设计完成度"), "7%")}
+                {sortableHeader("lessonDesign", tr("分课时设计完成度"), "7%")}
+                {sortableHeader("execution", tr("实施完成度"), "7%")}
+                {sortableHeader("score", tr("总分"), "8%")}
+                <th style={{ width: "21%" }}>{tr("各维度得分")}</th>
+                <th style={{ width: "15%" }}>{tr("打分 / 点评时间")}</th>
               </tr>
             </thead>
             <tbody>
               {visiblePlans.length === 0 && (
                 <tr>
                   <td colSpan={8} className="text-center text-muted small">
-                    没有符合筛选条件的课程。
+                    {tr("没有符合筛选条件的课程。")}
                   </td>
                 </tr>
               )}
@@ -504,7 +499,7 @@ const AiScoreReview = () => {
                           {p.title}
                         </Link>
                         <div className="small text-muted">
-                          {[p.year && `${p.year}${p.season || ""}`, p.grade, p.theme].filter(Boolean).join(" · ")}
+                          {[p.year && `${p.year}${tr(p.season || "")}`, tr(p.grade), tr(p.theme)].filter(Boolean).join(" · ")}
                         </div>
                       </td>
                       <td className="small">
@@ -515,10 +510,10 @@ const AiScoreReview = () => {
                       <td>{p.completion.lessonDesign}%</td>
                       <td>{p.completion.execution}%</td>
                       <td>
-                        {s ? <b className={scoreClass(s.totalScore, 100)}>{s.totalScore}</b> : <span className="text-muted small">未打分</span>}
+                        {s ? <b className={scoreClass(s.totalScore, 100)}>{s.totalScore}</b> : <span className="text-muted small">{tr("未打分")}</span>}
                         {p.needsScore && (
                           <div>
-                            <span className="badge badge-primary">待打分</span>
+                            <span className="badge badge-primary">{tr("待打分")}</span>
                           </div>
                         )}
                       </td>
@@ -526,17 +521,17 @@ const AiScoreReview = () => {
                         {s &&
                           s.dimensionScores.map((d) => (
                             <div key={d.name}>
-                              {d.name}：<span className={scoreClass(d.score, d.weight)}>{d.score}</span>/{d.weight}
-                              {d.level && <span className="text-muted">（{d.level}）</span>}
+                              {d.name}{tr("：")}<span className={scoreClass(d.score, d.weight)}>{d.score}</span>/{d.weight}
+                              {d.level && <span className="text-muted">{tr("（")}{d.level}{tr("）")}</span>}
                             </div>
                           ))}
                       </td>
                       <td className="small">
-                        <div>打分：{s ? new Date(s.createdAt).toLocaleString() : "无"}</div>
-                        {s && s.outdatedStandard && <span className="badge badge-warning mr-1">旧标准 #{s.standardId}</span>}
-                        {s && s.contentChanged && <span className="badge badge-secondary">课程内容已修改</span>}
-                        <div className="mt-1">点评：{rv ? new Date(rv.createdAt).toLocaleString() : "无"}</div>
-                        {p.needsReview && <span className="badge badge-primary">待点评</span>}
+                        <div>{tr("打分：")}{s ? new Date(s.createdAt).toLocaleString(LOCALE) : tr("无")}</div>
+                        {s && s.outdatedStandard && <span className="badge badge-warning mr-1">{tr("旧标准 #{s.standardId}", { "s.standardId": s.standardId })}</span>}
+                        {s && s.contentChanged && <span className="badge badge-secondary">{tr("课程内容已修改")}</span>}
+                        <div className="mt-1">{tr("点评：")}{rv ? new Date(rv.createdAt).toLocaleString(LOCALE) : tr("无")}</div>
+                        {p.needsReview && <span className="badge badge-primary">{tr("待点评")}</span>}
                       </td>
                     </tr>
                     {isOpen && (
@@ -544,8 +539,8 @@ const AiScoreReview = () => {
                         <td colSpan={8} className="bg-light small">
                           <ul className="nav nav-tabs mb-2">
                             {[
-                              ["score", "打分理由", !!s],
-                              ["review", "AI 点评", !!rv],
+                              ["score", tr("打分理由"), !!s],
+                              ["review", tr("AI 点评"), !!rv],
                             ].map(([key, label, available]) => (
                               <li className="nav-item" key={key}>
                                 <button
@@ -555,7 +550,7 @@ const AiScoreReview = () => {
                                   onClick={() => setExpandedTab(key)}
                                 >
                                   {label}
-                                  {!available && "（无）"}
+                                  {!available && tr("（无）")}
                                 </button>
                               </li>
                             ))}
@@ -566,22 +561,22 @@ const AiScoreReview = () => {
                               {s.dimensionScores.map((d) => (
                                 <div key={d.name} className="mb-1">
                                   <b>
-                                    {d.name}（{d.score}/{d.weight}
-                                    {d.level && `，${d.level}`}）
+                                    {d.name}{tr("（")}{d.score}/{d.weight}
+                                    {d.level && `，${d.level}`}{tr("）")}
                                   </b>
-                                  ：{d.rationale}
+                                  {tr("：")}{d.rationale}
                                 </div>
                               ))}
-                              <div className="text-muted mt-2">标准版本 #{s.standardId}</div>
+                              <div className="text-muted mt-2">{tr("标准版本 #{s.standardId}", { "s.standardId": s.standardId })}</div>
                             </>
                           )}
                           {expandedTab === "review" && rv && (
                             <>
                               <div style={{ whiteSpace: "pre-wrap" }}>{rv.content}</div>
                               <div className="text-muted mt-2">
-                                {rv.standardId ? `标准版本 #${rv.standardId}` : "未依据标准"}
-                                {` · ${new Date(rv.createdAt).toLocaleString()}`}
-                                {rv.contentChanged && " · 课程内容已在点评后修改"}
+                                {rv.standardId ? tr("标准版本 #{rv.standardId}", { "rv.standardId": rv.standardId }) : tr("未依据标准")}
+                                {` · ${new Date(rv.createdAt).toLocaleString(LOCALE)}`}
+                                {rv.contentChanged && tr(" · 课程内容已在点评后修改")}
                               </div>
                             </>
                           )}

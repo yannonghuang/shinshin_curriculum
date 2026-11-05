@@ -15,6 +15,7 @@ import LessonFileManager from "./lesson-file-manager.component";
 import { useExplorerPane, ExplorerPaneBar } from "./explorer-pane";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
+import { tr, LOCALE } from "../i18n";
 
 // 教师分享 -- teachers share their views on an admin-defined 话题 (e.g.
 // "一堂乡土课程带来的影响"). Laid out like materials-library.component.js:
@@ -34,7 +35,7 @@ import "../curriculum.css";
 // related plan lands back on the same view.
 const EMPTY_TOPIC_FORM = { title: "", description: "" };
 const EMPTY_SHARE_FORM = { title: "", summary: "", relatedPlan: null, author: null };
-const LOCKED_TITLE = "该话题下已有分享，不能修改或删除";
+const LOCKED_TITLE = tr("该话题下已有分享，不能修改或删除");
 
 const planOption = (plan) =>
   plan
@@ -57,10 +58,10 @@ const teacherOption = (user) =>
     ? { value: user.id, label: user.School ? `${user.chineseName || user.username}（${user.School.name}）` : user.chineseName || user.username }
     : null;
 
-const formatDate = (value) => (value ? new Date(value).toLocaleDateString("zh-cn") : "");
+const formatDate = (value) => (value ? new Date(value).toLocaleDateString(LOCALE) : "");
 
 const authorName = (share) => (share.Author ? share.Author.chineseName || share.Author.username : "");
-const UNASSIGNED_SCHOOL_NAME = "未分配学校";
+const UNASSIGNED_SCHOOL_NAME = tr("未分配学校");
 const schoolNameOf = (share) => (share.Author && share.Author.School ? share.Author.School.name : UNASSIGNED_SCHOOL_NAME);
 
 const formatSchoolOptionLabel = (option) => (
@@ -76,7 +77,7 @@ const TeacherShare = () => {
   const canShare = isAdmin || AuthService.isTeacher();
   // An admin uploads a share on a teacher's behalf (picking the author); a
   // teacher shares their own.
-  const shareActionLabel = isAdmin ? "上传分享" : "我要分享";
+  const shareActionLabel = isAdmin ? tr("上传分享") : tr("我要分享");
   const location = useLocation();
   const history = useHistory();
   const pane = useExplorerPane();
@@ -111,7 +112,7 @@ const TeacherShare = () => {
       const resp = await ShareTopicDataService.getAll();
       setTopics(Array.isArray(resp.data) ? resp.data : []);
     } catch (e) {
-      setMessage(e?.response?.data?.message || "加载分享话题失败。");
+      setMessage(e?.response?.data?.message || tr("加载分享话题失败。"));
     }
   }, []);
 
@@ -120,7 +121,7 @@ const TeacherShare = () => {
       const resp = await ShareDataService.getAll();
       setAllShares(Array.isArray(resp.data) ? resp.data : []);
     } catch (e) {
-      setMessage(e?.response?.data?.message || "加载教师分享失败。");
+      setMessage(e?.response?.data?.message || tr("加载教师分享失败。"));
     }
   }, []);
 
@@ -138,7 +139,7 @@ const TeacherShare = () => {
           topicId = resp.data.shareTopicId;
           setSelected({ topicId, shareId, view: "share" });
         } catch (e) {
-          setMessage("该分享不存在或已被删除。");
+          setMessage(tr("该分享不存在或已被删除。"));
         }
       } else if (topicId) {
         setSelected({ topicId, shareId: null, view: "topic" });
@@ -237,7 +238,7 @@ const TeacherShare = () => {
       setShare(resp.data);
     } catch (e) {
       setShare(null);
-      setMessage(e?.response?.data?.message || "加载分享失败。");
+      setMessage(e?.response?.data?.message || tr("加载分享失败。"));
     } finally {
       setIsLoadingShare(false);
     }
@@ -268,7 +269,7 @@ const TeacherShare = () => {
   const submitCreateTopic = async (e) => {
     e.preventDefault();
     if (!topicForm.title.trim()) {
-      setMessage("请填写话题名称。");
+      setMessage(tr("请填写话题名称。"));
       return;
     }
     try {
@@ -279,7 +280,7 @@ const TeacherShare = () => {
       setExpandedTopics((prev) => ({ ...prev, [resp.data.id]: true }));
       select(resp.data.id, "topic");
     } catch (err) {
-      setMessage(err?.response?.data?.message || "创建话题失败。");
+      setMessage(err?.response?.data?.message || tr("创建话题失败。"));
     }
   };
 
@@ -298,7 +299,7 @@ const TeacherShare = () => {
       setTopicForm(EMPTY_TOPIC_FORM);
       await retrieveTopics();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "修改话题失败。");
+      setMessage(err?.response?.data?.message || tr("修改话题失败。"));
       await retrieveTopics();
     } finally {
       setBusyTopicId(null);
@@ -306,14 +307,14 @@ const TeacherShare = () => {
   };
 
   const deleteTopic = async (topic) => {
-    if (!window.confirm(`确定删除话题「${topic.title}」吗？`)) return;
+    if (!window.confirm(tr("确定删除话题「{topic.title}」吗？", { "topic.title": topic.title }))) return;
     setBusyTopicId(topic.id);
     try {
       await ShareTopicDataService.delete(topic.id);
       if (selected.topicId === topic.id) setSelected({ topicId: null, shareId: null, view: null });
-      setMessage("话题已删除。");
+      setMessage(tr("话题已删除。"));
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除话题失败。");
+      setMessage(err?.response?.data?.message || tr("删除话题失败。"));
     } finally {
       await retrieveTopics();
       setBusyTopicId(null);
@@ -370,11 +371,11 @@ const TeacherShare = () => {
   const submitCreateShare = async (e) => {
     e.preventDefault();
     if (!shareForm.title.trim()) {
-      setMessage("请填写分享标题。");
+      setMessage(tr("请填写分享标题。"));
       return;
     }
     if (isAdmin && !shareForm.author) {
-      setMessage("请选择分享的作者教师。");
+      setMessage(tr("请选择分享的作者教师。"));
       return;
     }
     setIsSaving(true);
@@ -383,9 +384,9 @@ const TeacherShare = () => {
       await refreshAfterShareChange();
       setExpandedTopics((prev) => ({ ...prev, [selected.topicId]: true }));
       select(selected.topicId, "share", resp.data.id);
-      setMessage("分享已发布，可在下方「分享内容」中上传 Word 文档、课件等文件。");
+      setMessage(tr("分享已发布，可在下方「分享内容」中上传 Word 文档、课件等文件。"));
     } catch (err) {
-      setMessage(err?.response?.data?.message || "发布分享失败。");
+      setMessage(err?.response?.data?.message || tr("发布分享失败。"));
     } finally {
       setIsSaving(false);
     }
@@ -394,7 +395,7 @@ const TeacherShare = () => {
   const submitEditShare = async (e) => {
     e.preventDefault();
     if (!shareForm.title.trim()) {
-      setMessage("请填写分享标题。");
+      setMessage(tr("请填写分享标题。"));
       return;
     }
     setIsSaving(true);
@@ -403,23 +404,23 @@ const TeacherShare = () => {
       setIsEditingShare(false);
       await Promise.all([retrieveShare(share.id), retrieveShares()]);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "保存分享失败。");
+      setMessage(err?.response?.data?.message || tr("保存分享失败。"));
     } finally {
       setIsSaving(false);
     }
   };
 
   const deleteShare = async () => {
-    if (!window.confirm("此操作将永久删除该分享及其所有文件，且无法撤销。确定继续吗？")) return;
+    if (!window.confirm(tr("此操作将永久删除该分享及其所有文件，且无法撤销。确定继续吗？"))) return;
     try {
       await ShareDataService.delete(share.id);
       const topicId = share.shareTopicId;
       setShare(null);
       await refreshAfterShareChange();
       select(topicId, "topic");
-      setMessage("分享已删除。");
+      setMessage(tr("分享已删除。"));
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除分享失败。");
+      setMessage(err?.response?.data?.message || tr("删除分享失败。"));
     }
   };
 
@@ -429,16 +430,16 @@ const TeacherShare = () => {
     <form onSubmit={onSubmit}>
       {isAdmin && (
         <div className="form-group">
-          <label htmlFor="shareAuthor">作者教师</label>
+          <label htmlFor="shareAuthor">{tr("作者教师")}</label>
           <AsyncSelect
             inputId="shareAuthor"
             cacheOptions
             defaultOptions
             loadOptions={loadTeacherOptions}
             value={shareForm.author}
-            placeholder="输入教师姓名搜索..."
-            noOptionsMessage={() => "没有找到教师"}
-            loadingMessage={() => "加载中..."}
+            placeholder={tr("输入教师姓名搜索...")}
+            noOptionsMessage={() => tr("没有找到教师")}
+            loadingMessage={() => tr("加载中...")}
             // The related course belongs to the author -- a different
             // author's courses are a different list.
             onChange={(option) =>
@@ -452,12 +453,12 @@ const TeacherShare = () => {
         </div>
       )}
       <div className="form-group">
-        <label>标题</label>
+        <label>{tr("标题")}</label>
         <input
           type="text"
           className="form-control"
           maxLength={255}
-          placeholder="如：《黄陂三鲜》让孩子重新认识了家乡"
+          placeholder={tr("如：《黄陂三鲜》让孩子重新认识了家乡")}
           value={shareForm.title}
           onChange={(e) => {
             const value = e.target.value;
@@ -466,11 +467,11 @@ const TeacherShare = () => {
         />
       </div>
       <div className="form-group">
-        <label>简介</label>
+        <label>{tr("简介")}</label>
         <textarea
           className="form-control"
           rows={4}
-          placeholder="简要说明您的观点或经验（可选）"
+          placeholder={tr("简要说明您的观点或经验（可选）")}
           value={shareForm.summary}
           onChange={(e) => {
             const value = e.target.value;
@@ -479,7 +480,7 @@ const TeacherShare = () => {
         />
       </div>
       <div className="form-group">
-        <label>关联课程（可选）</label>
+        <label>{tr("关联课程（可选）")}</label>
         <AsyncSelect
           key={shareForm.author ? shareForm.author.value : "none"}
           cacheOptions
@@ -487,17 +488,17 @@ const TeacherShare = () => {
           isClearable
           loadOptions={loadPlanOptions}
           value={shareForm.relatedPlan}
-          placeholder={isAdmin ? "选择作者教师的一门乡土课程..." : "选择您的一门乡土课程..."}
-          noOptionsMessage={() => "没有找到课程"}
-          loadingMessage={() => "加载中..."}
+          placeholder={isAdmin ? tr("选择作者教师的一门乡土课程...") : tr("选择您的一门乡土课程...")}
+          noOptionsMessage={() => tr("没有找到课程")}
+          loadingMessage={() => tr("加载中...")}
           onChange={(option) => setShareForm((prev) => ({ ...prev, relatedPlan: option }))}
         />
       </div>
       <button type="submit" className="btn btn-primary mr-2" disabled={isSaving}>
-        {isSaving ? "保存中..." : submitLabel}
+        {isSaving ? tr("保存中...") : submitLabel}
       </button>
       <button type="button" className="btn btn-secondary" onClick={onCancel}>
-        取消
+        {tr("取消")}
       </button>
     </form>
   );
@@ -506,7 +507,7 @@ const TeacherShare = () => {
     <form onSubmit={onSubmit} className={compact ? "pl-fm-new-folder-form mb-2" : ""}>
       <textarea
         className={`form-control ${compact ? "form-control-sm mb-1" : "mb-2"}`}
-        placeholder="话题名称，如：一堂乡土课程带来的影响"
+        placeholder={tr("话题名称，如：一堂乡土课程带来的影响")}
         autoFocus
         rows={2}
         maxLength={255}
@@ -518,7 +519,7 @@ const TeacherShare = () => {
       />
       <textarea
         className={`form-control ${compact ? "form-control-sm mb-1" : "mb-2"}`}
-        placeholder="话题说明（可选）"
+        placeholder={tr("话题说明（可选）")}
         rows={compact ? 2 : 4}
         value={topicForm.description}
         onChange={(e) => {
@@ -530,20 +531,20 @@ const TeacherShare = () => {
         {submitLabel}
       </button>
       <button type="button" className="btn btn-sm btn-secondary" onClick={onCancel}>
-        取消
+        {tr("取消")}
       </button>
     </form>
   );
 
   const renderTopicView = () => {
-    if (!selectedTopic) return <div className="pl-empty">话题不存在。</div>;
+    if (!selectedTopic) return <div className="pl-empty">{tr("话题不存在。")}</div>;
     const shares = allShares ? sharesByTopic[selectedTopic.id] || [] : null;
     const locked = selectedTopic.shareCount > 0;
     return (
       <>
         <div className="pl-card mb-3">
           {editingTopicId === selectedTopic.id ? (
-            renderTopicForm(submitEditTopic, "保存", () => {
+            renderTopicForm(submitEditTopic, tr("保存"), () => {
               setEditingTopicId(null);
               setTopicForm(EMPTY_TOPIC_FORM);
             })
@@ -553,18 +554,18 @@ const TeacherShare = () => {
               {selectedTopic.description && <p className="mb-2" style={{ whiteSpace: "pre-wrap" }}>{selectedTopic.description}</p>}
               <div className="d-flex flex-wrap justify-content-between align-items-center">
                 <span className="text-muted" style={{ fontSize: "0.85em" }}>
-                  共 {selectedTopic.shareCount} 条分享
-                  {filtersActive && `，符合筛选条件 ${shares ? shares.length : 0} 条`}
+                  {tr("共 {selectedTopic.shareCount} 条分享", { "selectedTopic.shareCount": selectedTopic.shareCount })}
+                  {filtersActive && tr("，符合筛选条件 {0} 条", { "0": shares ? shares.length : 0 })}
                   {isAdmin && locked && ` · ${LOCKED_TITLE}`}
                 </span>
                 <div>
                   {isAdmin && !locked && (
                     <>
                       <button type="button" className="btn btn-sm btn-outline-secondary mr-2" onClick={() => startEditTopic(selectedTopic)}>
-                        修改话题
+                        {tr("修改话题")}
                       </button>
                       <button type="button" className="btn btn-sm btn-outline-danger mr-2" onClick={() => deleteTopic(selectedTopic)}>
-                        删除话题
+                        {tr("删除话题")}
                       </button>
                     </>
                   )}
@@ -581,9 +582,9 @@ const TeacherShare = () => {
         </div>
 
         {!shares ? (
-          <div className="pl-empty">加载中...</div>
+          <div className="pl-empty">{tr("加载中...")}</div>
         ) : shares.length === 0 ? (
-          <div className="pl-empty">{filtersActive ? "该话题下没有符合筛选条件的分享。" : "该话题下暂无分享。"}</div>
+          <div className="pl-empty">{filtersActive ? tr("该话题下没有符合筛选条件的分享。") : tr("该话题下暂无分享。")}</div>
         ) : (
           <div className="pl-plan-grid">
             {shares.map((s) => (
@@ -611,7 +612,7 @@ const TeacherShare = () => {
                 )}
                 <div className="pl-plan-card-footer">
                   <button type="button" className="btn btn-link p-0" onClick={() => select(s.shareTopicId, "share", s.id)}>
-                    查看分享
+                    {tr("查看分享")}
                   </button>
                 </div>
               </div>
@@ -624,17 +625,17 @@ const TeacherShare = () => {
 
   const renderShareView = () => {
     if (isLoadingShare || !share || share.id !== selected.shareId) {
-      return <div className="pl-empty">{isLoadingShare ? "加载中..." : "分享不存在。"}</div>;
+      return <div className="pl-empty">{isLoadingShare ? tr("加载中...") : tr("分享不存在。")}</div>;
     }
     return (
       <>
         <div className="pl-card mb-3">
           {isEditingShare ? (
-            renderShareForm(submitEditShare, "保存", () => setIsEditingShare(false))
+            renderShareForm(submitEditShare, tr("保存"), () => setIsEditingShare(false))
           ) : (
             <>
               <div className="text-muted mb-1" style={{ fontSize: "0.85em" }}>
-                话题：
+                {tr("话题：")}
                 <button type="button" className="btn btn-link btn-sm p-0 align-baseline" onClick={() => select(share.shareTopicId, "topic")}>
                   {share.Topic ? share.Topic.title : "-"}
                 </button>
@@ -645,11 +646,11 @@ const TeacherShare = () => {
                   <i className="fas fa-user"></i> {authorLabel(share)}
                 </span>
                 <span>
-                  <i className="fas fa-calendar-alt"></i> 发布于 {formatDate(share.createdAt)}
+                  <i className="fas fa-calendar-alt"></i> {tr("发布于 {formatDate(share.createdAt)}", { "formatDate(share.createdAt)": formatDate(share.createdAt) })}
                 </span>
                 {share.RelatedPlan && (
                   <span>
-                    <i className="fas fa-book"></i> 关联课程：
+                    <i className="fas fa-book"></i> {tr("关联课程：")}
                     <Link to={`/plans/${share.RelatedPlan.id}`}>{share.RelatedPlan.title}</Link>
                   </span>
                 )}
@@ -658,10 +659,10 @@ const TeacherShare = () => {
               {share.canEdit && (
                 <div className="d-flex justify-content-between">
                   <button type="button" className="btn btn-sm btn-outline-secondary" onClick={startEditShare}>
-                    编辑
+                    {tr("编辑")}
                   </button>
                   <button type="button" className="btn btn-sm btn-outline-danger" onClick={deleteShare}>
-                    删除本分享
+                    {tr("删除本分享")}
                   </button>
                 </div>
               )}
@@ -669,7 +670,7 @@ const TeacherShare = () => {
           )}
         </div>
 
-        <h6 className="pl-section-title">分享内容</h6>
+        <h6 className="pl-section-title">{tr("分享内容")}</h6>
         <LessonFileManager
           planId={share.id}
           lessonIndex={null}
@@ -687,11 +688,11 @@ const TeacherShare = () => {
   const renderCreateView = () => (
     <div className="pl-card">
       <div className="text-muted mb-2" style={{ fontSize: "0.85em" }}>
-        话题：{selectedTopic ? selectedTopic.title : "-"}
+        {tr("话题：")}{selectedTopic ? selectedTopic.title : "-"}
       </div>
       <h5 className="mb-3">{shareActionLabel}</h5>
-      {renderShareForm(submitCreateShare, "发布", () => select(selected.topicId, "topic"))}
-      <div className="text-muted mt-2" style={{ fontSize: "0.85em" }}>发布后即可上传 Word 文档、课件 PPT、图片、视频等文件。</div>
+      {renderShareForm(submitCreateShare, tr("发布"), () => select(selected.topicId, "topic"))}
+      <div className="text-muted mt-2" style={{ fontSize: "0.85em" }}>{tr("发布后即可上传 Word 文档、课件 PPT、图片、视频等文件。")}</div>
     </div>
   );
 
@@ -699,14 +700,14 @@ const TeacherShare = () => {
     if (selected.view === "topic") return renderTopicView();
     if (selected.view === "share") return renderShareView();
     if (selected.view === "create") return renderCreateView();
-    return <div className="pl-empty">请选择左侧话题。</div>;
+    return <div className="pl-empty">{tr("请选择左侧话题。")}</div>;
   };
 
   if (!isLogin) {
     return (
       <div className="container pl-page">
         <div className="pl-empty">
-          请先<Link to="/login">登录</Link>后查看教师分享。
+          {tr("请先")}<Link to="/login">{tr("登录")}</Link>{tr("后查看教师分享。")}
         </div>
       </div>
     );
@@ -715,7 +716,7 @@ const TeacherShare = () => {
   if (isLoading) {
     return (
       <div className="container pl-page">
-        <div className="pl-empty">加载中...</div>
+        <div className="pl-empty">{tr("加载中...")}</div>
       </div>
     );
   }
@@ -727,25 +728,25 @@ const TeacherShare = () => {
       ? shareActionLabel
       : selectedTopic
       ? selectedTopic.title
-      : "选择话题";
+      : tr("选择话题");
 
   return (
     <div className="container pl-page">
       <div className="pl-hero">
-        <h4 className="pl-title">教师分享</h4>
-        <p className="pl-subtitle mb-0">围绕管理员设定的话题，分享您在乡土课程实践中的观点与经验。</p>
+        <h4 className="pl-title">{tr("教师分享")}</h4>
+        <p className="pl-subtitle mb-0">{tr("围绕管理员设定的话题，分享您在乡土课程实践中的观点与经验。")}</p>
       </div>
 
       <div className="form-row">
         <div className="form-group col-md-4">
-          <label htmlFor="shareTopicFilter">话题筛选</label>
+          <label htmlFor="shareTopicFilter">{tr("话题筛选")}</label>
           <select
             id="shareTopicFilter"
             className="form-control"
             value={filterTopicId}
             onChange={(e) => setFilterTopicId(e.target.value)}
           >
-            <option value="">全部话题</option>
+            <option value="">{tr("全部话题")}</option>
             {topics.map((t) => (
               <option key={t.id} value={String(t.id)}>
                 {t.title}
@@ -754,35 +755,35 @@ const TeacherShare = () => {
           </select>
         </div>
         <div className="form-group col-md-4">
-          <label htmlFor="shareTeacherFilter">教师姓名筛选</label>
+          <label htmlFor="shareTeacherFilter">{tr("教师姓名筛选")}</label>
           <input
             id="shareTeacherFilter"
             className="form-control"
-            placeholder="按教师姓名搜索"
+            placeholder={tr("按教师姓名搜索")}
             value={filterTeacherName}
             onChange={(e) => setFilterTeacherName(e.target.value)}
           />
         </div>
         <div className="form-group col-md-4">
-          <label htmlFor="shareSchoolFilter">学校名称筛选</label>
+          <label htmlFor="shareSchoolFilter">{tr("学校名称筛选")}</label>
           <Select
             inputId="shareSchoolFilter"
             options={schoolOptions}
             value={schoolOptions.find((o) => o.label === filterSchoolName) || null}
             onChange={(option) => setFilterSchoolName(option ? option.label : "")}
-            placeholder="搜索并选择学校（支持名称/代码）..."
+            placeholder={tr("搜索并选择学校（支持名称/代码）...")}
             formatOptionLabel={formatSchoolOptionLabel}
             filterOption={schoolFilterOption}
-            noOptionsMessage={() => "没有已发布分享的学校"}
+            noOptionsMessage={() => tr("没有已发布分享的学校")}
             isClearable
           />
         </div>
       </div>
       {filtersActive && (
         <div className="mb-3 text-muted" style={{ fontSize: "0.9em" }}>
-          找到 {filteredShares.length} 条分享
+          {tr("找到 {filteredShares.length} 条分享", { "filteredShares.length": filteredShares.length })}
           <button type="button" className="btn btn-link btn-sm py-0" onClick={clearFilters}>
-            清除筛选
+            {tr("清除筛选")}
           </button>
         </div>
       )}
@@ -792,7 +793,7 @@ const TeacherShare = () => {
           type="button"
           className="pl-explorer-hide-toggle"
           onClick={() => setNavCollapsed((prev) => !prev)}
-          title={navCollapsed ? "显示导航" : "隐藏导航"}
+          title={navCollapsed ? tr("显示导航") : tr("隐藏导航")}
         >
           <i className={`fas fa-${navCollapsed ? "angle-double-right" : "angle-double-left"}`}></i>
         </button>
@@ -809,14 +810,14 @@ const TeacherShare = () => {
                   setIsCreatingTopic(true);
                 }}
               >
-                <i className="fas fa-plus mr-1"></i>新建话题
+                <i className="fas fa-plus mr-1"></i>{tr("新建话题")}
               </button>
             )}
             {isAdmin &&
               isCreatingTopic &&
               renderTopicForm(
                 submitCreateTopic,
-                "创建",
+                tr("创建"),
                 () => {
                   setIsCreatingTopic(false);
                   setTopicForm(EMPTY_TOPIC_FORM);
@@ -824,8 +825,8 @@ const TeacherShare = () => {
                 true
               )}
 
-            {topics.length === 0 && <div className="pl-explorer-empty">暂无分享话题。</div>}
-            {topics.length > 0 && visibleTopics.length === 0 && <div className="pl-explorer-empty">没有符合条件的分享。</div>}
+            {topics.length === 0 && <div className="pl-explorer-empty">{tr("暂无分享话题。")}</div>}
+            {topics.length > 0 && visibleTopics.length === 0 && <div className="pl-explorer-empty">{tr("没有符合条件的分享。")}</div>}
 
             {visibleTopics.map((topic) => {
               const locked = topic.shareCount > 0;
@@ -848,7 +849,7 @@ const TeacherShare = () => {
                         <button
                           type="button"
                           className="pl-explorer-row-action"
-                          title="修改"
+                          title={tr("修改")}
                           data-explorer-leaf
                           onClick={(e) => {
                             e.stopPropagation();
@@ -860,7 +861,7 @@ const TeacherShare = () => {
                         <button
                           type="button"
                           className="pl-explorer-row-action"
-                          title="删除"
+                          title={tr("删除")}
                           onClick={(e) => {
                             e.stopPropagation();
                             deleteTopic(topic);
@@ -878,7 +879,7 @@ const TeacherShare = () => {
                         className={`pl-explorer-leaf ${selected.topicId === topic.id && selected.view === "topic" ? "is-active" : ""}`}
                         onClick={() => select(topic.id, "topic")}
                       >
-                        <i className="fas fa-th-large mr-1"></i>全部分享
+                        <i className="fas fa-th-large mr-1"></i>{tr("全部分享")}
                       </button>
                       {shares.map((s) => (
                         <button

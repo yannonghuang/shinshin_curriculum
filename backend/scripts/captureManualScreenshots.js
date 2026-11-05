@@ -311,6 +311,9 @@ async function captureTrashShot(page, user) {
 async function captureMobileShots(browser) {
   console.log("==> mobile-explorer (手机：目录 / 选中板块)");
   const context = await browser.newContext({
+    // The manual is Chinese, and the app picks its UI language from the
+    // browser locale (react-app/src/i18n) -- Playwright defaults to en-US.
+    locale: "zh-CN",
     viewport: { width: 390, height: 700 },
     deviceScaleFactor: 2,
     isMobile: true,
@@ -375,7 +378,7 @@ async function captureTeacherShareShot(page) {
 
 async function run() {
   const browser = await chromium.launch();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "zh-CN" });
 
   try {
     // ---------------------------------------------------------------
@@ -637,7 +640,7 @@ async function run() {
     // server entirely, so it needs its own localStorage-backed session.
     // ---------------------------------------------------------------
     console.log("==> Logging in on PRODUCTION as the real teacher account (no password used)...");
-    const prodContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const prodContext = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "zh-CN" });
     await loginAs(prodContext, PROD_TEACHER_ID, mintTokenOnProd);
     const prodPage = await prodContext.newPage();
     await prodPage.goto(`${PROD_BASE_URL}/materials`, { waitUntil: "load" });

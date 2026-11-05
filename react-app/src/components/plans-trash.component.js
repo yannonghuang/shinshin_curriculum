@@ -4,8 +4,9 @@ import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import { PLAN_TRASH_RETENTION_DAYS } from "../constants/plan-options";
 import "../curriculum.css";
+import { tr, LOCALE } from "../i18n";
 
-const formatDateTime = (value) => new Date(value).toLocaleString("zh-cn", { hour12: false });
+const formatDateTime = (value) => new Date(value).toLocaleString(LOCALE, { hour12: false });
 const daysLeft = (purgeAt) => Math.max(0, Math.ceil((new Date(purgeAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
 
 // 回收站 (/plans/trash): plans deleted from 我的乡土课程 / 全部乡土课程 land
@@ -25,7 +26,7 @@ const PlansTrash = () => {
       setRows(resp.data.rows || []);
       if (resp.data.retentionDays) setRetentionDays(resp.data.retentionDays);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "加载回收站失败。");
+      setMessage(err?.response?.data?.message || tr("加载回收站失败。"));
     } finally {
       setLoaded(true);
     }
@@ -38,53 +39,52 @@ const PlansTrash = () => {
   const onRestore = async (item) => {
     try {
       const resp = await PlanDataService.restore(item.id);
-      setMessage(resp.data?.message || "已恢复。");
+      setMessage(resp.data?.message || tr("已恢复。"));
       retrieve();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "恢复失败。");
+      setMessage(err?.response?.data?.message || tr("恢复失败。"));
     }
   };
 
   const onPurge = async (item) => {
-    if (!window.confirm(`此操作将永久删除「${item.title}」及其所有附件与点评，且无法撤销。确定继续吗？`)) return;
+    if (!window.confirm(tr("此操作将永久删除「{item.title}」及其所有附件与点评，且无法撤销。确定继续吗？", { "item.title": item.title }))) return;
     try {
       const resp = await PlanDataService.purge(item.id);
-      setMessage(resp.data?.message || "已永久删除。");
+      setMessage(resp.data?.message || tr("已永久删除。"));
       retrieve();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "永久删除失败。");
+      setMessage(err?.response?.data?.message || tr("永久删除失败。"));
     }
   };
 
   if (!AuthService.isTeacher() && !isAdmin) {
-    return <div className="container">仅教师和管理员可使用回收站。</div>;
+    return <div className="container">{tr("仅教师和管理员可使用回收站。")}</div>;
   }
 
   return (
     <div className="container">
-      <h4>回收站</h4>
+      <h4>{tr("回收站")}</h4>
       <p className="text-muted">
-        已删除的课程设计会在这里保留 {retentionDays} 天，期间可随时恢复（附件与点评一并恢复）；超过 {retentionDays}{" "}
-        天后将自动永久删除。
+        {tr("已删除的课程设计会在这里保留 {retentionDays} 天，期间可随时恢复（附件与点评一并恢复）；超过 {retentionDays} 天后将自动永久删除。", { retentionDays })}
         <Link to={isAdmin ? "/plans" : "/plans?mine=true"} className="ml-2">
-          返回{isAdmin ? "全部乡土课程" : "我的乡土课程"}
+          {tr("返回")}{isAdmin ? tr("全部乡土课程") : tr("我的乡土课程")}
         </Link>
       </p>
 
       {message && <div className="alert alert-info py-2">{message}</div>}
 
       {loaded && rows.length === 0 ? (
-        <div className="pl-empty">回收站为空</div>
+        <div className="pl-empty">{tr("回收站为空")}</div>
       ) : (
         <table className="table table-sm table-bordered">
           <thead>
             <tr>
-              <th>课程标题</th>
-              {isAdmin && <th>教师</th>}
-              <th>年份/学期</th>
-              <th>删除时间</th>
-              <th>剩余天数</th>
-              <th>操作</th>
+              <th>{tr("课程标题")}</th>
+              {isAdmin && <th>{tr("教师")}</th>}
+              <th>{tr("年份/学期")}</th>
+              <th>{tr("删除时间")}</th>
+              <th>{tr("剩余天数")}</th>
+              <th>{tr("操作")}</th>
             </tr>
           </thead>
           <tbody>
@@ -94,16 +94,16 @@ const PlansTrash = () => {
                 {isAdmin && <td>{item.Teacher ? item.Teacher.chineseName || item.Teacher.username : "-"}</td>}
                 <td>
                   {item.year}
-                  {item.season ? ` ${item.season}` : ""}
+                  {item.season ? ` ${tr(item.season)}` : ""}
                 </td>
                 <td>{formatDateTime(item.deletedAt)}</td>
-                <td>{daysLeft(item.purgeAt)} 天</td>
+                <td>{tr("{daysLeft(item.purgeAt)} 天", { "daysLeft(item.purgeAt)": daysLeft(item.purgeAt) })}</td>
                 <td>
                   <button className="btn btn-sm btn-outline-primary mr-2" type="button" onClick={() => onRestore(item)}>
-                    恢复
+                    {tr("恢复")}
                   </button>
                   <button className="btn btn-sm btn-outline-danger" type="button" onClick={() => onPurge(item)}>
-                    永久删除
+                    {tr("永久删除")}
                   </button>
                 </td>
               </tr>

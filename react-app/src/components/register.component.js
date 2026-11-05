@@ -9,6 +9,7 @@ import { Link } from "react-router-dom";
 import AuthService from "../services/auth.service";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
+import { tr } from "../i18n";
 
 const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, address: s.address }));
 
@@ -29,7 +30,7 @@ const required = (value) => {
   if (!value) {
     return (
       <div className="alert alert-danger" role="alert">
-        请填写!
+        {tr("请填写!")}
       </div>
     );
   }
@@ -39,7 +40,7 @@ const email = (value) => {
   if (!isEmail(value)) {
     return (
       <div className="alert alert-danger" role="alert">
-        邮件地址不正确
+        {tr("邮件地址不正确")}
       </div>
     );
   }
@@ -49,7 +50,7 @@ const vusername = (value) => {
   if (value.length < 3 || value.length > 20) {
     return (
       <div className="alert alert-danger" role="alert">
-        用户名应含3至20个字节
+        {tr("用户名应含3至20个字节")}
       </div>
     );
   }
@@ -59,7 +60,7 @@ const vpassword = (value) => {
   if (value && value.length > 0 && (value.length < 6 || value.length > 40)) {
     return (
       <div className="alert alert-danger" role="alert">
-        密码应含6至40个字节
+        {tr("密码应含6至40个字节")}
       </div>
     );
   }
@@ -123,7 +124,7 @@ export default class Register extends Component {
     // react-select's Select isn't a react-validation Input, so it's not
     // covered by validateAll() above -- checked separately.
     if (!this.state.school) {
-      this.setState({ successful: false, message: "请选择所在学校。" });
+      this.setState({ successful: false, message: tr("请选择所在学校。") });
       return;
     }
 
@@ -138,7 +139,7 @@ export default class Register extends Component {
       }).then(
         () => {
           this.setState({
-            message: "账号创建成功，请登录。",
+            message: tr("账号创建成功，请登录。"),
             successful: true,
           });
         },
@@ -160,10 +161,10 @@ export default class Register extends Component {
             <div className="auth-badge">
               <i className="fas fa-check-circle"></i>
             </div>
-            <h2 className="auth-title">注册成功</h2>
+            <h2 className="auth-title">{tr("注册成功")}</h2>
             <p className="auth-subtitle">{this.state.message}</p>
             <Link to="/login">
-              <button className="auth-btn-primary">前往登录</button>
+              <button className="auth-btn-primary">{tr("前往登录")}</button>
             </Link>
           </div>
         ) : (
@@ -171,8 +172,8 @@ export default class Register extends Component {
             <div className="auth-badge">
               <i className="fas fa-user-plus"></i>
             </div>
-            <h2 className="auth-title">创建账号</h2>
-            <p className="auth-subtitle">加入乡土智课系统</p>
+            <h2 className="auth-title">{tr("创建账号")}</h2>
+            <p className="auth-subtitle">{tr("加入乡土智课系统")}</p>
 
             <Form
               onSubmit={this.handleRegister}
@@ -182,7 +183,7 @@ export default class Register extends Component {
             >
               <div className="form-group">
                 <label htmlFor="username">
-                  用户名<span className="required">*</span>
+                  {tr("用户名")}<span className="required">*</span>
                 </label>
                 <Input
                   type="text"
@@ -196,7 +197,7 @@ export default class Register extends Component {
 
               <div className="form-group">
                 <label htmlFor="chineseName">
-                  姓名<span className="required">*</span>
+                  {tr("姓名")}<span className="required">*</span>
                 </label>
                 <Input
                   type="text"
@@ -210,7 +211,7 @@ export default class Register extends Component {
 
               <div className="form-group">
                 <label htmlFor="email">
-                  电子邮箱<span className="required">*</span>
+                  {tr("电子邮箱")}<span className="required">*</span>
                 </label>
                 <Input
                   type="text"
@@ -224,7 +225,7 @@ export default class Register extends Component {
 
               <div className="form-group">
                 <label htmlFor="password">
-                  密码<span className="required">*</span>
+                  {tr("密码")}<span className="required">*</span>
                 </label>
                 <Input
                   type="password"
@@ -238,21 +239,21 @@ export default class Register extends Component {
 
               <div className="form-group">
                 <label htmlFor="school">
-                  所在学校<span className="required">*</span>
+                  {tr("所在学校")}<span className="required">*</span>
                 </label>
                 <Select
                   inputId="school"
                   options={schoolOptions}
                   value={this.state.school}
                   onChange={this.onChangeSchool}
-                  placeholder="搜索并选择学校..."
+                  placeholder={tr("搜索并选择学校...")}
                   formatOptionLabel={formatSchoolOptionLabel}
                   filterOption={schoolFilterOption}
                 />
               </div>
 
               <div className="form-group">
-                <button className="auth-btn-primary">注册</button>
+                <button className="auth-btn-primary">{tr("注册")}</button>
               </div>
 
               {this.state.message && (
@@ -272,7 +273,7 @@ export default class Register extends Component {
             </Form>
 
             <p className="auth-footnote">
-              已有账号？ <Link to="/login">立即登录</Link>
+              {tr("已有账号？")} <Link to="/login">{tr("立即登录")}</Link>
             </p>
           </div>
         )}

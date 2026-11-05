@@ -12,6 +12,7 @@ import LessonFileManager from "./lesson-file-manager.component";
 import KnowledgeIndex from "./knowledge-index.component";
 import { useExplorerPane, ExplorerPaneBar } from "./explorer-pane";
 import "../curriculum.css";
+import { tr, LOCALE } from "../i18n";
 
 // Mirrors backend/app/constants/materialCategories.js's MANUAL_CATEGORY/
 // MANUAL_THEME -- 使用指南 is an ordinary category an admin can file any
@@ -29,7 +30,7 @@ import "../curriculum.css";
 const MANUAL_CATEGORY = "使用指南";
 const MANUAL_THEME = "教师手册";
 // The tree's leaf wording, for the phone layout's bar over the content.
-const LEAF_LABELS = { basic: "基本信息", contents: "材料内容", links: "视频链接", skill: "知识卡片" };
+const LEAF_LABELS = { basic: tr("基本信息"), contents: tr("材料内容"), links: tr("视频链接"), skill: tr("知识卡片") };
 
 const isManualTopic = (topic) => !!topic && topic.category === MANUAL_CATEGORY && topic.theme === MANUAL_THEME;
 // Neither the 使用指南 folder nor the manual topic itself can be renamed --
@@ -129,7 +130,7 @@ const MaterialsLibrary = () => {
       setTopics(Array.isArray(resp.data) ? resp.data : []);
     } catch (e) {
       console.log(e);
-      setMessage("加载学习资源库失败。");
+      setMessage(tr("加载学习资源库失败。"));
     } finally {
       setIsLoading(false);
     }
@@ -159,7 +160,7 @@ const MaterialsLibrary = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "教师手册下载失败。");
+      setMessage(err?.response?.data?.message || tr("教师手册下载失败。"));
     } finally {
       setManualBusy("");
     }
@@ -174,10 +175,10 @@ const MaterialsLibrary = () => {
     setMessage("");
     try {
       const resp = await TeacherManualDataService.publish();
-      setMessage((resp.data && resp.data.message) || "教师手册已发布。");
+      setMessage((resp.data && resp.data.message) || tr("教师手册已发布。"));
       await retrieveTopics();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "教师手册发布失败。");
+      setMessage(err?.response?.data?.message || tr("教师手册发布失败。"));
     } finally {
       setManualBusy("");
     }
@@ -207,7 +208,7 @@ const MaterialsLibrary = () => {
       setLinks(Array.isArray(resp.data) ? resp.data : []);
     } catch (e) {
       console.log(e);
-      setMessage("加载视频链接失败。");
+      setMessage(tr("加载视频链接失败。"));
     } finally {
       setIsLoadingLinks(false);
     }
@@ -233,7 +234,7 @@ const MaterialsLibrary = () => {
       setSkillDirty(false);
     } catch (e) {
       console.log(e);
-      setMessage("加载知识卡片失败。");
+      setMessage(tr("加载知识卡片失败。"));
     } finally {
       setIsLoadingSkill(false);
     }
@@ -304,7 +305,7 @@ const MaterialsLibrary = () => {
           .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))[0] || null;
       setManualArtifact(doc);
       if (!doc) {
-        setManualLoadError("本主题下暂无手册文档。");
+        setManualLoadError(tr("本主题下暂无手册文档。"));
         return;
       }
       const fileResp = await MaterialArtifactDataService.download(doc.id);
@@ -312,7 +313,7 @@ const MaterialsLibrary = () => {
       setManualHtml(result.value || "");
     } catch (e) {
       console.log(e);
-      setManualLoadError("加载手册内容失败。");
+      setManualLoadError(tr("加载手册内容失败。"));
     } finally {
       setIsLoadingManualDoc(false);
     }
@@ -360,10 +361,10 @@ const MaterialsLibrary = () => {
     try {
       await MaterialTopicDataService.update(selectedTopic.id, metaForm);
       setMetaDirty(false);
-      setMessage("基本信息已保存。");
+      setMessage(tr("基本信息已保存。"));
       await retrieveTopics();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "保存失败。");
+      setMessage(err?.response?.data?.message || tr("保存失败。"));
     }
   };
 
@@ -378,12 +379,12 @@ const MaterialsLibrary = () => {
     setIsRegeneratingSkill(true);
     try {
       const resp = await MaterialTopicDataService.regenerateSkill(selectedTopic.id);
-      setMessage(resp?.data?.message || "知识卡片已重新生成。");
+      setMessage(resp?.data?.message || tr("知识卡片已重新生成。"));
       if (selected.key === "skill") {
         await retrieveSkill(selectedTopic.id);
       }
     } catch (err) {
-      setMessage(err?.response?.data?.message || "生成知识卡片失败。");
+      setMessage(err?.response?.data?.message || tr("生成知识卡片失败。"));
     } finally {
       setIsRegeneratingSkill(false);
     }
@@ -394,15 +395,15 @@ const MaterialsLibrary = () => {
   // explicitly, since a topic can be deleted from the tree without ever
   // having been selected/opened).
   const deleteTopicById = async (topicId) => {
-    if (!window.confirm("此操作将永久删除该主题及其所有材料内容和链接，且无法撤销。确定继续吗？")) return;
+    if (!window.confirm(tr("此操作将永久删除该主题及其所有材料内容和链接，且无法撤销。确定继续吗？"))) return;
     setBusyTopicId(topicId);
     try {
       await MaterialTopicDataService.delete(topicId, true);
       if (selected.topicId === topicId) setSelected({ topicId: null, key: null });
-      setMessage("主题已删除。");
+      setMessage(tr("主题已删除。"));
       await retrieveTopics();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除失败。");
+      setMessage(err?.response?.data?.message || tr("删除失败。"));
     } finally {
       setBusyTopicId(null);
     }
@@ -431,7 +432,7 @@ const MaterialsLibrary = () => {
       cancelRenameTopic();
       await retrieveTopics();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "重命名失败。");
+      setMessage(err?.response?.data?.message || tr("重命名失败。"));
     } finally {
       setBusyTopicId(null);
     }
@@ -440,7 +441,7 @@ const MaterialsLibrary = () => {
   const submitCreateTopic = async (e) => {
     e.preventDefault();
     if (!newTopicForm.theme.trim() || !newTopicForm.category.trim()) {
-      setMessage("请填写分类和主题名称。");
+      setMessage(tr("请填写分类和主题名称。"));
       return;
     }
     try {
@@ -452,7 +453,7 @@ const MaterialsLibrary = () => {
       setExpandedTopics((prev) => ({ ...prev, [resp.data.id]: true }));
       select(resp.data.id, "basic");
     } catch (err) {
-      setMessage(err?.response?.data?.message || "创建主题失败。");
+      setMessage(err?.response?.data?.message || tr("创建主题失败。"));
     }
   };
 
@@ -493,7 +494,7 @@ const MaterialsLibrary = () => {
       });
       await retrieveTopics();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "重命名分类失败。");
+      setMessage(err?.response?.data?.message || tr("重命名分类失败。"));
     } finally {
       setBusyCategory(null);
     }
@@ -505,7 +506,7 @@ const MaterialsLibrary = () => {
   const deleteCategoryByValue = async (category, topicCount) => {
     if (
       !window.confirm(
-        `此操作将永久删除分类「${category}」下的全部 ${topicCount} 个主题及其所有材料内容和链接，且无法撤销。确定继续吗？`
+        tr("此操作将永久删除分类「{category}」下的全部 {topicCount} 个主题及其所有材料内容和链接，且无法撤销。确定继续吗？", { category, topicCount })
       )
     )
       return;
@@ -513,10 +514,10 @@ const MaterialsLibrary = () => {
     try {
       await MaterialTopicDataService.deleteCategory(category, true);
       if (selectedTopic && selectedTopic.category === category) setSelected({ topicId: null, key: null });
-      setMessage("分类已删除。");
+      setMessage(tr("分类已删除。"));
       await retrieveTopics();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除分类失败。");
+      setMessage(err?.response?.data?.message || tr("删除分类失败。"));
     } finally {
       setBusyCategory(null);
     }
@@ -525,7 +526,7 @@ const MaterialsLibrary = () => {
   const submitCreateLink = async (e) => {
     e.preventDefault();
     if (!newLinkForm.url.trim()) {
-      setMessage("请填写链接地址。");
+      setMessage(tr("请填写链接地址。"));
       return;
     }
     try {
@@ -534,7 +535,7 @@ const MaterialsLibrary = () => {
       setNewLinkForm(EMPTY_LINK_FORM);
       await retrieveLinks(selected.topicId);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "添加链接失败。");
+      setMessage(err?.response?.data?.message || tr("添加链接失败。"));
     }
   };
 
@@ -550,17 +551,17 @@ const MaterialsLibrary = () => {
       setEditingLinkId(null);
       await retrieveLinks(selected.topicId);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "更新链接失败。");
+      setMessage(err?.response?.data?.message || tr("更新链接失败。"));
     }
   };
 
   const deleteLink = async (id) => {
-    if (!window.confirm("确定删除该链接吗？")) return;
+    if (!window.confirm(tr("确定删除该链接吗？"))) return;
     try {
       await MaterialLinkDataService.delete(id);
       await retrieveLinks(selected.topicId);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除链接失败。");
+      setMessage(err?.response?.data?.message || tr("删除链接失败。"));
     }
   };
 
@@ -577,10 +578,10 @@ const MaterialsLibrary = () => {
         keyPoints: skillForm.keyPointsText.split("\n").map((s) => s.trim()).filter(Boolean),
         tags: skillForm.tagsText.split(/[、,]/).map((s) => s.trim()).filter(Boolean),
       });
-      setMessage("知识卡片已保存。");
+      setMessage(tr("知识卡片已保存。"));
       await retrieveSkill(selected.topicId);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "保存知识卡片失败。");
+      setMessage(err?.response?.data?.message || tr("保存知识卡片失败。"));
     }
   };
 
@@ -596,7 +597,7 @@ const MaterialsLibrary = () => {
       const resp = await MaterialTopicDataService.search(q);
       setSearchResults(Array.isArray(resp.data) ? resp.data : []);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "搜索失败。");
+      setMessage(err?.response?.data?.message || tr("搜索失败。"));
     } finally {
       setIsSearching(false);
     }
@@ -620,19 +621,19 @@ const MaterialsLibrary = () => {
     return (
       <div className="pl-card">
         <div className="form-group">
-          <label>分类</label>
+          <label>{tr("分类")}</label>
           <CreatableSelect
             options={categoryOptions}
             value={metaForm.category ? { value: metaForm.category, label: metaForm.category } : null}
             isDisabled={!isAdmin}
             isClearable={false}
-            placeholder="选择或输入新分类..."
-            formatCreateLabel={(input) => `新建分类：${input}`}
+            placeholder={tr("选择或输入新分类...")}
+            formatCreateLabel={(input) => tr("新建分类：{input}", { input })}
             onChange={(option) => updateMetaForm("category", option ? option.value : "")}
           />
         </div>
         <div className="form-group">
-          <label>主题</label>
+          <label>{tr("主题")}</label>
           {/* textarea, not a single-line input -- 主题 names here can run
               long, and this keeps the full name visible/wrapped instead of
               scrolling off sideways; overflowY: auto caps growth and scrolls
@@ -647,7 +648,7 @@ const MaterialsLibrary = () => {
           />
         </div>
         <div className="form-group">
-          <label>主讲人</label>
+          <label>{tr("主讲人")}</label>
           <input
             type="text"
             className="form-control"
@@ -657,7 +658,7 @@ const MaterialsLibrary = () => {
           />
         </div>
         <div className="form-group">
-          <label>备注</label>
+          <label>{tr("备注")}</label>
           <textarea
             className="form-control"
             rows={4}
@@ -670,7 +671,7 @@ const MaterialsLibrary = () => {
           <div className="d-flex justify-content-between">
             <div>
               <button type="button" className="btn btn-primary" disabled={!metaDirty} onClick={saveMeta}>
-                保存
+                {tr("保存")}
               </button>
               <button
                 type="button"
@@ -678,11 +679,11 @@ const MaterialsLibrary = () => {
                 disabled={isRegeneratingSkill}
                 onClick={forceRegenerateSkill}
               >
-                {isRegeneratingSkill ? "生成中…" : "强制生成知识卡片"}
+                {isRegeneratingSkill ? tr("生成中…") : tr("强制生成知识卡片")}
               </button>
             </div>
             <button type="button" className="btn btn-outline-danger" onClick={() => deleteTopicById(selectedTopic.id)}>
-              删除本主题
+              {tr("删除本主题")}
             </button>
           </div>
         )}
@@ -693,10 +694,10 @@ const MaterialsLibrary = () => {
   const renderLinks = () => (
     <div className="pl-card">
       {isLoadingLinks ? (
-        <div className="pl-empty">加载中...</div>
+        <div className="pl-empty">{tr("加载中...")}</div>
       ) : (
         <>
-          {links.length === 0 && <div className="pl-empty">暂无视频链接。</div>}
+          {links.length === 0 && <div className="pl-empty">{tr("暂无视频链接。")}</div>}
           <ul className="list-group mb-3">
             {links.map((link) =>
               editingLinkId === link.id ? (
@@ -705,7 +706,7 @@ const MaterialsLibrary = () => {
                     <input
                       type="text"
                       className="form-control mb-2"
-                      placeholder="链接描述"
+                      placeholder={tr("链接描述")}
                       value={editLinkForm.description}
                       onChange={(e) => {
                         const value = e.target.value;
@@ -715,7 +716,7 @@ const MaterialsLibrary = () => {
                     <input
                       type="text"
                       className="form-control mb-2"
-                      placeholder="链接地址"
+                      placeholder={tr("链接地址")}
                       value={editLinkForm.url}
                       onChange={(e) => {
                         const value = e.target.value;
@@ -723,10 +724,10 @@ const MaterialsLibrary = () => {
                       }}
                     />
                     <button type="submit" className="btn btn-sm btn-primary mr-2">
-                      保存
+                      {tr("保存")}
                     </button>
                     <button type="button" className="btn btn-sm btn-secondary" onClick={() => setEditingLinkId(null)}>
-                      取消
+                      {tr("取消")}
                     </button>
                   </form>
                 </li>
@@ -738,10 +739,10 @@ const MaterialsLibrary = () => {
                   {isAdmin && (
                     <div>
                       <button type="button" className="btn btn-sm btn-link" onClick={() => startEditLink(link)}>
-                        编辑
+                        {tr("编辑")}
                       </button>
                       <button type="button" className="btn btn-sm btn-link text-danger" onClick={() => deleteLink(link.id)}>
-                        删除
+                        {tr("删除")}
                       </button>
                     </div>
                   )}
@@ -751,7 +752,7 @@ const MaterialsLibrary = () => {
           </ul>
           {isAdmin && !isAddingLink && (
             <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setIsAddingLink(true)}>
-              <i className="fas fa-plus mr-1"></i>添加链接
+              <i className="fas fa-plus mr-1"></i>{tr("添加链接")}
             </button>
           )}
           {isAdmin && isAddingLink && (
@@ -759,7 +760,7 @@ const MaterialsLibrary = () => {
               <input
                 type="text"
                 className="form-control mb-2"
-                placeholder="链接描述"
+                placeholder={tr("链接描述")}
                 value={newLinkForm.description}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -769,7 +770,7 @@ const MaterialsLibrary = () => {
               <input
                 type="text"
                 className="form-control mb-2"
-                placeholder="链接地址"
+                placeholder={tr("链接地址")}
                 value={newLinkForm.url}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -777,7 +778,7 @@ const MaterialsLibrary = () => {
                 }}
               />
               <button type="submit" className="btn btn-sm btn-primary mr-2">
-                添加
+                {tr("添加")}
               </button>
               <button
                 type="button"
@@ -787,7 +788,7 @@ const MaterialsLibrary = () => {
                   setNewLinkForm(EMPTY_LINK_FORM);
                 }}
               >
-                取消
+                {tr("取消")}
               </button>
             </form>
           )}
@@ -797,20 +798,20 @@ const MaterialsLibrary = () => {
   );
 
   const renderSkillCard = () => {
-    if (isLoadingSkill || !skillForm) return <div className="pl-empty">加载中...</div>;
+    if (isLoadingSkill || !skillForm) return <div className="pl-empty">{tr("加载中...")}</div>;
     return (
       <div className="pl-card">
-        {isSkillGenerating && <div className="alert alert-info py-2">正在由AI生成知识卡片…</div>}
+        {isSkillGenerating && <div className="alert alert-info py-2">{tr("正在由AI生成知识卡片…")}</div>}
         {!isSkillGenerating && !skillCard && (
-          <div className="alert alert-info py-2">此主题暂无知识卡片（可能内容尚未生成，或生成失败）。</div>
+          <div className="alert alert-info py-2">{tr("此主题暂无知识卡片（可能内容尚未生成，或生成失败）。")}</div>
         )}
         {skillCard && (
           <p className="pl-subtitle">
-            {skillCard.sourceType === "admin" ? "管理员已审核" : "AI 自动生成，尚未审核"}
+            {skillCard.sourceType === "admin" ? tr("管理员已审核") : tr("AI 自动生成，尚未审核")}
           </p>
         )}
         <div className="form-group">
-          <label>标题</label>
+          <label>{tr("标题")}</label>
           <input
             type="text"
             className="form-control"
@@ -820,7 +821,7 @@ const MaterialsLibrary = () => {
           />
         </div>
         <div className="form-group">
-          <label>摘要</label>
+          <label>{tr("摘要")}</label>
           <textarea
             className="form-control"
             rows={4}
@@ -830,7 +831,7 @@ const MaterialsLibrary = () => {
           />
         </div>
         <div className="form-group">
-          <label>要点（每行一条）</label>
+          <label>{tr("要点（每行一条）")}</label>
           <textarea
             className="form-control"
             rows={4}
@@ -840,7 +841,7 @@ const MaterialsLibrary = () => {
           />
         </div>
         <div className="form-group">
-          <label>标签（顿号或逗号分隔）</label>
+          <label>{tr("标签（顿号或逗号分隔）")}</label>
           <input
             type="text"
             className="form-control"
@@ -851,7 +852,7 @@ const MaterialsLibrary = () => {
         </div>
         {isAdmin && (
           <button type="button" className="btn btn-primary" disabled={!skillDirty} onClick={saveSkill}>
-            保存
+            {tr("保存")}
           </button>
         )}
         <KnowledgeIndex topicId={selected.topicId} isAdmin={isAdmin} />
@@ -865,7 +866,7 @@ const MaterialsLibrary = () => {
   // should land straight on readable content, not a file manager.
   const renderManualViewer = () => (
     <div className="pl-card">
-      {isLoadingManualDoc && <div className="pl-empty">加载中...</div>}
+      {isLoadingManualDoc && <div className="pl-empty">{tr("加载中...")}</div>}
       {!isLoadingManualDoc && manualLoadError && <div className="alert alert-info py-2">{manualLoadError}</div>}
       {!isLoadingManualDoc && manualHtml !== null && (
         <>
@@ -873,7 +874,7 @@ const MaterialsLibrary = () => {
             <div className="d-flex justify-content-between align-items-center mb-3">
               <span className="text-muted" style={{ fontSize: "0.85em" }}>
                 {manualArtifact.attachmentName}
-                {manualArtifact.updatedAt && ` · 更新于 ${new Date(manualArtifact.updatedAt).toLocaleString("zh-cn")}`}
+                {manualArtifact.updatedAt && tr(" · 更新于 {0}", { "0": new Date(manualArtifact.updatedAt).toLocaleString(LOCALE) })}
               </span>
               <button
                 type="button"
@@ -894,11 +895,11 @@ const MaterialsLibrary = () => {
                     link.remove();
                     window.URL.revokeObjectURL(url);
                   } catch (e) {
-                    setMessage("下载失败。");
+                    setMessage(tr("下载失败。"));
                   }
                 }}
               >
-                下载 Word 文档
+                {tr("下载 Word 文档")}
               </button>
             </div>
           )}
@@ -910,7 +911,7 @@ const MaterialsLibrary = () => {
 
   const renderContent = () => {
     if (!selected.topicId || !selected.key) {
-      return <div className="pl-empty">请选择左侧主题。</div>;
+      return <div className="pl-empty">{tr("请选择左侧主题。")}</div>;
     }
     if (selected.key === "basic") return renderBasicInfo();
     if (selected.key === "links") return renderLinks();
@@ -936,7 +937,7 @@ const MaterialsLibrary = () => {
   if (isLoading) {
     return (
       <div className="container pl-page">
-        <div className="pl-empty">加载中...</div>
+        <div className="pl-empty">{tr("加载中...")}</div>
       </div>
     );
   }
@@ -944,17 +945,16 @@ const MaterialsLibrary = () => {
   return (
     <div className="container pl-page">
       <div className="pl-hero">
-        <h4 className="pl-title">学习资源库</h4>
+        <h4 className="pl-title">{tr("学习资源库")}</h4>
       </div>
 
       {isAdmin && (
         <div className="pl-card mb-4">
           <div className="d-flex justify-content-between align-items-center mb-2">
-            <h6 className="mb-0">教师手册</h6>
+            <h6 className="mb-0">{tr("教师手册")}</h6>
           </div>
           <p className="text-muted mb-2">
-            教师使用手册根据系统当前功能自动生成，涵盖课程设计的创建/编辑/保存/提交/上传/下载/删除、专家评审、AI 点评、
-            评审历史、AI 讨论、欣欣小助手、执行阶段支撑材料管理与模板迁移等内容。
+            {tr("教师使用手册根据系统当前功能自动生成，涵盖课程设计的创建/编辑/保存/提交/上传/下载/删除、专家评审、AI 点评、 评审历史、AI 讨论、欣欣小助手、执行阶段支撑材料管理与模板迁移等内容。")}
           </p>
           <button
             type="button"
@@ -962,14 +962,13 @@ const MaterialsLibrary = () => {
             onClick={downloadTeacherManual}
             disabled={!!manualBusy}
           >
-            {manualBusy === "download" ? "生成中..." : "下载最新教师手册"}
+            {manualBusy === "download" ? tr("生成中...") : tr("下载最新教师手册")}
           </button>
           <button type="button" className="btn btn-primary btn-sm" onClick={publishTeacherManual} disabled={!!manualBusy}>
-            {manualBusy === "publish" ? "发布中..." : "生成并发布到「使用指南 / 教师手册」"}
+            {manualBusy === "publish" ? tr("发布中...") : tr("生成并发布到「使用指南 / 教师手册」")}
           </button>
           <div className="text-muted mt-2" style={{ fontSize: "0.85em" }}>
-            发布后将出现在下方的「使用指南 / 教师手册」主题下，教师可自行查看；再次发布会更新同一份文件。
-            首次发布之后，系统每次更新上线时如手册内容有变化，会自动重新发布（欣欣小助手据此回答系统使用问题）。
+            {tr("发布后将出现在下方的「使用指南 / 教师手册」主题下，教师可自行查看；再次发布会更新同一份文件。 首次发布之后，系统每次更新上线时如手册内容有变化，会自动重新发布（欣欣小助手据此回答系统使用问题）。")}
           </div>
         </div>
       )}
@@ -979,7 +978,7 @@ const MaterialsLibrary = () => {
           type="button"
           className="pl-explorer-hide-toggle"
           onClick={() => setNavCollapsed((prev) => !prev)}
-          title={navCollapsed ? "显示导航" : "隐藏导航"}
+          title={navCollapsed ? tr("显示导航") : tr("隐藏导航")}
         >
           <i className={`fas fa-${navCollapsed ? "angle-double-right" : "angle-double-left"}`}></i>
         </button>
@@ -991,7 +990,7 @@ const MaterialsLibrary = () => {
                 <input
                   type="text"
                   className="form-control"
-                  placeholder="搜索材料库..."
+                  placeholder={tr("搜索材料库...")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -1005,13 +1004,13 @@ const MaterialsLibrary = () => {
             {searchResults !== null && (
               <div className="pl-explorer-empty mb-2">
                 {searchResults.length === 0 ? (
-                  "未找到相关材料。"
+                  tr("未找到相关材料。")
                 ) : (
                   <ul className="list-unstyled mb-0">
                     {searchResults.map((r) => (
                       <li key={r.topicId}>
                         <button type="button" className="btn btn-sm btn-link p-0" data-explorer-leaf onClick={() => jumpToSearchResult(r)}>
-                          {r.category} · {r.theme}
+                          {tr(r.category)} · {tr(r.theme)}
                         </button>
                         <div className="text-truncate" style={{ maxWidth: "220px" }}>
                           {r.snippet}
@@ -1025,7 +1024,7 @@ const MaterialsLibrary = () => {
 
             {isAdmin && !isCreatingTopic && (
               <button type="button" className="btn btn-sm btn-outline-primary mb-2" onClick={() => setIsCreatingTopic(true)}>
-                <i className="fas fa-plus mr-1"></i>新建主题
+                <i className="fas fa-plus mr-1"></i>{tr("新建主题")}
               </button>
             )}
             {isAdmin && isCreatingTopic && (
@@ -1035,8 +1034,8 @@ const MaterialsLibrary = () => {
                     options={categoryOptions}
                     value={newTopicForm.category ? { value: newTopicForm.category, label: newTopicForm.category } : null}
                     isClearable
-                    placeholder="分类（选择已有或输入新的，如：2026 或 示范资料）"
-                    formatCreateLabel={(input) => `新建分类：${input}`}
+                    placeholder={tr("分类（选择已有或输入新的，如：2026 或 示范资料）")}
+                    formatCreateLabel={(input) => tr("新建分类：{input}", { input })}
                     onChange={(option) => setNewTopicForm((prev) => ({ ...prev, category: option ? option.value : "" }))}
                   />
                 </div>
@@ -1047,7 +1046,7 @@ const MaterialsLibrary = () => {
                     maxHeight. */}
                 <textarea
                   className="form-control form-control-sm mb-1"
-                  placeholder="主题名称"
+                  placeholder={tr("主题名称")}
                   autoFocus
                   rows={2}
                   style={{ resize: "vertical", overflowY: "auto", maxHeight: "120px" }}
@@ -1060,7 +1059,7 @@ const MaterialsLibrary = () => {
                 <input
                   type="text"
                   className="form-control form-control-sm mb-1"
-                  placeholder="主讲人"
+                  placeholder={tr("主讲人")}
                   value={newTopicForm.lecturer}
                   onChange={(e) => {
                     const value = e.target.value;
@@ -1068,7 +1067,7 @@ const MaterialsLibrary = () => {
                   }}
                 />
                 <button type="submit" className="btn btn-sm btn-primary mr-2">
-                  创建
+                  {tr("创建")}
                 </button>
                 <button
                   type="button"
@@ -1078,12 +1077,12 @@ const MaterialsLibrary = () => {
                     setNewTopicForm(EMPTY_TOPIC_FORM);
                   }}
                 >
-                  取消
+                  {tr("取消")}
                 </button>
               </form>
             )}
 
-            {topicsByCategory.length === 0 && <div className="pl-explorer-empty">暂无材料。</div>}
+            {topicsByCategory.length === 0 && <div className="pl-explorer-empty">{tr("暂无材料。")}</div>}
 
             {topicsByCategory.map(([category, categoryTopics]) => (
               <div className="pl-explorer-group" key={category}>
@@ -1119,7 +1118,7 @@ const MaterialsLibrary = () => {
                       onClick={() => toggleCategory(category)}
                     >
                       <i className={`fas fa-chevron-${expandedCategories[category] ? "down" : "right"} pl-explorer-chevron`}></i>
-                      <i className="fas fa-folder-open pl-folder-icon mr-1"></i> {category}
+                      <i className="fas fa-folder-open pl-folder-icon mr-1"></i> {tr(category)}
                     </button>
                   )}
                   {renamingCategory !== category && busyCategory === category && (
@@ -1133,7 +1132,7 @@ const MaterialsLibrary = () => {
                         <button
                           type="button"
                           className="pl-explorer-row-action"
-                          title="重命名"
+                          title={tr("重命名")}
                           onClick={(e) => {
                             e.stopPropagation();
                             startRenameCategory(category);
@@ -1145,7 +1144,7 @@ const MaterialsLibrary = () => {
                       <button
                         type="button"
                         className="pl-explorer-row-action"
-                        title="删除"
+                        title={tr("删除")}
                         onClick={(e) => {
                           e.stopPropagation();
                           deleteCategoryByValue(category, categoryTopics.length);
@@ -1202,7 +1201,7 @@ const MaterialsLibrary = () => {
                             data-explorer-leaf
                           >
                             <i className="fas fa-book pl-explorer-chevron"></i>
-                            {topic.theme}
+                            {tr(topic.theme)}
                           </button>
                         ) : (
                           <button
@@ -1211,7 +1210,7 @@ const MaterialsLibrary = () => {
                             onClick={() => toggleTopic(topic.id)}
                           >
                             <i className={`fas fa-chevron-${expandedTopics[topic.id] ? "down" : "right"} pl-explorer-chevron`}></i>
-                            {topic.theme}
+                            {tr(topic.theme)}
                           </button>
                         )}
                         {renamingTopicId !== topic.id && busyTopicId === topic.id && (
@@ -1225,7 +1224,7 @@ const MaterialsLibrary = () => {
                               <button
                                 type="button"
                                 className="pl-explorer-row-action"
-                                title="重命名"
+                                title={tr("重命名")}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   startRenameTopic(topic);
@@ -1237,7 +1236,7 @@ const MaterialsLibrary = () => {
                             <button
                               type="button"
                               className="pl-explorer-row-action"
-                              title="删除"
+                              title={tr("删除")}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 deleteTopicById(topic.id);
@@ -1257,7 +1256,7 @@ const MaterialsLibrary = () => {
                               }`}
                               onClick={() => select(topic.id, "basic")}
                             >
-                              基本信息
+                              {tr("基本信息")}
                             </button>
                             <button
                               type="button"
@@ -1266,7 +1265,7 @@ const MaterialsLibrary = () => {
                               }`}
                               onClick={() => select(topic.id, "contents")}
                             >
-                              材料内容
+                              {tr("材料内容")}
                             </button>
                             <button
                               type="button"
@@ -1275,7 +1274,7 @@ const MaterialsLibrary = () => {
                               }`}
                               onClick={() => select(topic.id, "links")}
                             >
-                              视频链接
+                              {tr("视频链接")}
                             </button>
                             <button
                               type="button"
@@ -1284,7 +1283,7 @@ const MaterialsLibrary = () => {
                               }`}
                               onClick={() => select(topic.id, "skill")}
                             >
-                              知识卡片
+                              {tr("知识卡片")}
                             </button>
                           </div>
                         )}
@@ -1301,8 +1300,8 @@ const MaterialsLibrary = () => {
           <ExplorerPaneBar
             label={
               selectedTopic
-                ? [selectedTopic.theme, LEAF_LABELS[selected.key]].filter(Boolean).join(" · ")
-                : "选择主题"
+                ? [tr(selectedTopic.theme), LEAF_LABELS[selected.key]].filter(Boolean).join(" · ")
+                : tr("选择主题")
             }
             onBack={pane.openNav}
           />

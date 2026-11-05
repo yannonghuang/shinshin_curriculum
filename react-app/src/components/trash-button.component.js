@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import PlanDataService from "../services/plan.service";
 import { PLAN_TRASH_RETENTION_DAYS } from "../constants/plan-options";
+import { tr } from "../i18n";
 
 // Fired after a plan is moved to the 回收站 from a list page, so the button
 // below can refresh its count without the list having to know about it.
@@ -38,12 +39,12 @@ const TrashButton = ({ className = "" }) => {
       className={`btn ${hasItems ? "btn-outline-danger" : "btn-outline-secondary pl-trash-empty"} ${className}`}
       title={
         hasItems
-          ? `回收站中有 ${count} 个课程设计，${PLAN_TRASH_RETENTION_DAYS} 天内可恢复`
-          : "回收站为空"
+          ? tr("回收站中有 {count} 个课程设计，{PLAN_TRASH_RETENTION_DAYS} 天内可恢复", { count, PLAN_TRASH_RETENTION_DAYS })
+          : tr("回收站为空")
       }
     >
       <i className={`${hasItems ? "fas" : "far"} fa-trash-alt mr-1`} />
-      回收站
+      {tr("回收站")}
       {hasItems && <span className="badge badge-danger ml-1">{count}</span>}
     </Link>
   );

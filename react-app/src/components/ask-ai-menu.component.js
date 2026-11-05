@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import AiLetterIcon from "./ai-letter-icon.component";
 import { saveBeforeCopilot } from "../utils/copilotSaveGuard";
 import "../curriculum.css";
+import { tr } from "../i18n";
 
 // "Context-aware" 欣欣小助手: a small 小助手 trigger that shows up while the
 // pointer is over (or the caret is in) a field or section of the plan page,
@@ -26,34 +27,34 @@ const CLOSE_DELAY_MS = 250;
 // ("这一部分"); `name` is the part's own label (last labelPath entry).
 const PRESETS = {
   improve: {
-    label: "帮我完善",
+    label: tr("帮我完善"),
     icon: "magic",
-    prompt: (name, unit) => `请帮我完善「${name}」${unit}：先指出目前内容的主要不足，再给出可以直接替换使用的修改稿。`,
+    prompt: (name, unit) => tr("请帮我完善「{name}」{unit}：先指出目前内容的主要不足，再给出可以直接替换使用的修改稿。", { name, unit }),
   },
   howTo: {
-    label: "这里该怎么写",
+    label: tr("这里该怎么写"),
     icon: "question-circle",
-    prompt: (name, unit) => `「${name}」${unit}应该写什么？请结合本课程的主题、年级和地区说明要点，并给一个简短示例。`,
+    prompt: (name, unit) => tr("「{name}」{unit}应该写什么？请结合本课程的主题、年级和地区说明要点，并给一个简短示例。", { name, unit }),
   },
   ideas: {
-    label: "找思路和资料",
+    label: tr("找思路和资料"),
     icon: "lightbulb",
-    prompt: (name, unit) => `请为「${name}」${unit}提供一些结合本地乡土资源的思路，并推荐相关参考资料。`,
+    prompt: (name, unit) => tr("请为「{name}」{unit}提供一些结合本地乡土资源的思路，并推荐相关参考资料。", { name, unit }),
   },
   consistency: {
-    label: "检查前后一致",
+    label: tr("检查前后一致"),
     icon: "check-double",
-    prompt: (name, unit) => `请检查「${name}」${unit}与本课程设计其他部分（尤其是学习目标）是否一致，列出不一致或缺失之处。`,
+    prompt: (name, unit) => tr("请检查「{name}」{unit}与本课程设计其他部分（尤其是学习目标）是否一致，列出不一致或缺失之处。", { name, unit }),
   },
   explain: {
-    label: "解读这里",
+    label: tr("解读这里"),
     icon: "book-open",
-    prompt: (name, unit) => `请简要解读「${name}」${unit}的内容和设计意图。`,
+    prompt: (name, unit) => tr("请简要解读「{name}」{unit}的内容和设计意图。", { name, unit }),
   },
   borrow: {
-    label: "有什么可借鉴",
+    label: tr("有什么可借鉴"),
     icon: "hands-helping",
-    prompt: (name, unit) => `「${name}」${unit}有哪些值得我在自己的课程设计中借鉴的做法？`,
+    prompt: (name, unit) => tr("「{name}」{unit}有哪些值得我在自己的课程设计中借鉴的做法？", { name, unit }),
   },
 };
 
@@ -63,19 +64,19 @@ const PRESETS = {
 // one free-text field.
 const BASIC_PRESETS = {
   suggestTitles: {
-    label: "推荐标题",
+    label: tr("推荐标题"),
     icon: "lightbulb",
-    prompt: () => "请结合我校所在地的乡土资源，以及已选的乡土主题和年级，推荐 3–5 个可直接使用的课程标题，每个附一句理由。",
+    prompt: () => tr("请结合我校所在地的乡土资源，以及已选的乡土主题和年级，推荐 3–5 个可直接使用的课程标题，每个附一句理由。"),
   },
   suggestThemes: {
-    label: "推荐乡土主题",
+    label: tr("推荐乡土主题"),
     icon: "map-marked-alt",
-    prompt: () => "请根据我校所在地区以及已填写的标题，推荐最合适的乡土主题，并说明理由。",
+    prompt: () => tr("请根据我校所在地区以及已填写的标题，推荐最合适的乡土主题，并说明理由。"),
   },
   checkMatch: {
-    label: "检查信息匹配",
+    label: tr("检查信息匹配"),
     icon: "check-double",
-    prompt: () => "请检查基本信息各项（标题、乡土主题、年级、学生人数、预计课时）是否相互匹配、是否立足我校当地，列出问题并给出调整建议。",
+    prompt: () => tr("请检查基本信息各项（标题、乡土主题、年级、学生人数、预计课时）是否相互匹配、是否立足我校当地，列出问题并给出调整建议。"),
   },
 };
 
@@ -92,7 +93,7 @@ export const askAiPresets = ({ isAuthor, isExpert, isAdmin }) => {
   return keys.map((key) => ({ key, ...PRESETS[key] }));
 };
 
-const AskAiMenu = ({ target, presets, unit = "这一栏" }) => {
+const AskAiMenu = ({ target, presets, unit = tr("这一栏") }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const closeTimer = useRef(null);
@@ -144,18 +145,18 @@ const AskAiMenu = ({ target, presets, unit = "这一栏" }) => {
         type="button"
         className="ai-ask-trigger"
         // No tooltip while open -- it would cover the menu's own title.
-        title={open ? undefined : `就「${name}」问欣欣小助手`}
+        title={open ? undefined : tr("就「{name}」问欣欣小助手", { name })}
         aria-haspopup="menu"
         aria-expanded={open}
         onMouseEnter={() => setOpen(true)}
         onClick={() => setOpen((v) => !v)}
       >
         <AiLetterIcon size={16} />
-        <span>小助手</span>
+        <span>{tr("小助手")}</span>
       </button>
       {open && (
         <div className="ai-ask-menu" role="menu">
-          <div className="ai-ask-menu-title">就「{name}」{unit}：</div>
+          <div className="ai-ask-menu-title">{tr("就「{name}」{unit}：", { name, unit })}</div>
           {presets.map((p) => (
             <button key={p.key} type="button" role="menuitem" className="ai-ask-item" onClick={() => ask(p.prompt(name, unit))}>
               {/* key'd span around the <i> -- FontAwesome's JS swaps it for an <svg> (see copilot-panel's chips) */}
@@ -169,7 +170,7 @@ const AskAiMenu = ({ target, presets, unit = "这一栏" }) => {
             <span className="ai-ask-item-icon">
               <i className="fas fa-pen"></i>
             </span>
-            自由提问…
+            {tr("自由提问…")}
           </button>
         </div>
       )}

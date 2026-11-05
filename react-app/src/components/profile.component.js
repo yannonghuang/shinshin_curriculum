@@ -3,6 +3,7 @@ import Select from "react-select";
 import AuthService from "../services/auth.service";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
+import { tr } from "../i18n";
 
 const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, address: s.address }));
 
@@ -71,7 +72,7 @@ const Profile = () => {
         setSchool(null);
       }
     } catch (e) {
-      setMessage("加载个人信息失败。");
+      setMessage(tr("加载个人信息失败。"));
     } finally {
       setIsLoading(false);
     }
@@ -91,16 +92,16 @@ const Profile = () => {
     setMessage("");
 
     if (form.password && form.password !== form.passwordVerified) {
-      setMessage("两次输入的新密码不一致。");
+      setMessage(tr("两次输入的新密码不一致。"));
       return;
     }
     if (form.password && form.password.length < 6) {
-      setMessage("新密码至少需要6个字符。");
+      setMessage(tr("新密码至少需要6个字符。"));
       return;
     }
 
     if (isTeacher && !school) {
-      setMessage("请先选择所在学校。");
+      setMessage(tr("请先选择所在学校。"));
       return;
     }
 
@@ -117,7 +118,7 @@ const Profile = () => {
 
     try {
       await AuthService.updateProfile(currentUser.id, payload);
-      setMessage("个人信息已更新。");
+      setMessage(tr("个人信息已更新。"));
       setForm((prev) => ({ ...prev, password: "", passwordVerified: "" }));
       // The top-right nav badge (App.js, a sibling component) reads
       // username/chineseName straight from localStorage but only on its own
@@ -134,7 +135,7 @@ const Profile = () => {
       }
       setTimeout(() => window.location.reload(), 900);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "更新失败。");
+      setMessage(err?.response?.data?.message || tr("更新失败。"));
     }
   };
 
@@ -145,42 +146,42 @@ const Profile = () => {
   return (
     <div className="container pl-page">
       <div className="pl-hero">
-        <h4 className="pl-title">个人信息</h4>
-        <p className="pl-subtitle">修改您自己的账号信息。</p>
+        <h4 className="pl-title">{tr("个人信息")}</h4>
+        <p className="pl-subtitle">{tr("修改您自己的账号信息。")}</p>
       </div>
 
       {isLoading ? (
-        <div className="pl-empty">加载中...</div>
+        <div className="pl-empty">{tr("加载中...")}</div>
       ) : (
         <div className="pl-card" style={{ maxWidth: "560px" }}>
           <form onSubmit={onSubmit}>
             <div className="form-group">
-              <label>用户名</label>
+              <label>{tr("用户名")}</label>
               <input className="form-control" name="username" value={form.username} onChange={onChange} required />
             </div>
             <div className="form-group">
-              <label>姓名</label>
+              <label>{tr("姓名")}</label>
               <input className="form-control" name="chineseName" value={form.chineseName} onChange={onChange} />
             </div>
             <div className="form-group">
-              <label>邮箱</label>
+              <label>{tr("邮箱")}</label>
               <input className="form-control" type="email" name="email" value={form.email} onChange={onChange} required />
             </div>
             <div className="form-group">
-              <label>电话</label>
+              <label>{tr("电话")}</label>
               <input className="form-control" name="phone" value={form.phone} onChange={onChange} />
             </div>
 
             {isTeacher && (
               <div className="form-group">
                 <label>
-                  所在学校<span className="required">*</span>
+                  {tr("所在学校")}<span className="required">*</span>
                 </label>
                 <Select
                   options={schoolOptions}
                   value={school}
                   onChange={setSchool}
-                  placeholder="搜索并选择学校..."
+                  placeholder={tr("搜索并选择学校...")}
                   formatOptionLabel={formatSchoolOptionLabel}
                   filterOption={schoolFilterOption}
                 />
@@ -190,7 +191,7 @@ const Profile = () => {
             <hr />
 
             <div className="form-group">
-              <label>新密码（留空则不修改）</label>
+              <label>{tr("新密码（留空则不修改）")}</label>
               <input
                 className="form-control"
                 type="password"
@@ -201,7 +202,7 @@ const Profile = () => {
               />
             </div>
             <div className="form-group">
-              <label>新密码确认</label>
+              <label>{tr("新密码确认")}</label>
               <input
                 className="form-control"
                 type="password"
@@ -212,7 +213,7 @@ const Profile = () => {
             </div>
 
             <button className="btn btn-primary" type="submit">
-              保存
+              {tr("保存")}
             </button>
 
             {message && <div className="alert alert-info py-2 mt-2 mb-0">{message}</div>}

@@ -7,6 +7,7 @@ import PlanDataService from "../services/plan.service";
 import { PLAN_THEMES } from "../constants/plan-options";
 import { SCHOOLS, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
+import { tr, LOCALE, formatWan } from "../i18n";
 
 // Same as plans-hierarchy.component.js's -- the filter bar here starts from
 // 全部乡土课程's so the two pages narrow down plans the same way.
@@ -19,7 +20,7 @@ const formatSchoolOptionLabel = (option) => (
 
 const seasonRank = (season) => (season === "秋季" ? 2 : season === "春季" ? 1 : 0);
 const termKey = (p) => `${p.year}|${p.season || ""}`;
-const termLabel = (year, season) => `${year}年 ${season || "未设置学期"}`;
+const termLabel = (year, season) => tr("{year}年 {1}", { year, "1": season ? tr(season) : tr("未设置学期") });
 
 const EXPORT_FIELDS_STORAGE_KEY = "dashboardExportFields";
 
@@ -67,7 +68,7 @@ const CompletionBar = ({ pct }) => (
 // services/aiUsage.js) -- shown in 万 once it's past five digits, with the
 // exact count on hover; the filter takes 万 too.
 const TOKENS_PER_WAN = 10000;
-const formatTokens = (tokens) => (tokens >= TOKENS_PER_WAN ? `${(tokens / TOKENS_PER_WAN).toFixed(1)}万` : tokens.toLocaleString("zh-cn"));
+const formatTokens = (tokens) => formatWan(tokens);
 
 const scoreClass = (score) => (score >= 85 ? "text-success" : score >= 60 ? "" : "text-danger");
 
@@ -292,9 +293,9 @@ const Dashboard = () => {
     <div className="form-group col-md-2">
       <label className="text-nowrap">{label}</label>
       <div className="d-flex align-items-center">
-        <input className="form-control" type="number" {...inputProps} placeholder="最低" value={min} onChange={(e) => setMin(e.target.value)} />
+        <input className="form-control" type="number" {...inputProps} placeholder={tr("最低")} value={min} onChange={(e) => setMin(e.target.value)} />
         <span className="mx-1">–</span>
-        <input className="form-control" type="number" {...inputProps} placeholder="最高" value={max} onChange={(e) => setMax(e.target.value)} />
+        <input className="form-control" type="number" {...inputProps} placeholder={tr("最高")} value={max} onChange={(e) => setMax(e.target.value)} />
       </div>
     </div>
   );
@@ -379,14 +380,14 @@ const Dashboard = () => {
       } catch (ignored) {
         // keep errorText's message
       }
-      setMessage(text || "导出失败。");
+      setMessage(text || tr("导出失败。"));
     } finally {
       setExporting(false);
     }
   };
 
   if (!allowed) {
-    return <div className="alert alert-warning">数据看板仅对管理员和专家开放。</div>;
+    return <div className="alert alert-warning">{tr("数据看板仅对管理员和专家开放。")}</div>;
   }
 
   const avg = (values) => (values.length ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10 : null);
@@ -399,7 +400,7 @@ const Dashboard = () => {
   return (
     <div className="container-fluid px-lg-5">
       <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap">
-        <h4 className="mb-0">数据看板</h4>
+        <h4 className="mb-0">{tr("数据看板")}</h4>
         <div className="position-relative">
           <button
             type="button"
@@ -407,7 +408,7 @@ const Dashboard = () => {
             onClick={() => setShowExportConfig((prev) => !prev)}
           >
             <i className="fas fa-columns mr-1" />
-            导出字段（{effectiveExportFields.length}）
+            {tr("导出字段（{effectiveExportFields.length}）", { "effectiveExportFields.length": effectiveExportFields.length })}
           </button>
           <button
             type="button"
@@ -416,30 +417,30 @@ const Dashboard = () => {
             onClick={exportExcel}
           >
             <i className="fas fa-file-excel mr-1" />
-            {exporting ? "导出中..." : `导出 Excel（${visibleRows.length} 行）`}
+            {exporting ? tr("导出中...") : tr("导出 Excel（{visibleRows.length} 行）", { "visibleRows.length": visibleRows.length })}
           </button>
           {showExportConfig && (
             <div className="card shadow-sm pl-dashboard-export-config">
               <div className="card-body p-2">
                 <div className="d-flex justify-content-between align-items-center mb-2">
-                  <b className="small">选择导出到 Excel 的字段</b>
+                  <b className="small">{tr("选择导出到 Excel 的字段")}</b>
                   <button type="button" className="close" onClick={() => setShowExportConfig(false)}>
                     <span>&times;</span>
                   </button>
                 </div>
                 <div className="small mb-2">
                   <button type="button" className="btn btn-link btn-sm p-0 mr-3" onClick={() => updateExportFields(exportFields.map((f) => f.key))}>
-                    全选
+                    {tr("全选")}
                   </button>
                   <button type="button" className="btn btn-link btn-sm p-0 mr-3" onClick={() => updateExportFields([])}>
-                    全不选
+                    {tr("全不选")}
                   </button>
                   <button
                     type="button"
                     className="btn btn-link btn-sm p-0"
                     onClick={() => updateExportFields(exportFields.filter((f) => f.defaultOn).map((f) => f.key))}
                   >
-                    恢复默认
+                    {tr("恢复默认")}
                   </button>
                 </div>
                 <div className="pl-dashboard-export-fields">
@@ -458,7 +459,7 @@ const Dashboard = () => {
                     </div>
                   ))}
                 </div>
-                <div className="small text-muted mt-2">导出当前筛选结果，按当前排序。</div>
+                <div className="small text-muted mt-2">{tr("导出当前筛选结果，按当前排序。")}</div>
               </div>
             </div>
           )}
@@ -469,9 +470,9 @@ const Dashboard = () => {
 
       <div className="form-row">
         <div className="form-group col-md-3">
-          <label>学期筛选</label>
+          <label>{tr("学期筛选")}</label>
           <select className="form-control" value={filterTerm} onChange={(e) => setFilterTerm(e.target.value)}>
-            <option value="">全部学期</option>
+            <option value="">{tr("全部学期")}</option>
             {termOptions.map((t) => (
               <option key={t.key} value={t.key}>
                 {termLabel(t.year, t.season)}
@@ -480,34 +481,34 @@ const Dashboard = () => {
           </select>
         </div>
         <div className="form-group col-md-3">
-          <label>教师姓名筛选</label>
+          <label>{tr("教师姓名筛选")}</label>
           <input
             className="form-control"
-            placeholder="按教师姓名搜索"
+            placeholder={tr("按教师姓名搜索")}
             value={filterTeacherName}
             onChange={(e) => setFilterTeacherName(e.target.value)}
           />
         </div>
         <div className="form-group col-md-3">
-          <label htmlFor="dashboardSchoolFilter">学校名称筛选</label>
+          <label htmlFor="dashboardSchoolFilter">{tr("学校名称筛选")}</label>
           <Select
             inputId="dashboardSchoolFilter"
             options={schoolOptions}
             value={schoolOptions.find((o) => o.label === filterSchoolName) || null}
             onChange={(option) => setFilterSchoolName(option ? option.label : "")}
-            placeholder="搜索学校（名称/代码）"
+            placeholder={tr("搜索学校（名称/代码）")}
             formatOptionLabel={formatSchoolOptionLabel}
             filterOption={schoolFilterOption}
             isClearable
           />
         </div>
         <div className="form-group col-md-3">
-          <label>主题筛选</label>
+          <label>{tr("主题筛选")}</label>
           <select className="form-control" value={filterTheme} onChange={(e) => setFilterTheme(e.target.value)}>
-            <option value="">全部主题</option>
+            <option value="">{tr("全部主题")}</option>
             {themeOptions.map((theme) => (
               <option key={theme} value={theme}>
-                {theme}
+                {tr(theme)}
               </option>
             ))}
           </select>
@@ -515,29 +516,29 @@ const Dashboard = () => {
       </div>
       <div className="form-row">
         <div className="form-group col-md-2">
-          <label>提交状态</label>
+          <label>{tr("提交状态")}</label>
           <select className="form-control" value={filterSubmitted} onChange={(e) => setFilterSubmitted(e.target.value)}>
-            <option value="">全部</option>
-            <option value="yes">已提交</option>
-            <option value="no">未提交（草稿）</option>
+            <option value="">{tr("全部")}</option>
+            <option value="yes">{tr("已提交")}</option>
+            <option value="no">{tr("未提交（草稿）")}</option>
           </select>
         </div>
-        {rangeFilter("总体设计完成度（%）", generalMin, setGeneralMin, generalMax, setGeneralMax)}
-        {rangeFilter("分课时设计完成度（%）", lessonMin, setLessonMin, lessonMax, setLessonMax)}
-        {rangeFilter("实施完成度（%）", executionMin, setExecutionMin, executionMax, setExecutionMax)}
+        {rangeFilter(tr("总体设计完成度（%）"), generalMin, setGeneralMin, generalMax, setGeneralMax)}
+        {rangeFilter(tr("分课时设计完成度（%）"), lessonMin, setLessonMin, lessonMax, setLessonMax)}
+        {rangeFilter(tr("实施完成度（%）"), executionMin, setExecutionMin, executionMax, setExecutionMax)}
         <div className="form-group col-md-2">
-          <label>AI 打分</label>
+          <label>{tr("AI 打分")}</label>
           <select className="form-control" value={filterAiScored} onChange={(e) => setFilterAiScored(e.target.value)}>
-            <option value="">全部</option>
-            <option value="scored">已打分</option>
-            <option value="unscored">未打分</option>
+            <option value="">{tr("全部")}</option>
+            <option value="scored">{tr("已打分")}</option>
+            <option value="unscored">{tr("未打分")}</option>
           </select>
         </div>
-        {rangeFilter("AI 设计分数", aiScoreMin, setAiScoreMin, aiScoreMax, setAiScoreMax)}
-        {rangeFilter("AI 用量（万 tokens）", aiTokensMin, setAiTokensMin, aiTokensMax, setAiTokensMax, { min: 0, step: "any" })}
+        {rangeFilter(tr("AI 设计分数"), aiScoreMin, setAiScoreMin, aiScoreMax, setAiScoreMax)}
+        {rangeFilter(tr("AI 用量（万 tokens）"), aiTokensMin, setAiTokensMin, aiTokensMax, setAiTokensMax, { min: 0, step: "any" })}
         <div className="form-group col-md-2 d-flex align-items-end">
           <button type="button" className="btn btn-link px-0" onClick={clearFilters}>
-            清除筛选
+            {tr("清除筛选")}
           </button>
         </div>
       </div>
@@ -547,27 +548,27 @@ const Dashboard = () => {
           className={`pl-filter-toggle pl-filter-toggle-ai ${filterAiReviewed ? "is-active" : ""}`}
           onClick={() => setFilterAiReviewed((prev) => !prev)}
         >
-          AI已点评
+          {tr("AI已点评")}
         </button>
         <button
           type="button"
           className={`pl-filter-toggle pl-filter-toggle-expert ${filterExpertReviewed ? "is-active" : ""}`}
           onClick={() => setFilterExpertReviewed((prev) => !prev)}
         >
-          专家已点评
+          {tr("专家已点评")}
         </button>
       </div>
 
       {loaded && (
         <p className="small mb-2">
-          {visibleRows.length === rows.length ? `共 ${rows.length} 个课程` : `筛选出 ${visibleRows.length} / ${rows.length} 个课程`}
-          {`，已提交 ${visibleRows.filter((r) => r.submitted).length} 个`}
-          {avgGeneral !== null && `，平均总体设计完成度 ${avgGeneral}%，平均分课时设计完成度 ${avgLessonDesign}%，平均实施完成度 ${avgExecution}%`}
-          {`，已打分 ${scoredRows.length} 个`}
-          {avgScore !== null && `，AI 平均分 ${avgScore}`}。
-          <span className="text-muted ml-2" title="各部分按模板字段的填写比例计算。总体设计完成度 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计完成度覆盖全部课时的分课时设计，越靠前的课时权重越高（线性递减）；实施完成度覆盖全部课时，各课时权重相同，每课时 = 实施记录 50% + 支撑材料 50%（已上传任一文件即计满）">
+          {visibleRows.length === rows.length ? tr("共 {rows.length} 个课程", { "rows.length": rows.length }) : tr("筛选出 {visibleRows.length} / {rows.length} 个课程", { "visibleRows.length": visibleRows.length, "rows.length": rows.length })}
+          {tr("，已提交 {0} 个", { "0": visibleRows.filter((r) => r.submitted).length })}
+          {avgGeneral !== null && tr("，平均总体设计完成度 {avgGeneral}%，平均分课时设计完成度 {avgLessonDesign}%，平均实施完成度 {avgExecution}%", { avgGeneral, avgLessonDesign, avgExecution })}
+          {tr("，已打分 {scoredRows.length} 个", { "scoredRows.length": scoredRows.length })}
+          {avgScore !== null && tr("，AI 平均分 {avgScore}", { avgScore })}{tr("。")}
+          <span className="text-muted ml-2" title={tr("各部分按模板字段的填写比例计算。总体设计完成度 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计完成度覆盖全部课时的分课时设计，越靠前的课时权重越高（线性递减）；实施完成度覆盖全部课时，各课时权重相同，每课时 = 实施记录 50% + 支撑材料 50%（已上传任一文件即计满）")}>
             <i className="fas fa-info-circle mr-1" />
-            总体设计 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计 = 全部课时（靠前课时权重更高）；实施 = 全部课时的实施记录（各课时等权）
+            {tr("总体设计 = 基本信息 20% + 课程设计（WHY/WHAT/HOW）80%；分课时设计 = 全部课时（靠前课时权重更高）；实施 = 全部课时的实施记录（各课时等权）")}
           </span>
         </p>
       )}
@@ -575,30 +576,30 @@ const Dashboard = () => {
       <table className="table table-bordered table-sm table-hover">
         <thead className="thead-light">
           <tr>
-            <th style={{ width: "8%" }}>教师</th>
-            {sortableTh("school", "学校", { width: "16%" })}
-            <th>课程</th>
-            {sortableTh("submitted", "是否提交", { width: "7%" })}
-            {sortableTh("general", "总体设计完成度", { width: "10%" })}
-            {sortableTh("lessonDesign", "分课时设计完成度", { width: "10%" })}
-            {sortableTh("execution", "实施完成度", { width: "9%" })}
-            {sortableTh("aiScore", "AI 设计分数", { width: "10%" })}
-            <th style={{ width: "13%" }}>专家点评</th>
-            {sortableTh("aiTokens", "AI 用量", { width: "7%" })}
+            <th style={{ width: "8%" }}>{tr("教师")}</th>
+            {sortableTh("school", tr("学校"), { width: "16%" })}
+            <th>{tr("课程")}</th>
+            {sortableTh("submitted", tr("是否提交"), { width: "7%" })}
+            {sortableTh("general", tr("总体设计完成度"), { width: "10%" })}
+            {sortableTh("lessonDesign", tr("分课时设计完成度"), { width: "10%" })}
+            {sortableTh("execution", tr("实施完成度"), { width: "9%" })}
+            {sortableTh("aiScore", tr("AI 设计分数"), { width: "10%" })}
+            <th style={{ width: "13%" }}>{tr("专家点评")}</th>
+            {sortableTh("aiTokens", tr("AI 用量"), { width: "7%" })}
           </tr>
         </thead>
         <tbody>
           {!loaded && (
             <tr>
               <td colSpan={10} className="text-center text-muted small">
-                加载中...
+                {tr("加载中...")}
               </td>
             </tr>
           )}
           {loaded && visibleRows.length === 0 && (
             <tr>
               <td colSpan={10} className="text-center text-muted small">
-                没有符合筛选条件的课程。
+                {tr("没有符合筛选条件的课程。")}
               </td>
             </tr>
           )}
@@ -613,22 +614,22 @@ const Dashboard = () => {
                   <td className="small">{r.schoolName}</td>
                   <td>
                     <Link to={`/plans/${r.planId}`}>{r.title}</Link>
-                    {r.suspended && <span className="badge badge-secondary ml-1">已停用</span>}
-                    {r.isExcellentCase && <span className="badge badge-warning ml-1">优秀案例</span>}
+                    {r.suspended && <span className="badge badge-secondary ml-1">{tr("已停用")}</span>}
+                    {r.isExcellentCase && <span className="badge badge-warning ml-1">{tr("优秀案例")}</span>}
                     <div className="small text-muted">
-                      {[termLabel(r.year, r.season), r.grade, r.theme].filter(Boolean).join(" · ")}
+                      {[termLabel(r.year, r.season), tr(r.grade), tr(r.theme)].filter(Boolean).join(" · ")}
                     </div>
                   </td>
                   <td className="small">
-                    {r.submitted ? <span className="badge badge-success">已提交</span> : <span className="badge badge-light border">草稿</span>}
+                    {r.submitted ? <span className="badge badge-success">{tr("已提交")}</span> : <span className="badge badge-light border">{tr("草稿")}</span>}
                   </td>
-                  <td className="small" title={`基本信息 ${c.basic}% · 课程设计 ${c.design}%`}>
+                  <td className="small" title={tr("基本信息 {c.basic}% · 课程设计 {c.design}%", { "c.basic": c.basic, "c.design": c.design })}>
                     <CompletionBar pct={c.general} />
                   </td>
-                  <td className="small" title={`${c.lessonCount} 课时`}>
+                  <td className="small" title={tr("{c.lessonCount} 课时", { "c.lessonCount": c.lessonCount })}>
                     <CompletionBar pct={c.lessonDesign} />
                   </td>
-                  <td className="small" title={`${c.lessonCount} 课时`}>
+                  <td className="small" title={tr("{c.lessonCount} 课时", { "c.lessonCount": c.lessonCount })}>
                     <CompletionBar pct={c.execution} />
                   </td>
                   <td className="small">
@@ -637,7 +638,7 @@ const Dashboard = () => {
                         <button
                           type="button"
                           className="btn btn-link btn-sm p-0"
-                          title="查看各维度打分理由"
+                          title={tr("查看各维度打分理由")}
                           onClick={() => setExpandedScore(expandedScore === r.planId ? null : r.planId)}
                         >
                           <b className={scoreClass(s.totalScore)}>{s.totalScore}</b>
@@ -645,33 +646,33 @@ const Dashboard = () => {
                         </button>
                         {s.outdatedStandard && (
                           <div>
-                            <span className="badge badge-warning">旧标准 #{s.standardId}</span>
+                            <span className="badge badge-warning">{tr("旧标准 #{s.standardId}", { "s.standardId": s.standardId })}</span>
                           </div>
                         )}
                         {s.contentChanged && (
                           <div>
-                            <span className="badge badge-secondary">内容已修改</span>
+                            <span className="badge badge-secondary">{tr("内容已修改")}</span>
                           </div>
                         )}
                       </>
                     ) : (
-                      <span className="text-muted">未打分</span>
+                      <span className="text-muted">{tr("未打分")}</span>
                     )}
                   </td>
                   <td className="small">
                     {er.count > 0 ? (
                       <>
                         <Link to={`/plans/${r.planId}?view=${er.scope === "implementation" ? "executionReviews" : "reviews"}`}>
-                          {er.count} 条点评
+                          {tr("{er.count} 条点评", { "er.count": er.count })}
                         </Link>
-                        {er.averageScore !== null && <span className="ml-1">· 均分 {er.averageScore}</span>}
-                        {er.reviewers.length > 0 && <div className="text-muted">{er.reviewers.join("、")}</div>}
+                        {er.averageScore !== null && <span className="ml-1">{tr("· 均分 {er.averageScore}", { "er.averageScore": er.averageScore })}</span>}
+                        {er.reviewers.length > 0 && <div className="text-muted">{er.reviewers.join(tr("、"))}</div>}
                       </>
                     ) : (
-                      <span className="text-muted">暂无</span>
+                      <span className="text-muted">{tr("暂无")}</span>
                     )}
                   </td>
-                  <td className="small" title={`${r.aiTokensUsed.toLocaleString("zh-cn")} tokens（AI 打分/点评、关于本课程的欣欣小助手对话）`}>
+                  <td className="small" title={tr("{0} tokens（AI 打分/点评、关于本课程的欣欣小助手对话）", { "0": r.aiTokensUsed.toLocaleString(LOCALE) })}>
                     {formatTokens(r.aiTokensUsed)}
                   </td>
                 </tr>
@@ -685,15 +686,15 @@ const Dashboard = () => {
                       {(s.dimensionScores || []).map((d) => (
                         <div key={d.name} className="mb-1">
                           <b>
-                            {d.name}（{d.score}/{d.weight}
-                            {d.level && `，${d.level}`}）
+                            {d.name}{tr("（")}{d.score}/{d.weight}
+                            {d.level && `，${d.level}`}{tr("）")}
                           </b>
-                          ：{d.rationale}
+                          {tr("：")}{d.rationale}
                         </div>
                       ))}
                       <div className="text-muted mt-2">
-                        标准版本 #{s.standardId} · 打分时间 {new Date(s.createdAt).toLocaleString()} ·{" "}
-                        <Link to="/ai-review/score-review">AI 打分加点评</Link>
+                        {tr("标准版本 #{s.standardId} · 打分时间", { "s.standardId": s.standardId })} {new Date(s.createdAt).toLocaleString(LOCALE)} ·{" "}
+                        <Link to="/ai-review/score-review">{tr("AI 打分加点评")}</Link>
                       </div>
                     </td>
                   </tr>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import MaterialTopicDataService from "../services/material-topic.service";
+import { tr } from "../i18n";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -12,10 +13,10 @@ const KIND_BADGE = {
   other: "badge-light",
 };
 
-const SOURCE_TYPE_LABEL = { material_artifact: "文件", material_link: "链接", material_topic_meta: "基本信息" };
+const SOURCE_TYPE_LABEL = { material_artifact: tr("文件"), material_link: tr("链接"), material_topic_meta: tr("基本信息") };
 
 const chunkLocator = (c) =>
-  c.pageFrom ? (c.pageFrom === c.pageTo ? `第 ${c.pageFrom} 页` : `第 ${c.pageFrom}–${c.pageTo} 页`) : null;
+  c.pageFrom ? (c.pageFrom === c.pageTo ? tr("第 {c.pageFrom} 页", { "c.pageFrom": c.pageFrom }) : tr("第 {c.pageFrom}–{c.pageTo} 页", { "c.pageFrom": c.pageFrom, "c.pageTo": c.pageTo })) : null;
 
 // The lower two layers of a topic's knowledge tree (backend
 // services/knowledgeTree.js), shown under its 知识卡片 (the top layer):
@@ -38,7 +39,7 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
         setData(res.data);
         setError("");
       })
-      .catch((e) => setError((e.response && e.response.data && e.response.data.message) || "加载资料索引失败。"));
+      .catch((e) => setError((e.response && e.response.data && e.response.data.message) || tr("加载资料索引失败。")));
   }, [topicId]);
 
   useEffect(() => {
@@ -68,17 +69,17 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
   };
 
   const rebuild = () => {
-    if (!window.confirm("将重新提取并索引此主题下的全部资料（每份资料约需数十秒），期间 AI 功能仍使用旧索引。确定继续吗？")) return;
+    if (!window.confirm(tr("将重新提取并索引此主题下的全部资料（每份资料约需数十秒），期间 AI 功能仍使用旧索引。确定继续吗？"))) return;
     MaterialTopicDataService.rebuildKnowledgeTree(topicId)
       .then(load)
-      .catch((e) => setError((e.response && e.response.data && e.response.data.message) || "重建资料索引失败。"));
+      .catch((e) => setError((e.response && e.response.data && e.response.data.message) || tr("重建资料索引失败。")));
   };
 
   const renderVerbatim = (key) => {
     if (openKey !== key) return null;
     const chunks = verbatim[key];
-    if (!chunks) return <div className="small text-muted my-2">加载原文中…</div>;
-    if (chunks.length === 0) return <div className="small text-muted my-2">暂无原文。</div>;
+    if (!chunks) return <div className="small text-muted my-2">{tr("加载原文中…")}</div>;
+    if (chunks.length === 0) return <div className="small text-muted my-2">{tr("暂无原文。")}</div>;
     return (
       <div className="border rounded bg-light p-2 my-2" style={{ maxHeight: 360, overflowY: "auto" }}>
         {chunks.map((c) => (
@@ -98,27 +99,27 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
   return (
     <div className="pl-card mt-3">
       <div className="d-flex justify-content-between align-items-center mb-2">
-        <h6 className="mb-0">资料索引</h6>
+        <h6 className="mb-0">{tr("资料索引")}</h6>
         {isAdmin && (
           <button type="button" className="btn btn-outline-secondary btn-sm" disabled={rebuilding} onClick={rebuild}>
-            {rebuilding ? "重建中…" : "重建资料索引"}
+            {rebuilding ? tr("重建中…") : tr("重建资料索引")}
           </button>
         )}
       </div>
       <p className="small text-muted">
-        知识库按三层组织：上方的<b>主题知识卡片</b>概括整个主题；下面是每份资料的<b>摘要与内容条目</b>；点击条目可查看对应的
-        <b>原文</b>（注明页码）。AI 点评、AI 点评标准与欣欣小助手按这些摘要与条目找到相关资料，并对每段原文做语义匹配，再引用其原文。
+        {tr("知识库按三层组织：上方的")}<b>{tr("主题知识卡片")}</b>{tr("概括整个主题；下面是每份资料的")}<b>{tr("摘要与内容条目")}</b>{tr("；点击条目可查看对应的")}
+        <b>{tr("原文")}</b>{tr("（注明页码）。AI 点评、AI 点评标准与欣欣小助手按这些摘要与条目找到相关资料，并对每段原文做语义匹配，再引用其原文。")}
       </p>
 
       {rebuilding && (
         <div className="alert alert-info py-2 small">
           <span className="spinner-border spinner-border-sm mr-2" role="status" />
-          正在重建此主题的资料索引…
+          {tr("正在重建此主题的资料索引…")}
         </div>
       )}
       {error && <div className="alert alert-danger py-2 small">{error}</div>}
-      {!data && !error && <div className="pl-empty">加载中...</div>}
-      {data && data.sources.length === 0 && <div className="small text-muted">此主题下暂无已索引的资料。</div>}
+      {!data && !error && <div className="pl-empty">{tr("加载中...")}</div>}
+      {data && data.sources.length === 0 && <div className="small text-muted">{tr("此主题下暂无已索引的资料。")}</div>}
 
       {data &&
         data.sources.map((s) => {
@@ -132,13 +133,13 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
                   <b>{s.title || `${SOURCE_TYPE_LABEL[s.sourceType]} #${s.sourceId}`}</b>
                   <span className="small text-muted ml-2">
                     {s.locator && `${s.locator} · `}
-                    {s.charCount} 字
-                    {s.embeddedCount < s.chunkCount && ` · 语义索引 ${s.embeddedCount}/${s.chunkCount} 段`}
+                    {tr("{s.charCount} 字", { "s.charCount": s.charCount })}
+                    {s.embeddedCount < s.chunkCount && tr(" · 语义索引 {s.embeddedCount}/{s.chunkCount} 段", { "s.embeddedCount": s.embeddedCount, "s.chunkCount": s.chunkCount })}
                   </span>
                 </div>
                 <div className="text-nowrap">
                   <button type="button" className="btn btn-link btn-sm p-0 mr-2" onClick={() => toggleVerbatim(`${key}:all`, s)}>
-                    {openKey === `${key}:all` ? "收起原文" : "全文"}
+                    {openKey === `${key}:all` ? tr("收起原文") : tr("全文")}
                   </button>
                   {s.contents.length > 0 && (
                     <button
@@ -146,7 +147,7 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
                       className="btn btn-link btn-sm p-0"
                       onClick={() => setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))}
                     >
-                      {isCollapsed ? `展开条目（${s.contents.length}）` : "收起条目"}
+                      {isCollapsed ? tr("展开条目（{s.contents.length}）", { "s.contents.length": s.contents.length }) : tr("收起条目")}
                     </button>
                   )}
                 </div>
@@ -154,7 +155,7 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
               {s.summary ? (
                 <div className="small mt-1">{s.summary}</div>
               ) : (
-                <div className="small text-muted mt-1">尚未生成摘要{isAdmin ? "，可点击「重建资料索引」生成。" : "。"}</div>
+                <div className="small text-muted mt-1">{tr("尚未生成摘要")}{isAdmin ? tr("，可点击「重建资料索引」生成。") : tr("。")}</div>
               )}
               {renderVerbatim(`${key}:all`)}
 
@@ -172,7 +173,7 @@ const KnowledgeIndex = ({ topicId, isAdmin }) => {
                         >
                           <span className={`badge ${KIND_BADGE[it.kind] || "badge-light"} mr-2`}>{kindLabels[it.kind] || it.kind}</span>
                           {it.label}
-                          {it.locator && <span className="text-muted ml-1">（{it.locator}）</span>}
+                          {it.locator && <span className="text-muted ml-1">{tr("（")}{it.locator}{tr("）")}</span>}
                         </button>
                         {renderVerbatim(itemKey)}
                       </li>

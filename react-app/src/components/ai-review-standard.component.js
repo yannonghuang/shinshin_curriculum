@@ -4,6 +4,7 @@ import AiReviewDataService from "../services/ai-review.service";
 import AuthService from "../services/auth.service";
 import { consumeSkipUnsavedWarning } from "../utils/unsavedChangesGuard";
 import "../curriculum.css";
+import { tr, LOCALE } from "../i18n";
 
 const POLL_INTERVAL_MS = 3000;
 const DEFAULT_LEVELS = ["优秀", "良好", "合格", "待改进"];
@@ -13,7 +14,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 const lines = (text) => text.split("\n").map((s) => s.trim()).filter(Boolean);
 
 const SEVERITY_CLASS = { error: "danger", high: "danger", warning: "warning", medium: "warning", low: "secondary" };
-const SEVERITY_LABEL = { error: "错误", warning: "注意", high: "高", medium: "中", low: "低" };
+const SEVERITY_LABEL = { error: tr("错误"), warning: tr("注意"), high: tr("高"), medium: tr("中"), low: tr("低") };
 
 const cautionCount = (cautions) =>
   cautions ? cautions.structural.length + (cautions.ai ? cautions.ai.items.length : 0) : 0;
@@ -27,7 +28,7 @@ const CautionsPanel = ({ cautions }) => {
   if (cautionCount(cautions) === 0) {
     return (
       <div className="alert alert-success mb-2">
-        {ai && ai.summary ? `AI 核查：${ai.summary}` : "未发现问题。"}
+        {ai && ai.summary ? tr("AI 核查：{ai.summary}", { "ai.summary": ai.summary }) : tr("未发现问题。")}
       </div>
     );
   }
@@ -35,11 +36,11 @@ const CautionsPanel = ({ cautions }) => {
     <div className="mb-2">
       {structural.length > 0 && (
         <div className="mb-2">
-          <b>结构核查</b>
+          <b>{tr("结构核查")}</b>
           {structural.map((c, i) => (
             <div key={i} className={`alert alert-${SEVERITY_CLASS[c.level]} py-1 px-2 mb-1 small`}>
               <span className="badge badge-light mr-2">{SEVERITY_LABEL[c.level]}</span>
-              {c.dimension && <b className="mr-1">{c.dimension}：</b>}
+              {c.dimension && <b className="mr-1">{c.dimension}{tr("：")}</b>}
               {c.message}
             </div>
           ))}
@@ -47,13 +48,13 @@ const CautionsPanel = ({ cautions }) => {
       )}
       {ai && (
         <div>
-          <b>AI 核查（对照学习资源库）</b>
+          <b>{tr("AI 核查（对照学习资源库）")}</b>
           {ai.summary && <div className="small text-muted mb-1">{ai.summary}</div>}
           {ai.items.map((c, i) => (
             <div key={i} className={`alert alert-${SEVERITY_CLASS[c.severity]} py-1 px-2 mb-1 small`}>
-              <span className="badge badge-light mr-2">风险 {SEVERITY_LABEL[c.severity]}</span>
-              {c.dimension && <b className="mr-1">{c.dimension}：</b>}
-              {c.change && <div className="text-muted">变化：{c.change}</div>}
+              <span className="badge badge-light mr-2">{tr("风险")} {SEVERITY_LABEL[c.severity]}</span>
+              {c.dimension && <b className="mr-1">{c.dimension}{tr("：")}</b>}
+              {c.change && <div className="text-muted">{tr("变化：{c.change}", { "c.change": c.change })}</div>}
               <div>{c.message}</div>
             </div>
           ))}
@@ -76,16 +77,16 @@ const RetrievalSources = ({ retrieval }) => {
   return (
     <details className="mb-3">
       <summary className="small text-muted">
-        依据资料（资料中已有的评价标准 {retrieval.anchors.length} 份，共引用 {count} 项）
+        {tr("依据资料（资料中已有的评价标准 {retrieval.anchors.length} 份，共引用 {count} 项）", { "retrieval.anchors.length": retrieval.anchors.length, count })}
       </summary>
       <div className="small mt-2">
         {retrieval.anchors.length > 0 && (
           <div className="mb-2">
-            <b>资料中已有的评价标准（原文引用，作为标准骨架）</b>
+            <b>{tr("资料中已有的评价标准（原文引用，作为标准骨架）")}</b>
             <ul className="mb-0">
               {retrieval.anchors.map((a, i) => (
                 <li key={i}>
-                  {where(a)}：{a.label}
+                  {where(a)}{tr("：")}{a.label}
                   <span className="text-muted"> · {a.topic}</span>
                 </li>
               ))}
@@ -94,7 +95,7 @@ const RetrievalSources = ({ retrieval }) => {
         )}
         {retrieval.verbatim.length > 0 && (
           <div className="mb-2">
-            <b>原文引用</b>
+            <b>{tr("原文引用")}</b>
             <ul className="mb-0">
               {retrieval.verbatim.map((v, i) => (
                 <li key={i}>
@@ -108,14 +109,13 @@ const RetrievalSources = ({ retrieval }) => {
         )}
         {semantic.length > 0 && (
           <div className="mb-2">
-            <b>语义匹配片段（原文引用）</b>
+            <b>{tr("语义匹配片段（原文引用）")}</b>
             <ul className="mb-0">
               {semantic.map((v, i) => (
                 <li key={i}>
                   {where(v)}
                   <span className="text-muted">
-                    {" "}
-                    · {v.topic} · 相似度 {v.score}
+                    {tr(" · {v.topic} · 相似度 {v.score}", { "v.topic": v.topic, "v.score": v.score })}
                   </span>
                 </li>
               ))}
@@ -124,11 +124,11 @@ const RetrievalSources = ({ retrieval }) => {
         )}
         {retrieval.summarized.length > 0 && (
           <div className="mb-2">
-            <b>摘要引用</b>
+            <b>{tr("摘要引用")}</b>
             <ul className="mb-0">
               {retrieval.summarized.map((v, i) => (
                 <li key={i}>
-                  《{v.title}》<span className="text-muted"> · {v.topic}</span>
+                  {tr("《")}{v.title}{tr("》")}<span className="text-muted"> · {v.topic}</span>
                 </li>
               ))}
             </ul>
@@ -136,7 +136,7 @@ const RetrievalSources = ({ retrieval }) => {
         )}
         {retrieval.background.length > 0 && (
           <div>
-            <b>背景主题</b>：{retrieval.background.join("、")}
+            <b>{tr("背景主题")}</b>{tr("：")}{retrieval.background.join(tr("、"))}
           </div>
         )}
       </div>
@@ -150,10 +150,10 @@ const StandardTable = ({ content }) => (
     <table className="table table-bordered table-sm">
       <thead className="thead-light">
         <tr>
-          <th style={{ width: "18%" }}>评分维度</th>
-          <th style={{ width: "8%" }}>分值</th>
-          <th>评分要点</th>
-          <th style={{ width: "34%" }}>等级描述</th>
+          <th style={{ width: "18%" }}>{tr("评分维度")}</th>
+          <th style={{ width: "8%" }}>{tr("分值")}</th>
+          <th>{tr("评分要点")}</th>
+          <th style={{ width: "34%" }}>{tr("等级描述")}</th>
         </tr>
       </thead>
       <tbody>
@@ -162,7 +162,7 @@ const StandardTable = ({ content }) => (
             <td>
               <b>{d.name}</b>
               {d.description && <div className="small text-muted mt-1">{d.description}</div>}
-              {d.basis && <div className="small mt-1">依据：{d.basis}</div>}
+              {d.basis && <div className="small mt-1">{tr("依据：{d.basis}", { "d.basis": d.basis })}</div>}
             </td>
             <td>{d.weight}</td>
             <td>
@@ -179,7 +179,7 @@ const StandardTable = ({ content }) => (
                     {lv.label}
                     {lv.range && `（${lv.range}）`}
                   </b>
-                  ：{lv.descriptor}
+                  {tr("：")}{lv.descriptor}
                 </div>
               ))}
             </td>
@@ -189,7 +189,7 @@ const StandardTable = ({ content }) => (
     </table>
     {content.scoringNotes.length > 0 && (
       <div>
-        <h6>评分说明</h6>
+        <h6>{tr("评分说明")}</h6>
         <ul>
           {content.scoringNotes.map((n, i) => (
             <li key={i}>{n}</li>
@@ -232,11 +232,11 @@ const StandardEditor = ({ draft, onChange }) => {
   return (
     <div>
       <div className="form-group">
-        <label className="small mb-1">标题</label>
+        <label className="small mb-1">{tr("标题")}</label>
         <input className="form-control" value={draft.title} onChange={(e) => update((n) => (n.title = e.target.value))} />
       </div>
       <div className="form-group">
-        <label className="small mb-1">总体说明</label>
+        <label className="small mb-1">{tr("总体说明")}</label>
         <textarea
           className="form-control"
           rows={2}
@@ -246,7 +246,7 @@ const StandardEditor = ({ draft, onChange }) => {
       </div>
 
       <div className={`mb-2 small ${total === draft.totalScore ? "text-success" : "text-danger"}`}>
-        分值合计：{total} / {draft.totalScore}
+        {tr("分值合计：{total} / {draft.totalScore}", { total, "draft.totalScore": draft.totalScore })}
       </div>
 
       {draft.dimensions.map((d, i) => (
@@ -254,7 +254,7 @@ const StandardEditor = ({ draft, onChange }) => {
           <div className="card-body py-2">
             <div className="form-row">
               <div className="col-md-5 form-group mb-2">
-                <label className="small mb-1">维度名称</label>
+                <label className="small mb-1">{tr("维度名称")}</label>
                 <input
                   className="form-control form-control-sm"
                   value={d.name}
@@ -262,7 +262,7 @@ const StandardEditor = ({ draft, onChange }) => {
                 />
               </div>
               <div className="col-md-2 form-group mb-2">
-                <label className="small mb-1">分值</label>
+                <label className="small mb-1">{tr("分值")}</label>
                 <input
                   type="number"
                   min="0"
@@ -276,13 +276,13 @@ const StandardEditor = ({ draft, onChange }) => {
                   className="btn btn-link btn-sm text-danger"
                   onClick={() => update((n) => n.dimensions.splice(i, 1))}
                 >
-                  删除此维度
+                  {tr("删除此维度")}
                 </button>
               </div>
             </div>
             <div className="form-row">
               <div className="col-md-6 form-group mb-2">
-                <label className="small mb-1">考察内容</label>
+                <label className="small mb-1">{tr("考察内容")}</label>
                 <textarea
                   className="form-control form-control-sm"
                   rows={2}
@@ -291,7 +291,7 @@ const StandardEditor = ({ draft, onChange }) => {
                 />
               </div>
               <div className="col-md-6 form-group mb-2">
-                <label className="small mb-1">依据</label>
+                <label className="small mb-1">{tr("依据")}</label>
                 <textarea
                   className="form-control form-control-sm"
                   rows={2}
@@ -301,7 +301,7 @@ const StandardEditor = ({ draft, onChange }) => {
               </div>
             </div>
             <div className="form-group mb-2">
-              <label className="small mb-1">评分要点（每行一条）</label>
+              <label className="small mb-1">{tr("评分要点（每行一条）")}</label>
               <textarea
                 className="form-control form-control-sm"
                 rows={3}
@@ -309,13 +309,13 @@ const StandardEditor = ({ draft, onChange }) => {
                 onChange={(e) => update((n) => (n.dimensions[i].criteriaText = e.target.value))}
               />
             </div>
-            <label className="small mb-1">等级描述</label>
+            <label className="small mb-1">{tr("等级描述")}</label>
             {d.levels.map((lv, j) => (
               <div key={j} className="form-row mb-1">
                 <div className="col-2">
                   <input
                     className="form-control form-control-sm"
-                    placeholder="等级"
+                    placeholder={tr("等级")}
                     value={lv.label}
                     onChange={(e) => update((n) => (n.dimensions[i].levels[j].label = e.target.value))}
                   />
@@ -323,7 +323,7 @@ const StandardEditor = ({ draft, onChange }) => {
                 <div className="col-2">
                   <input
                     className="form-control form-control-sm"
-                    placeholder="如 18-20"
+                    placeholder={tr("如 18-20")}
                     value={lv.range}
                     onChange={(e) => update((n) => (n.dimensions[i].levels[j].range = e.target.value))}
                   />
@@ -332,7 +332,7 @@ const StandardEditor = ({ draft, onChange }) => {
                   <textarea
                     className="form-control form-control-sm"
                     rows={2}
-                    placeholder="判定描述"
+                    placeholder={tr("判定描述")}
                     value={lv.descriptor}
                     onChange={(e) => update((n) => (n.dimensions[i].levels[j].descriptor = e.target.value))}
                   />
@@ -340,7 +340,7 @@ const StandardEditor = ({ draft, onChange }) => {
                 <div className="col-1">
                   <button
                     className="btn btn-link btn-sm text-danger p-0"
-                    title="删除此等级"
+                    title={tr("删除此等级")}
                     onClick={() => update((n) => n.dimensions[i].levels.splice(j, 1))}
                   >
                     ✕
@@ -352,7 +352,7 @@ const StandardEditor = ({ draft, onChange }) => {
               className="btn btn-link btn-sm p-0"
               onClick={() => update((n) => n.dimensions[i].levels.push({ label: "", range: "", descriptor: "" }))}
             >
-              + 添加等级
+              {tr("+ 添加等级")}
             </button>
           </div>
         </div>
@@ -373,11 +373,11 @@ const StandardEditor = ({ draft, onChange }) => {
           )
         }
       >
-        + 添加评分维度
+        {tr("+ 添加评分维度")}
       </button>
 
       <div className="form-group">
-        <label className="small mb-1">评分说明（每行一条）</label>
+        <label className="small mb-1">{tr("评分说明（每行一条）")}</label>
         <textarea
           className="form-control"
           rows={4}
@@ -447,7 +447,7 @@ const AiReviewStandard = () => {
         setActive(latest);
         setGenerating(running);
         setLoaded(true);
-        if (!running && lastError) setMessage(`生成失败：${lastError}`);
+        if (!running && lastError) setMessage(tr("生成失败：{lastError}", { lastError }));
         if (!latest && !running && !lastError && !autoStarted.current) {
           autoStarted.current = true;
           startGeneration();
@@ -480,7 +480,7 @@ const AiReviewStandard = () => {
   }, [dirty]);
 
   if (!allowed) {
-    return <div className="alert alert-warning">AI 点评仅对专家和管理员开放。</div>;
+    return <div className="alert alert-warning">{tr("AI 点评仅对专家和管理员开放。")}</div>;
   }
 
   const shown = viewed || active;
@@ -506,7 +506,7 @@ const AiReviewStandard = () => {
   };
 
   const cancelEditing = () => {
-    if (dirty && !window.confirm("放弃未保存的修订吗？")) return;
+    if (dirty && !window.confirm(tr("放弃未保存的修订吗？"))) return;
     setDraft(null);
     setDirty(false);
     setCheck(null);
@@ -538,11 +538,11 @@ const AiReviewStandard = () => {
   const save = async () => {
     if (!check) {
       const result = await runCheck();
-      if (result) setMessage("已完成核查，请查看下方提醒后再次点击「保存为新版本」。");
+      if (result) setMessage(tr("已完成核查，请查看下方提醒后再次点击「保存为新版本」。"));
       return;
     }
     const n = cautionCount(check.cautions);
-    if (n > 0 && !window.confirm(`核查共提出 ${n} 条提醒。确定仍要保存为新版本并立即生效吗？`)) return;
+    if (n > 0 && !window.confirm(tr("核查共提出 {n} 条提醒。确定仍要保存为新版本并立即生效吗？", { n }))) return;
 
     setSaving(true);
     setMessage("");
@@ -586,7 +586,7 @@ const AiReviewStandard = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (e) {
-      setMessage("导出失败。");
+      setMessage(tr("导出失败。"));
     } finally {
       setExporting(false);
     }
@@ -597,31 +597,31 @@ const AiReviewStandard = () => {
 
   return (
     <div className="container">
-      <Prompt when={dirty} message="有未保存的标准修订，确定要离开吗？" />
+      <Prompt when={dirty} message={tr("有未保存的标准修订，确定要离开吗？")} />
 
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <h4 className="mb-0">AI 点评标准</h4>
+        <h4 className="mb-0">{tr("AI 点评标准")}</h4>
         {!editing && (
           <div>
             {versions.length > 0 && (
               <button className="btn btn-outline-secondary btn-sm mr-2" onClick={() => setShowHistory(!showHistory)}>
-                版本历史（{versions.length}）
+                {tr("版本历史（{versions.length}）", { "versions.length": versions.length })}
               </button>
             )}
             {shown && (
               <button
                 className="btn btn-outline-secondary btn-sm mr-2"
                 disabled={exporting}
-                title={`将版本 #${shown.id} 导出为 Word 文档`}
+                title={tr("将版本 #{shown.id} 导出为 Word 文档", { "shown.id": shown.id })}
                 onClick={exportWord}
               >
                 <i className="fas fa-file-word mr-1" />
-                {exporting ? "导出中…" : "导出 Word"}
+                {exporting ? tr("导出中…") : tr("导出 Word")}
               </button>
             )}
             {shown && (
               <button className="btn btn-outline-primary btn-sm mr-2" disabled={generating} onClick={startEditing}>
-                {viewed ? "基于此版本修订" : "修订标准"}
+                {viewed ? tr("基于此版本修订") : tr("修订标准")}
               </button>
             )}
             <button
@@ -630,12 +630,12 @@ const AiReviewStandard = () => {
               onClick={() => {
                 const warning =
                   active && active.source === "human"
-                    ? "当前生效的标准包含人工修订，重新生成将由 AI 从学习资源库重新制定，不会保留这些修订。确定继续吗？"
-                    : "将基于学习资源库的当前内容重新生成评分标准，之后的 AI 点评将采用新标准。确定继续吗？";
+                    ? tr("当前生效的标准包含人工修订，重新生成将由 AI 从学习资源库重新制定，不会保留这些修订。确定继续吗？")
+                    : tr("将基于学习资源库的当前内容重新生成评分标准，之后的 AI 点评将采用新标准。确定继续吗？");
                 if (!active || window.confirm(warning)) startGeneration();
               }}
             >
-              {generating ? "生成中…" : active ? "重新生成" : "生成标准"}
+              {generating ? tr("生成中…") : active ? tr("重新生成") : tr("生成标准")}
             </button>
           </div>
         )}
@@ -646,7 +646,7 @@ const AiReviewStandard = () => {
       {generating && (
         <div className="alert alert-info">
           <span className="spinner-border spinner-border-sm mr-2" role="status" />
-          正在分析、综合学习资源库中的材料以生成评分标准，通常需要一到两分钟…
+          {tr("正在分析、综合学习资源库中的材料以生成评分标准，通常需要一到两分钟…")}
         </div>
       )}
 
@@ -658,35 +658,35 @@ const AiReviewStandard = () => {
               className={`list-group-item list-group-item-action py-2 small ${shown && shown.id === v.id ? "active" : ""}`}
               onClick={() => viewVersion(v.id)}
             >
-              <b>版本 #{v.id}</b>
-              {active && v.id === active.id && <span className="badge badge-success ml-2">当前生效</span>}
+              <b>{tr("版本 #{v.id}", { "v.id": v.id })}</b>
+              {active && v.id === active.id && <span className="badge badge-success ml-2">{tr("当前生效")}</span>}
               <span className="ml-2">
                 {v.source === "human"
-                  ? `人工修订${v.operator ? `（${v.operator.name}）` : ""}，基于 #${v.baseId}`
-                  : "AI 生成"}
+                  ? tr("人工修订{0}，基于 #{v.baseId}", { "0": v.operator ? `（${v.operator.name}）` : "", "v.baseId": v.baseId })
+                  : tr("AI 生成")}
               </span>
-              <span className="ml-2">{new Date(v.createdAt).toLocaleString()}</span>
+              <span className="ml-2">{new Date(v.createdAt).toLocaleString(LOCALE)}</span>
               {v.changeNote && <div className={shown && shown.id === v.id ? "" : "text-muted"}>{v.changeNote}</div>}
             </button>
           ))}
         </div>
       )}
 
-      {loaded && !content && !generating && !message && <p className="text-muted">暂无评分标准。</p>}
+      {loaded && !content && !generating && !message && <p className="text-muted">{tr("暂无评分标准。")}</p>}
 
       {editing ? (
         <div>
           <div className="alert alert-secondary small">
-            正在基于版本 #{baseId} 修订。保存前会进行结构核查，并由 AI 对照学习资源库检查修订是否有材料依据；保存后将成为新的生效版本，并记录您为修订人。
+            {tr("正在基于版本 #{baseId} 修订。保存前会进行结构核查，并由 AI 对照学习资源库检查修订是否有材料依据；保存后将成为新的生效版本，并记录您为修订人。", { baseId })}
           </div>
           <StandardEditor draft={draft} onChange={onDraftChange} />
 
           <div className="form-group">
-            <label className="small mb-1">修订说明</label>
+            <label className="small mb-1">{tr("修订说明")}</label>
             <textarea
               className="form-control"
               rows={2}
-              placeholder="说明本次修订的内容与理由"
+              placeholder={tr("说明本次修订的内容与理由")}
               value={changeNote}
               onChange={(e) => setChangeNote(e.target.value)}
             />
@@ -695,20 +695,20 @@ const AiReviewStandard = () => {
           {checking && (
             <div className="alert alert-info">
               <span className="spinner-border spinner-border-sm mr-2" role="status" />
-              AI 正在对照学习资源库核查本次修订，可能需要一分钟左右…
+              {tr("AI 正在对照学习资源库核查本次修订，可能需要一分钟左右…")}
             </div>
           )}
           {check && <CautionsPanel cautions={check.cautions} />}
 
           <div className="mb-4">
             <button className="btn btn-outline-primary mr-2" disabled={checking || saving} onClick={runCheck}>
-              AI 核查
+              {tr("AI 核查")}
             </button>
             <button className="btn btn-primary mr-2" disabled={checking || saving || hasBlockingError} onClick={save}>
-              {saving ? "保存中…" : "保存为新版本"}
+              {saving ? tr("保存中…") : tr("保存为新版本")}
             </button>
             <button className="btn btn-link" disabled={checking || saving} onClick={cancelEditing}>
-              取消
+              {tr("取消")}
             </button>
           </div>
         </div>
@@ -717,25 +717,25 @@ const AiReviewStandard = () => {
           <div>
             {viewed && (
               <div className="alert alert-warning small">
-                正在查看历史版本 #{viewed.id}（非当前生效版本）。
+                {tr("正在查看历史版本 #{viewed.id}（非当前生效版本）。", { "viewed.id": viewed.id })}
                 <button className="btn btn-link btn-sm p-0 ml-2" onClick={() => setViewed(null)}>
-                  返回当前版本
+                  {tr("返回当前版本")}
                 </button>
               </div>
             )}
             <h5>{content.title}</h5>
             <p className="text-muted small">
-              版本 #{shown.id} · {new Date(shown.createdAt).toLocaleString()}
+              {tr("版本 #{shown.id} ·", { "shown.id": shown.id })} {new Date(shown.createdAt).toLocaleString(LOCALE)}
               {shown.source === "human"
-                ? ` · 人工修订${shown.operator ? `：${shown.operator.name}` : ""}（基于版本 #${shown.baseId}）`
-                : ` · AI 生成${shown.aiModel ? `（${shown.aiModel}）` : ""}`}
-              {Array.isArray(shown.sourceTopicIds) && ` · 依据学习资源库 ${shown.sourceTopicIds.length} 个主题`}
-              {` · 满分 ${content.totalScore}`}
+                ? tr(" · 人工修订{0}（基于版本 #{shown.baseId}）", { "0": shown.operator ? `：${shown.operator.name}` : "", "shown.baseId": shown.baseId })
+                : tr(" · AI 生成{0}", { "0": shown.aiModel ? `（${shown.aiModel}）` : "" })}
+              {Array.isArray(shown.sourceTopicIds) && tr(" · 依据学习资源库 {shown.sourceTopicIds.length} 个主题", { "shown.sourceTopicIds.length": shown.sourceTopicIds.length })}
+              {tr(" · 满分 {content.totalScore}", { "content.totalScore": content.totalScore })}
             </p>
-            {shown.changeNote && <p className="small">修订说明：{shown.changeNote}</p>}
+            {shown.changeNote && <p className="small">{tr("修订说明：{shown.changeNote}", { "shown.changeNote": shown.changeNote })}</p>}
             {shown.cautions && cautionCount(shown.cautions) > 0 && (
               <details className="mb-3">
-                <summary className="small text-muted">保存时已知悉的核查提醒（{cautionCount(shown.cautions)} 条）</summary>
+                <summary className="small text-muted">{tr("保存时已知悉的核查提醒（{cautionCount(shown.cautions)} 条）", { "cautionCount(shown.cautions)": cautionCount(shown.cautions) })}</summary>
                 <div className="mt-2">
                   <CautionsPanel cautions={shown.cautions} />
                 </div>

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { useHistory, useLocation } from "react-router-dom";
+import { tr } from "../i18n";
 
 // Phone layout for the .pl-explorer pages (全部乡土课程's tree, a plan's
 // 计划/实施 tree, 学习资源库): side by side, the tree and the content fit;
@@ -98,7 +99,7 @@ export const ExplorerPaneBar = ({ label, onBack }) => (
     <i className="fas fa-chevron-left mr-2"></i>
     <span className="pl-explorer-pane-bar-label">{label}</span>
     <span className="pl-explorer-pane-bar-switch">
-      <i className="fas fa-list mr-1"></i>目录
+      <i className="fas fa-list mr-1"></i>{tr("目录")}
     </span>
   </button>
 );

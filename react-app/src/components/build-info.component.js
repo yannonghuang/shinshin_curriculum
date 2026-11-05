@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import http from "../http-common";
 import authHeader from "../services/auth-header";
+import { tr } from "../i18n";
 
 const REPO_COMMIT_URL = "https://github.com/yannonghuang/shinshin_curriculum/commit/";
 
@@ -24,7 +25,7 @@ const CommitLink = ({ commit, tag }) =>
       {tag || commit.slice(0, 7)}
     </a>
   ) : (
-    <span>{tag || "开发环境"}</span>
+    <span>{tag || tr("开发环境")}</span>
   );
 
 // Super-only build/deploy footer (rendered by App.js for super users): a
@@ -68,43 +69,43 @@ const BuildInfo = () => {
         <div className="card shadow-sm mb-1" style={{ minWidth: 300, background: "#fff" }}>
           <div className="card-body p-2">
             <div className="d-flex justify-content-between mb-1">
-              <b>版本信息</b>
+              <b>{tr("版本信息")}</b>
               <a href="#!" onClick={(e) => { e.preventDefault(); load(); }}>
-                刷新
+                {tr("刷新")}
               </a>
             </div>
             {mismatch && (
               <div className="alert alert-warning py-1 px-2 mb-2">
-                前端（{FRONTEND.tag}）与后端（{backend.tag}）版本不一致，请刷新页面或检查部署。
+                {tr("前端（{FRONTEND.tag}）与后端（{backend.tag}）版本不一致，请刷新页面或检查部署。", { "FRONTEND.tag": FRONTEND.tag, "backend.tag": backend.tag })}
               </div>
             )}
-            {error && <div className="text-danger mb-1">后端版本信息获取失败：{error}</div>}
+            {error && <div className="text-danger mb-1">{tr("后端版本信息获取失败：{error}", { error })}</div>}
             <table className="table table-sm table-borderless mb-0" style={{ fontSize: 12 }}>
               <tbody>
                 <tr>
-                  <td className="text-muted pl-0">后端构建</td>
+                  <td className="text-muted pl-0">{tr("后端构建")}</td>
                   <td>{backend ? <CommitLink commit={backend.commit} tag={backend.tag} /> : "—"}</td>
                 </tr>
                 <tr>
-                  <td className="text-muted pl-0">前端构建</td>
+                  <td className="text-muted pl-0">{tr("前端构建")}</td>
                   <td>
                     <CommitLink commit={FRONTEND.commit} tag={FRONTEND.tag} />
                   </td>
                 </tr>
                 <tr>
-                  <td className="text-muted pl-0">提交时间</td>
+                  <td className="text-muted pl-0">{tr("提交时间")}</td>
                   <td>{fmt((backend && backend.commitTime) || FRONTEND.commitTime)}</td>
                 </tr>
                 <tr>
-                  <td className="text-muted pl-0">构建时间</td>
+                  <td className="text-muted pl-0">{tr("构建时间")}</td>
                   <td>{fmt((backend && backend.buildTime) || FRONTEND.buildTime)}</td>
                 </tr>
                 <tr>
-                  <td className="text-muted pl-0">部署（启动）时间</td>
+                  <td className="text-muted pl-0">{tr("部署（启动）时间")}</td>
                   <td>{fmt(backend && backend.startedAt)}</td>
                 </tr>
                 <tr>
-                  <td className="text-muted pl-0">最新数据库迁移</td>
+                  <td className="text-muted pl-0">{tr("最新数据库迁移")}</td>
                   <td style={{ wordBreak: "break-all" }}>{(backend && backend.latestMigration) || "—"}</td>
                 </tr>
               </tbody>
@@ -117,12 +118,12 @@ const BuildInfo = () => {
         className={`btn btn-sm ${mismatch ? "btn-warning" : "btn-light"} border`}
         style={{ fontSize: 12, opacity: open ? 1 : 0.85 }}
         onClick={() => setOpen(!open)}
-        title="版本信息（仅超级管理员可见）"
+        title={tr("版本信息（仅超级管理员可见）")}
       >
         <i className="fas fa-code-branch mr-1" />
-        {tag || "开发环境"}
-        {backend && backend.startedAt && ` · 部署于 ${short(backend.startedAt)}`}
-        {mismatch && " · 版本不一致"}
+        {tag || tr("开发环境")}
+        {backend && backend.startedAt && tr(" · 部署于 {short(backend.startedAt)}", { "short(backend.startedAt)": short(backend.startedAt) })}
+        {mismatch && tr(" · 版本不一致")}
       </button>
     </div>
   );

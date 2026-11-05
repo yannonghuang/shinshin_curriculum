@@ -30,6 +30,7 @@ import BuildInfo from "./components/build-info.component";
 
 import AuthService from "./services/auth.service";
 import { skipNextUnsavedWarning } from "./utils/unsavedChangesGuard";
+import { tr, isEn, setLang } from "./i18n";
 
 // Small role-gated nav + route table (react-router-dom v5 Switch/Route API, matching
 // shinshin's react-router-dom ^5.1.2). shinshin's idle-timeout AccessControlService HOC is
@@ -81,7 +82,7 @@ class App extends Component {
         {!this.noNavBar() && (
           <nav className="navbar navbar-expand-sm navbar-dark navbar-custom mb-3">
             <Link to="/" className="navbar-brand">
-              乡土智课系统
+              {tr("乡土智课系统")}
             </Link>
 
             <button
@@ -101,56 +102,56 @@ class App extends Component {
                 {AuthService.isTeacher() && (
                   <li className="nav-item">
                     <Link to="/plans?mine=true" className="nav-link">
-                      我的乡土课程
+                      {tr("我的乡土课程")}
                     </Link>
                   </li>
                 )}
                 {AuthService.isExpert() && (
                   <li className="nav-item">
                     <Link to="/plans?reviewed=mine" className="nav-link">
-                      我的点评
+                      {tr("我的点评")}
                     </Link>
                   </li>
                 )}
                 {AuthService.isExpert() && (
                   <li className="nav-item">
                     <Link to="/plans?status=submitted" className="nav-link">
-                      待点评案例
+                      {tr("待点评案例")}
                     </Link>
                   </li>
                 )}
                 {(AuthService.isAdmin() || AuthService.isTeacher()) && (
                   <li className="nav-item">
                     <Link to="/plans" className="nav-link">
-                      全部乡土课程
+                      {tr("全部乡土课程")}
                     </Link>
                   </li>
                 )}
                 {(AuthService.isAdmin() || AuthService.isExpert()) && (
                   <li className="nav-item">
                     <Link to="/dashboard" className="nav-link">
-                      数据看板
+                      {tr("数据看板")}
                     </Link>
                   </li>
                 )}
                 {AuthService.isSuper() && (
                   <li className="nav-item">
                     <Link to="/admin/users" className="nav-link">
-                      用户管理
+                      {tr("用户管理")}
                     </Link>
                   </li>
                 )}
                 {AuthService.isSuper() && (
                   <li className="nav-item">
                     <Link to="/admin/book-recommendations" className="nav-link">
-                      课外读物推荐
+                      {tr("课外读物推荐")}
                     </Link>
                   </li>
                 )}
                 {AuthService.isAdmin() && (
                   <li className="nav-item">
                     <Link to="/admin/templates" className="nav-link">
-                      模板管理
+                      {tr("模板管理")}
                     </Link>
                   </li>
                 )}
@@ -169,35 +170,51 @@ class App extends Component {
                     </a>
                     <div className="dropdown-menu" aria-labelledby="aiReviewDropdown">
                       <Link to="/ai-review/standard" className="dropdown-item">
-                        AI 点评标准
+                        {tr("AI 点评标准")}
                       </Link>
                       <Link to="/ai-review/score-review" className="dropdown-item">
-                        AI 打分加点评
+                        {tr("AI 打分加点评")}
                       </Link>
                     </div>
                   </li>
                 )}
                 <li className="nav-item">
                   <Link to="/materials" className="nav-link">
-                    学习资源库
+                    {tr("学习资源库")}
                   </Link>
                 </li>
                 {AuthService.isLogin() && (
                   <li className="nav-item">
                     <Link to="/shares" className="nav-link">
-                      教师分享
+                      {tr("教师分享")}
                     </Link>
                   </li>
                 )}
                 <li className="nav-item">
                   <Link to="/gallery" className="nav-link">
-                    课程案例库
+                    {tr("课程案例库")}
                   </Link>
                 </li>
               </ul>
 
+              <ul className="navbar-nav ml-auto">
+                <li className="nav-item">
+                  <a
+                    href="#!"
+                    className="nav-link"
+                    title={isEn() ? "切换到中文" : "Switch to English"}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setLang(isEn() ? "zh" : "en");
+                    }}
+                  >
+                    <i className="fas fa-globe mr-1"></i>
+                    {isEn() ? "中文" : "EN"}
+                  </a>
+                </li>
+              </ul>
               {AuthService.isLogin() ? (
-                <ul className="navbar-nav ml-auto">
+                <ul className="navbar-nav">
                   <li className="nav-item">
                     <Link to="/profile" className="nav-link">
                       {user.chineseName || user.username}
@@ -205,20 +222,20 @@ class App extends Component {
                   </li>
                   <li className="nav-item">
                     <a href="#!" className="nav-link" onClick={this.logOut}>
-                      退出
+                      {tr("退出")}
                     </a>
                   </li>
                 </ul>
               ) : (
-                <ul className="navbar-nav ml-auto">
+                <ul className="navbar-nav">
                   <li className="nav-item">
                     <Link to="/login" className="nav-link">
-                      登录
+                      {tr("登录")}
                     </Link>
                   </li>
                   <li className="nav-item">
                     <Link to="/register" className="nav-link">
-                      注册
+                      {tr("注册")}
                     </Link>
                   </li>
                 </ul>

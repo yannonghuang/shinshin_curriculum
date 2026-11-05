@@ -7,30 +7,31 @@ import PlanDataService from "../services/plan.service";
 import AuthService from "../services/auth.service";
 import { SCHOOLS, findSchoolByCode, schoolFilterOption } from "../constants/school-options";
 import "../curriculum.css";
+import { tr, LOCALE, formatWan } from "../i18n";
 
-const ROLE_LABELS = { teacher: "教师", expert: "专家", admin: "管理员", super: "超级管理员" };
+const ROLE_LABELS = { teacher: tr("教师"), expert: tr("专家"), admin: tr("管理员"), super: tr("超级管理员") };
 const schoolOptions = SCHOOLS.map((s) => ({ value: s.code, label: s.name, address: s.address }));
 
 // totalLoginTime arrives from the backend in accumulated seconds (see
 // auth.controller.js's signin/signout) -- rendered as the largest couple of
 // units that fit, matching how a human would say it ("3小时25分钟", not
 // "12300秒" or a raw decimal-hours number).
-const formatDateTime = (value) => new Date(value).toLocaleString("zh-cn", { hour12: false });
+const formatDateTime = (value) => new Date(value).toLocaleString(LOCALE, { hour12: false });
 
 // 退出时间's ending kinds -- logoutType comes from auth.controller.js's
 // sessionStatusOf: "manual" is an explicit 退出登录, "timeout" is the
 // inactivity window lapsing (including just closing the browser).
 const LOGOUT_TYPES = {
-  manual: { label: "主动退出", className: "pl-tag", tip: "用户主动点击退出登录" },
-  timeout: { label: "超时退出", className: "pl-tag pl-tag-warn", tip: "长时间无操作，登录已超时自动失效" },
+  manual: { label: tr("主动退出"), className: "pl-tag", tip: tr("用户主动点击退出登录") },
+  timeout: { label: tr("超时退出"), className: "pl-tag pl-tag-warn", tip: tr("长时间无操作，登录已超时自动失效") },
 };
 
 const formatDuration = (totalSeconds) => {
-  if (!totalSeconds) return "0分钟";
+  if (!totalSeconds) return tr("0分钟");
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
-  if (hours > 0) return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
-  return `${minutes}分钟`;
+  if (hours > 0) return minutes > 0 ? tr("{hours}小时{minutes}分钟", { hours, minutes }) : tr("{hours}小时", { hours });
+  return tr("{minutes}分钟", { minutes });
 };
 
 // aiTokensUsed is the accumulated token count (auth.controller.js /
@@ -38,7 +39,7 @@ const formatDuration = (totalSeconds) => {
 // exact count on hover.
 const formatTokens = (tokens) => {
   const n = Number(tokens) || 0;
-  return n >= 10000 ? `${(n / 10000).toFixed(1)}万` : n.toLocaleString("zh-cn");
+  return formatWan(n);
 };
 
 // Shows each school's address as a muted second line under its name, so an
@@ -155,7 +156,7 @@ const AdminUsersList = () => {
       setExportFields(resp.data.exportFields || []);
     } catch (e) {
       console.log(e);
-      setMessage("加载用户列表失败。");
+      setMessage(tr("加载用户列表失败。"));
     }
   }, [page, pageSize, queryParams]);
 
@@ -203,7 +204,7 @@ const AdminUsersList = () => {
       window.URL.revokeObjectURL(url);
     } catch (e) {
       // responseType is arraybuffer, so a JSON error body arrives as bytes.
-      let text = "导出 Excel 失败。";
+      let text = tr("导出 Excel 失败。");
       try {
         if (e.response && e.response.data instanceof ArrayBuffer) {
           text = JSON.parse(new TextDecoder().decode(e.response.data)).message || text;
@@ -243,7 +244,7 @@ const AdminUsersList = () => {
     setSchoolPlansMessage("");
     PlanDataService.getAll({ schoolCode: schoolDetailCode, size: 200 })
       .then((resp) => setSchoolPlans((resp.data && resp.data.rows) || []))
-      .catch(() => setSchoolPlansMessage("加载该校课程计划失败。"))
+      .catch(() => setSchoolPlansMessage(tr("加载该校课程计划失败。")))
       .finally(() => setSchoolPlansLoading(false));
   }, [schoolDetailCode]);
 
@@ -298,11 +299,11 @@ const AdminUsersList = () => {
     e.preventDefault();
     setMessage("");
     if (form.roles.length === 0) {
-      setMessage("请至少选择一个角色。");
+      setMessage(tr("请至少选择一个角色。"));
       return;
     }
     if (form.roles.includes("teacher") && !form.school) {
-      setMessage("教师角色必须选择所在学校。");
+      setMessage(tr("教师角色必须选择所在学校。"));
       return;
     }
     const schoolCode = form.roles.includes("teacher") && form.school ? form.school.value : null;
@@ -319,7 +320,7 @@ const AdminUsersList = () => {
         };
         if (form.password) payload.password = form.password;
         await AdminUserDataService.update(editingId, payload);
-        setMessage("用户信息更新成功。");
+        setMessage(tr("用户信息更新成功。"));
       } else {
         await AdminUserDataService.create({
           username: form.username,
@@ -330,23 +331,23 @@ const AdminUsersList = () => {
           roles: form.roles,
           schoolCode: schoolCode || undefined,
         });
-        setMessage("用户创建成功。");
+        setMessage(tr("用户创建成功。"));
       }
       closeEditor();
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || (editingId ? "更新失败。" : "创建失败。"));
+      setMessage(err?.response?.data?.message || (editingId ? tr("更新失败。") : tr("创建失败。")));
     }
   };
 
   const onSuspend = async (item) => {
-    const ok = window.confirm(`确定停用用户「${item.chineseName || item.username}」吗？停用后该用户将无法登录。`);
+    const ok = window.confirm(tr("确定停用用户「{0}」吗？停用后该用户将无法登录。", { "0": item.chineseName || item.username }));
     if (!ok) return;
     try {
       await AdminUserDataService.suspend(item.id);
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
@@ -355,31 +356,31 @@ const AdminUsersList = () => {
       await AdminUserDataService.unsuspend(item.id);
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
   // 种子教师 -- teacher accounts only (the backend refuses anything else).
   const onToggleSeed = async (item) => {
     const name = item.chineseName || item.username;
-    if (item.isSeed && !window.confirm(`确定取消「${name}」的种子教师标记吗？`)) return;
+    if (item.isSeed && !window.confirm(tr("确定取消「{name}」的种子教师标记吗？", { name }))) return;
     try {
       await AdminUserDataService.setSeed(item.id, !item.isSeed);
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
   const onDelete = async (item) => {
-    const ok = window.confirm(`此操作将永久删除用户「${item.chineseName || item.username}」，且无法撤销。确定继续吗？`);
+    const ok = window.confirm(tr("此操作将永久删除用户「{0}」，且无法撤销。确定继续吗？", { "0": item.chineseName || item.username }));
     if (!ok) return;
     try {
       await AdminUserDataService.delete(item.id);
-      setMessage("用户删除成功。");
+      setMessage(tr("用户删除成功。"));
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除失败。");
+      setMessage(err?.response?.data?.message || tr("删除失败。"));
     }
   };
 
@@ -389,7 +390,7 @@ const AdminUsersList = () => {
   if (!AuthService.isSuper()) {
     return (
       <div className="container">
-        <div className="alert alert-warning mt-3">无权限访问此页面，仅超级管理员可用。</div>
+        <div className="alert alert-warning mt-3">{tr("无权限访问此页面，仅超级管理员可用。")}</div>
       </div>
     );
   }
@@ -399,7 +400,7 @@ const AdminUsersList = () => {
   return (
     <div className="container">
       <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap">
-        <h4 className="mb-0">用户管理（总数：{totalItems}）</h4>
+        <h4 className="mb-0">{tr("用户管理（总数：{totalItems}）", { totalItems })}</h4>
         <div className="position-relative">
           <button
             type="button"
@@ -407,7 +408,7 @@ const AdminUsersList = () => {
             onClick={() => setShowExportConfig((prev) => !prev)}
           >
             <i className="fas fa-columns mr-1" />
-            导出字段（{effectiveExportFields.length}）
+            {tr("导出字段（{effectiveExportFields.length}）", { "effectiveExportFields.length": effectiveExportFields.length })}
           </button>
           <button
             type="button"
@@ -416,30 +417,30 @@ const AdminUsersList = () => {
             onClick={exportExcel}
           >
             <i className="fas fa-file-excel mr-1" />
-            {exporting ? "导出中..." : `导出 Excel（${totalItems} 行）`}
+            {exporting ? tr("导出中...") : tr("导出 Excel（{totalItems} 行）", { totalItems })}
           </button>
           {showExportConfig && (
             <div className="card shadow-sm pl-dashboard-export-config">
               <div className="card-body p-2">
                 <div className="d-flex justify-content-between align-items-center mb-2">
-                  <b className="small">选择导出到 Excel 的字段</b>
+                  <b className="small">{tr("选择导出到 Excel 的字段")}</b>
                   <button type="button" className="close" onClick={() => setShowExportConfig(false)}>
                     <span>&times;</span>
                   </button>
                 </div>
                 <div className="small mb-2">
                   <button type="button" className="btn btn-link btn-sm p-0 mr-3" onClick={() => updateExportFields(exportFields.map((f) => f.key))}>
-                    全选
+                    {tr("全选")}
                   </button>
                   <button type="button" className="btn btn-link btn-sm p-0 mr-3" onClick={() => updateExportFields([])}>
-                    全不选
+                    {tr("全不选")}
                   </button>
                   <button
                     type="button"
                     className="btn btn-link btn-sm p-0"
                     onClick={() => updateExportFields(exportFields.filter((f) => f.defaultOn).map((f) => f.key))}
                   >
-                    恢复默认
+                    {tr("恢复默认")}
                   </button>
                 </div>
                 <div className="pl-dashboard-export-fields">
@@ -458,7 +459,7 @@ const AdminUsersList = () => {
                     </div>
                   ))}
                 </div>
-                <div className="small text-muted mt-2">导出当前筛选结果（全部分页），按当前排序。</div>
+                <div className="small text-muted mt-2">{tr("导出当前筛选结果（全部分页），按当前排序。")}</div>
               </div>
             </div>
           )}
@@ -470,18 +471,18 @@ const AdminUsersList = () => {
           <div className="form-group col-md-4">
             <input
               className="form-control"
-              placeholder="按用户名/姓名/邮箱搜索"
+              placeholder={tr("按用户名/姓名/邮箱搜索")}
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
             />
           </div>
           <div className="form-group col-md-2">
             <select className="form-control" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
-              <option value="">全部角色</option>
-              <option value="teacher">教师</option>
-              <option value="expert">专家</option>
-              <option value="admin">管理员</option>
-              <option value="super">超级管理员</option>
+              <option value="">{tr("全部角色")}</option>
+              <option value="teacher">{tr("教师")}</option>
+              <option value="expert">{tr("专家")}</option>
+              <option value="admin">{tr("管理员")}</option>
+              <option value="super">{tr("超级管理员")}</option>
             </select>
           </div>
           <div className="form-group col-md-2">
@@ -490,9 +491,9 @@ const AdminUsersList = () => {
               value={suspendedFilter}
               onChange={(e) => setSuspendedFilter(e.target.value)}
             >
-              <option value="">全部状态</option>
-              <option value="false">正常</option>
-              <option value="true">已停用</option>
+              <option value="">{tr("全部状态")}</option>
+              <option value="false">{tr("正常")}</option>
+              <option value="true">{tr("已停用")}</option>
             </select>
           </div>
           <div className="form-group col-md-2">
@@ -504,14 +505,14 @@ const AdminUsersList = () => {
                 setPage(1);
               }}
             >
-              <option value="">全部教师</option>
-              <option value="true">种子教师</option>
-              <option value="false">非种子教师</option>
+              <option value="">{tr("全部教师")}</option>
+              <option value="true">{tr("种子教师")}</option>
+              <option value="false">{tr("非种子教师")}</option>
             </select>
           </div>
           <div className="form-group col-md-2">
             <button className="btn btn-outline-secondary btn-block" type="button" onClick={onSearch}>
-              搜索
+              {tr("搜索")}
             </button>
           </div>
         </div>
@@ -524,7 +525,7 @@ const AdminUsersList = () => {
                 setSchoolFilter(option);
                 setPage(1);
               }}
-              placeholder="按学校筛选（可按编号/名称/地址搜索）..."
+              placeholder={tr("按学校筛选（可按编号/名称/地址搜索）...")}
               formatOptionLabel={formatSchoolOptionLabel}
               filterOption={schoolFilterOption}
               isClearable
@@ -539,9 +540,9 @@ const AdminUsersList = () => {
                 setPage(1);
               }}
             >
-              <option value="">全部在线状态</option>
-              <option value="true">在线</option>
-              <option value="false">离线</option>
+              <option value="">{tr("全部在线状态")}</option>
+              <option value="true">{tr("在线")}</option>
+              <option value="false">{tr("离线")}</option>
             </select>
           </div>
           <div className="form-group col-md-2">
@@ -553,7 +554,7 @@ const AdminUsersList = () => {
                 setPage(1);
               }}
             >
-              <option value="">全部退出方式</option>
+              <option value="">{tr("全部退出方式")}</option>
               {Object.entries(LOGOUT_TYPES).map(([value, t]) => (
                 <option key={value} value={value}>
                   {t.label}
@@ -562,14 +563,14 @@ const AdminUsersList = () => {
             </select>
           </div>
           <div className="form-group col-md-4">
-            <div className="d-flex align-items-center" title="AI 用量，单位：万 tokens">
-              <span className="text-nowrap mr-2">AI 用量（万）</span>
+            <div className="d-flex align-items-center" title={tr("AI 用量，单位：万 tokens")}>
+              <span className="text-nowrap mr-2">{tr("AI 用量（万）")}</span>
               <input
                 className="form-control"
                 type="number"
                 min="0"
                 step="any"
-                placeholder="最低"
+                placeholder={tr("最低")}
                 value={aiTokensMin}
                 onChange={(e) => {
                   setAiTokensMin(e.target.value);
@@ -582,7 +583,7 @@ const AdminUsersList = () => {
                 type="number"
                 min="0"
                 step="any"
-                placeholder="最高"
+                placeholder={tr("最高")}
                 value={aiTokensMax}
                 onChange={(e) => {
                   setAiTokensMax(e.target.value);
@@ -596,7 +597,7 @@ const AdminUsersList = () => {
 
       <div className="mb-3">
         <button className="btn btn-primary" type="button" onClick={openCreateEditor}>
-          新增管理员 / 用户
+          {tr("新增管理员 / 用户")}
         </button>
       </div>
 
@@ -605,32 +606,32 @@ const AdminUsersList = () => {
       <table className="table table-sm table-bordered">
         <thead>
           <tr>
-            <th>用户名</th>
+            <th>{tr("用户名")}</th>
             <th role="button" onClick={() => onSortClick("name")}>
-              姓名{sortIndicator("name")}
+              {tr("姓名")}{sortIndicator("name")}
             </th>
-            <th>邮箱</th>
-            <th>角色</th>
+            <th>{tr("邮箱")}</th>
+            <th>{tr("角色")}</th>
             <th role="button" onClick={() => onSortClick("school")}>
-              学校编号{sortIndicator("school")}
+              {tr("学校编号")}{sortIndicator("school")}
             </th>
-            <th>邮箱已验证</th>
-            <th>状态</th>
-            <th>在线</th>
+            <th>{tr("邮箱已验证")}</th>
+            <th>{tr("状态")}</th>
+            <th>{tr("在线")}</th>
             <th role="button" onClick={() => onSortClick("createdAt")}>
-              注册时间{sortIndicator("createdAt")}
+              {tr("注册时间")}{sortIndicator("createdAt")}
             </th>
             <th role="button" onClick={() => onSortClick("lastLogin")}>
-              上次登录时间{sortIndicator("lastLogin")}
+              {tr("上次登录时间")}{sortIndicator("lastLogin")}
             </th>
-            <th>退出时间</th>
+            <th>{tr("退出时间")}</th>
             <th role="button" onClick={() => onSortClick("totalLoginTime")}>
-              累计登录时长{sortIndicator("totalLoginTime")}
+              {tr("累计登录时长")}{sortIndicator("totalLoginTime")}
             </th>
-            <th role="button" onClick={() => onSortClick("aiTokensUsed")} title="累计消耗的 AI tokens（欣欣小助手、AI 点评等）">
-              AI 用量{sortIndicator("aiTokensUsed")}
+            <th role="button" onClick={() => onSortClick("aiTokensUsed")} title={tr("累计消耗的 AI tokens（欣欣小助手、AI 点评等）")}>
+              {tr("AI 用量")}{sortIndicator("aiTokensUsed")}
             </th>
-            <th>操作</th>
+            <th>{tr("操作")}</th>
           </tr>
         </thead>
         <tbody>
@@ -641,7 +642,7 @@ const AdminUsersList = () => {
                 <td>{item.username}</td>
                 <td>
                   {item.chineseName || "-"}
-                  {item.isSeed && <span className="pl-tag-seed ml-1">种子</span>}
+                  {item.isSeed && <span className="pl-tag-seed ml-1">{tr("种子")}</span>}
                 </td>
                 <td>{item.email}</td>
                 <td>
@@ -660,14 +661,14 @@ const AdminUsersList = () => {
                     "-"
                   )}
                 </td>
-                <td>{item.emailVerified ? "是" : "否"}</td>
+                <td>{item.emailVerified ? tr("是") : tr("否")}</td>
                 <td>
-                  {item.suspended ? <span className="pl-tag-warn">已停用</span> : <span className="text-muted">正常</span>}
+                  {item.suspended ? <span className="pl-tag-warn">{tr("已停用")}</span> : <span className="text-muted">{tr("正常")}</span>}
                 </td>
-                <td>{item.online ? <span className="pl-tag">在线</span> : <span className="text-muted">离线</span>}</td>
-                <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString("zh-cn") : "-"}</td>
+                <td>{item.online ? <span className="pl-tag">{tr("在线")}</span> : <span className="text-muted">{tr("离线")}</span>}</td>
+                <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString(LOCALE) : "-"}</td>
                 <td>
-                  {item.lastLogin ? formatDateTime(item.lastLogin) : "从未登录"}
+                  {item.lastLogin ? formatDateTime(item.lastLogin) : tr("从未登录")}
                 </td>
                 <td>
                   {item.logoutAt ? (
@@ -687,33 +688,33 @@ const AdminUsersList = () => {
                   )}
                 </td>
                 <td>{formatDuration(item.totalLoginTime)}</td>
-                <td title={`${(Number(item.aiTokensUsed) || 0).toLocaleString("zh-cn")} tokens`}>
+                <td title={`${(Number(item.aiTokensUsed) || 0).toLocaleString(LOCALE)} tokens`}>
                   {formatTokens(item.aiTokensUsed)}
                 </td>
                 <td>
                   {isSelf ? (
-                    <span className="text-muted">（当前账号）</span>
+                    <span className="text-muted">{tr("（当前账号）")}</span>
                   ) : (
                     <>
                       <button className="btn btn-link p-0 mr-2" onClick={() => openEditEditor(item)}>
-                        编辑
+                        {tr("编辑")}
                       </button>
                       {item.suspended ? (
                         <button className="btn btn-link p-0 mr-2" onClick={() => onUnsuspend(item)}>
-                          启用
+                          {tr("启用")}
                         </button>
                       ) : (
                         <button className="btn btn-link p-0 mr-2" onClick={() => onSuspend(item)}>
-                          停用
+                          {tr("停用")}
                         </button>
                       )}
                       {(item.roles || []).some((r) => r.name === "teacher") && (
                         <button className="btn btn-link p-0 mr-2" onClick={() => onToggleSeed(item)}>
-                          {item.isSeed ? "取消种子" : "设为种子"}
+                          {item.isSeed ? tr("取消种子") : tr("设为种子")}
                         </button>
                       )}
                       <button className="btn btn-link p-0 text-danger" onClick={() => onDelete(item)}>
-                        删除
+                        {tr("删除")}
                       </button>
                     </>
                   )}
@@ -723,14 +724,14 @@ const AdminUsersList = () => {
           })}
           {users.length === 0 && (
             <tr>
-              <td colSpan="14">暂无数据</td>
+              <td colSpan="14">{tr("暂无数据")}</td>
             </tr>
           )}
         </tbody>
       </table>
 
       <div className="mt-2 d-flex align-items-center">
-        <label className="mr-2 mb-0">每页条数</label>
+        <label className="mr-2 mb-0">{tr("每页条数")}</label>
         <select
           className="form-control form-control-sm"
           style={{ width: "100px" }}
@@ -764,9 +765,9 @@ const AdminUsersList = () => {
           />
           <div className="pl-drawer-panel" style={{ width: "min(420px, 95vw)" }}>
             <div className="pl-drawer-head">
-              <h5 className="mb-0">学校信息</h5>
+              <h5 className="mb-0">{tr("学校信息")}</h5>
               <button className="btn btn-link p-0" type="button" onClick={() => setSchoolDetailCode(null)}>
-                关闭
+                {tr("关闭")}
               </button>
             </div>
             {schoolDetail ? (
@@ -774,36 +775,36 @@ const AdminUsersList = () => {
                 <table className="table table-sm table-bordered">
                   <tbody>
                     <tr>
-                      <th style={{ width: 100 }}>学校编号</th>
+                      <th style={{ width: 100 }}>{tr("学校编号")}</th>
                       <td>{schoolDetail.code}</td>
                     </tr>
                     <tr>
-                      <th>学校名称</th>
+                      <th>{tr("学校名称")}</th>
                       <td>{schoolDetail.name}</td>
                     </tr>
                     <tr>
-                      <th>地址</th>
+                      <th>{tr("地址")}</th>
                       <td>{schoolDetail.address || "-"}</td>
                     </tr>
                   </tbody>
                 </table>
 
-                <h6 className="mt-3 mb-2">该校课程计划（{schoolPlans.length}）</h6>
+                <h6 className="mt-3 mb-2">{tr("该校课程计划（{schoolPlans.length}）", { "schoolPlans.length": schoolPlans.length })}</h6>
                 {schoolPlansLoading ? (
-                  <div className="pl-empty">加载中...</div>
+                  <div className="pl-empty">{tr("加载中...")}</div>
                 ) : schoolPlansMessage ? (
                   <div className="alert alert-danger py-2">{schoolPlansMessage}</div>
                 ) : schoolPlans.length === 0 ? (
-                  <div className="pl-empty">暂无课程计划。</div>
+                  <div className="pl-empty">{tr("暂无课程计划。")}</div>
                 ) : (
                   <div className="pl-modal-list">
                     {schoolPlans.map((p) => (
                       <Link key={p.id} to={`/plans/${p.id}`} className="pl-modal-row d-block">
-                        <div>{p.title || "未命名课程设计"}</div>
+                        <div>{p.title || tr("未命名课程设计")}</div>
                         <div className="text-muted small">
                           {p.Teacher ? p.Teacher.chineseName || p.Teacher.username : "-"}
                           {p.year ? ` · ${p.year}` : ""}
-                          {p.season ? ` ${p.season}` : ""}
+                          {p.season ? ` ${tr(p.season)}` : ""}
                         </div>
                       </Link>
                     ))}
@@ -811,7 +812,7 @@ const AdminUsersList = () => {
                 )}
               </>
             ) : (
-              <p className="text-muted">未找到编号为 {schoolDetailCode} 的学校。</p>
+              <p className="text-muted">{tr("未找到编号为 {schoolDetailCode} 的学校。", { schoolDetailCode })}</p>
             )}
           </div>
         </div>
@@ -822,18 +823,18 @@ const AdminUsersList = () => {
           <button className="pl-drawer-mask" type="button" onClick={closeEditor} aria-label="close editor" />
           <div className="pl-drawer-panel">
             <div className="pl-drawer-head">
-              <h5 className="mb-0">{editingId ? "编辑用户" : "新增用户"}</h5>
+              <h5 className="mb-0">{editingId ? tr("编辑用户") : tr("新增用户")}</h5>
               <button className="btn btn-link p-0" type="button" onClick={closeEditor}>
-                关闭
+                {tr("关闭")}
               </button>
             </div>
             <form onSubmit={onSubmit}>
               <div className="form-group">
-                <label>用户名</label>
+                <label>{tr("用户名")}</label>
                 <input className="form-control" name="username" value={form.username} onChange={onChange} required />
               </div>
               <div className="form-group">
-                <label>姓名</label>
+                <label>{tr("姓名")}</label>
                 <input
                   className="form-control"
                   name="chineseName"
@@ -843,7 +844,7 @@ const AdminUsersList = () => {
                 />
               </div>
               <div className="form-group">
-                <label>邮箱</label>
+                <label>{tr("邮箱")}</label>
                 <input
                   className="form-control"
                   type="email"
@@ -854,11 +855,11 @@ const AdminUsersList = () => {
                 />
               </div>
               <div className="form-group">
-                <label>电话</label>
+                <label>{tr("电话")}</label>
                 <input className="form-control" name="phone" value={form.phone} onChange={onChange} />
               </div>
               <div className="form-group">
-                <label>{editingId ? "新密码（留空则不修改）" : "密码"}</label>
+                <label>{editingId ? tr("新密码（留空则不修改）") : tr("密码")}</label>
                 <input
                   className="form-control"
                   type="password"
@@ -878,12 +879,12 @@ const AdminUsersList = () => {
                       checked={form.emailVerified}
                       onChange={(e) => setForm((prev) => ({ ...prev, emailVerified: e.target.checked }))}
                     />
-                    邮箱已验证
+                    {tr("邮箱已验证")}
                   </label>
                 </div>
               )}
               <div className="form-group">
-                <label>角色</label>
+                <label>{tr("角色")}</label>
                 <div className="auth-roles-grid">
                   {Object.entries(ROLE_LABELS).map(([name, label]) => {
                     const checked = form.roles.includes(name);
@@ -897,20 +898,20 @@ const AdminUsersList = () => {
                 </div>
                 {!editingId && (
                   <small className="form-text text-muted">
-                    管理员创建的账号无需邮箱验证，创建后即可直接登录。
+                    {tr("管理员创建的账号无需邮箱验证，创建后即可直接登录。")}
                   </small>
                 )}
               </div>
               {form.roles.includes("teacher") && (
                 <div className="form-group">
                   <label>
-                    所在学校<span className="required">*</span>
+                    {tr("所在学校")}<span className="required">*</span>
                   </label>
                   <Select
                     options={schoolOptions}
                     value={form.school}
                     onChange={(option) => setForm((prev) => ({ ...prev, school: option }))}
-                    placeholder="搜索并选择学校..."
+                    placeholder={tr("搜索并选择学校...")}
                     formatOptionLabel={formatSchoolOptionLabel}
                     filterOption={schoolFilterOption}
                   />
@@ -918,10 +919,10 @@ const AdminUsersList = () => {
               )}
               <div className="d-flex">
                 <button className="btn btn-primary mr-2" type="submit">
-                  {editingId ? "保存" : "创建"}
+                  {editingId ? tr("保存") : tr("创建")}
                 </button>
                 <button className="btn btn-secondary" type="button" onClick={closeEditor}>
-                  取消
+                  {tr("取消")}
                 </button>
               </div>
             </form>

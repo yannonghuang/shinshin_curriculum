@@ -9,6 +9,7 @@ import PlansHierarchy from "./plans-hierarchy.component";
 import TrashButton, { announceTrashChanged } from "./trash-button.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_DELETE_CONFIRM, currentSeason } from "../constants/plan-options";
 import "../curriculum.css";
+import { tr } from "../i18n";
 
 // See showListControls.
 const SMALL_LIST_THRESHOLD = 5;
@@ -149,7 +150,7 @@ const PlansList = (props) => {
       if (!keyword && !searchYear && !searchTheme && !searchGrade) setUnfilteredTotal(resp.data.totalItems || 0);
     } catch (e) {
       console.log(e);
-      setMessage("加载课程设计数据失败。");
+      setMessage(tr("加载课程设计数据失败。"));
     }
   }, [
     page,
@@ -190,14 +191,14 @@ const PlansList = (props) => {
     setMessage("");
     try {
       const resp = await PlanDataService.create({
-        title: "未命名课程设计",
+        title: tr("未命名课程设计"),
         year: new Date().getFullYear(),
         season: currentSeason(),
         planMode: "online",
       });
       props.history.push(`/plans/${resp.data.id}`);
     } catch (err) {
-      setMessage(err?.response?.data?.message || "创建失败。");
+      setMessage(err?.response?.data?.message || tr("创建失败。"));
     }
   };
 
@@ -218,7 +219,7 @@ const PlansList = (props) => {
       ]);
       const fileName =
         (activeResp.data && activeResp.data.sourceFileName) ||
-        `${templateKey === "plan_design" ? "乡土课程设计方案模版" : "课时实施记录模版"}.docx`;
+        `${templateKey === "plan_design" ? tr("乡土课程设计方案模版") : tr("课时实施记录模版")}.docx`;
       const url = window.URL.createObjectURL(
         new Blob([blankResp.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
       );
@@ -231,7 +232,7 @@ const PlansList = (props) => {
       window.URL.revokeObjectURL(url);
     } catch (e) {
       console.log(e);
-      setMessage("模板下载失败。");
+      setMessage(tr("模板下载失败。"));
     }
   };
 
@@ -240,24 +241,24 @@ const PlansList = (props) => {
   // popup-blocked async open -- then fills it in once the doc's converted.
   // Same pattern as plan-detail.component.js's DesignDocPanel#handlePreview.
   const previewTemplateFile = async (templateKey) => {
-    const label = templateKey === "plan_design" ? "乡土课程设计方案模版" : "乡土课程实施记录模版";
+    const label = templateKey === "plan_design" ? tr("乡土课程设计方案模版") : tr("乡土课程实施记录模版");
     const win = window.open("", "_blank");
-    if (win) win.document.write(`<title>预览：${label}</title><body>预览加载中...</body>`);
+    if (win) win.document.write(`<title>${tr("预览：")}${label}</title><body>${tr("预览加载中...")}</body>`);
     try {
       const blankResp = await TemplateDataService.downloadBlank(templateKey);
       const result = await mammoth.convertToHtml({ arrayBuffer: blankResp.data });
       if (win) {
         win.document.open();
         win.document.write(
-          `<!doctype html><html><head><meta charset="utf-8"><title>预览：${label}</title>` +
+          `<!doctype html><html><head><meta charset="utf-8"><title>${tr("预览：")}${label}</title>` +
             `<style>body{max-width:800px;margin:24px auto;padding:0 16px;font-family:sans-serif;line-height:1.6;}</style>` +
-            `</head><body>${result.value || "<p>文档内容为空。</p>"}</body></html>`
+            `</head><body>${result.value || tr("<p>文档内容为空。</p>")}</body></html>`
         );
         win.document.close();
       }
     } catch (e) {
       console.log(e);
-      setMessage("模板预览失败。");
+      setMessage(tr("模板预览失败。"));
       if (win) win.close();
     }
   };
@@ -274,10 +275,10 @@ const PlansList = (props) => {
     setMessage("");
     try {
       const resp = await PlanDataService.migrateMine();
-      setMessage(resp.data && resp.data.message ? resp.data.message : "迁移完成。");
+      setMessage(resp.data && resp.data.message ? resp.data.message : tr("迁移完成。"));
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "迁移失败。");
+      setMessage(err?.response?.data?.message || tr("迁移失败。"));
     }
   };
 
@@ -286,11 +287,11 @@ const PlansList = (props) => {
     if (!ok) return;
     try {
       await PlanDataService.delete(item.id, true);
-      setMessage("课程设计已移入回收站。");
+      setMessage(tr("课程设计已移入回收站。"));
       announceTrashChanged();
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "删除失败。");
+      setMessage(err?.response?.data?.message || tr("删除失败。"));
     }
   };
 
@@ -299,13 +300,13 @@ const PlansList = (props) => {
       await PlanDataService.update(item.id, { isExcellentCase: !item.isExcellentCase });
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
   const toggleSuspend = async (item) => {
     if (!item.suspended) {
-      const ok = window.confirm(`确定停用「${item.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。`);
+      const ok = window.confirm(tr("确定停用「{item.title}」吗？停用后该课程设计将从公开列表中隐藏，仅本人与管理员可见。", { "item.title": item.title }));
       if (!ok) return;
     }
     try {
@@ -316,7 +317,7 @@ const PlansList = (props) => {
       }
       retrieveAll();
     } catch (err) {
-      setMessage(err?.response?.data?.message || "操作失败。");
+      setMessage(err?.response?.data?.message || tr("操作失败。"));
     }
   };
 
@@ -326,16 +327,16 @@ const PlansList = (props) => {
   };
 
   const heading = excellentOnly
-    ? "课程案例库"
+    ? tr("课程案例库")
     : reviewedByMe
-    ? "我的点评"
+    ? tr("我的点评")
     : templateVersionIdFilter
-    ? "相关课程计划"
+    ? tr("相关课程计划")
     : effectiveMineOnly
-    ? "我的乡土课程"
+    ? tr("我的乡土课程")
     : statusFilter === "submitted"
-    ? "待点评案例"
-    : "全部乡土课程";
+    ? tr("待点评案例")
+    : tr("全部乡土课程");
 
   // Every staff hierarchy view (admin/teacher's 全部乡土课程, the expert's
   // 待点评案例 queue) offers the review-status filter toggles and reports a
@@ -349,11 +350,11 @@ const PlansList = (props) => {
       {stylishPublic ? (
         <div className="pl-hero">
           <h4 className="pl-title">{heading}</h4>
-          <p className="pl-subtitle">按乡土主题与年级筛选浏览乡土课程设计。</p>
+          <p className="pl-subtitle">{tr("按乡土主题与年级筛选浏览乡土课程设计。")}</p>
           <div className="pl-kpis">
-            <span className="pl-kpi">总数：{totalItems}</span>
+            <span className="pl-kpi">{tr("总数：{totalItems}", { totalItems })}</span>
             <span className="pl-kpi">
-              当前页：{page}/{totalPages || 1}
+              {tr("当前页：{page}/", { page })}{totalPages || 1}
             </span>
           </div>
         </div>
@@ -363,8 +364,8 @@ const PlansList = (props) => {
           {/* totalItems tracks this component's own paginated fetch, which
               isManagerOrExpertView skips entirely (see retrieveAll) -- the
               hierarchy view's own tree conveys scale instead. */}
-          {!isManagerOrExpertView && `（总数：${totalItems}）`}
-          {showHierarchyCount && `（总数：${hierarchyFilteredCount}）`}
+          {!isManagerOrExpertView && tr("（总数：{totalItems}）", { totalItems })}
+          {showHierarchyCount && tr("（总数：{hierarchyFilteredCount}）", { hierarchyFilteredCount })}
           {/* A teacher reaches the 回收站 from 我的乡土课程's toolbar below;
               an admin (who can delete anyone's plan) from here. */}
           {isManagerOrExpertView && !excellentOnly && AuthService.isAdmin() && (
@@ -388,13 +389,13 @@ const PlansList = (props) => {
         <div className="input-group">
           <input
             className="form-control"
-            placeholder="按标题搜索"
+            placeholder={tr("按标题搜索")}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
           <div className="input-group-append">
             <button className="btn btn-outline-secondary" type="button" onClick={onSearch}>
-              搜索
+              {tr("搜索")}
             </button>
           </div>
         </div>
@@ -403,30 +404,30 @@ const PlansList = (props) => {
       <div className={stylishPublic ? "pl-card" : "mb-3"}>
         <div className="form-row">
           <div className="form-group col-md-4">
-            <label>年份筛选</label>
+            <label>{tr("年份筛选")}</label>
             <input
               className="form-control"
               type="number"
               min="1900"
               max="2100"
-              placeholder="例如 2026"
+              placeholder={tr("例如 2026")}
               value={searchYear}
               onChange={(e) => setSearchYear(e.target.value)}
             />
           </div>
           <div className="form-group col-md-4">
-            <label>年级筛选</label>
+            <label>{tr("年级筛选")}</label>
             <select className="form-control" value={searchGrade} onChange={(e) => setSearchGrade(e.target.value)}>
-              <option value="">全部年级</option>
+              <option value="">{tr("全部年级")}</option>
               {PLAN_GRADES.map((g) => (
                 <option key={g} value={g}>
-                  {g}
+                  {tr(g)}
                 </option>
               ))}
             </select>
           </div>
           <div className="form-group col-md-4">
-            <label>主题筛选</label>
+            <label>{tr("主题筛选")}</label>
             <select
               className="form-control"
               value={searchTheme}
@@ -435,10 +436,10 @@ const PlansList = (props) => {
                 setPage(1);
               }}
             >
-              <option value="">全部主题</option>
+              <option value="">{tr("全部主题")}</option>
               {themeOptions.map((theme) => (
                 <option key={theme} value={theme}>
-                  {theme}
+                  {tr(theme)}
                 </option>
               ))}
             </select>
@@ -455,35 +456,35 @@ const PlansList = (props) => {
               className="btn btn-warning mr-3 pl-flash-migrate"
               type="button"
               onClick={handleMigrate}
-              title={`有 ${plansNeedingMigration.length} 个乡土课程设计使用旧版模板，点击迁移到最新模板`}
+              title={tr("有 {plansNeedingMigration.length} 个乡土课程设计使用旧版模板，点击迁移到最新模板", { "plansNeedingMigration.length": plansNeedingMigration.length })}
             >
-              迁移课程计划（{plansNeedingMigration.length}）
+              {tr("迁移课程计划（{plansNeedingMigration.length}）", { "plansNeedingMigration.length": plansNeedingMigration.length })}
             </button>
           )}
           <button className="btn btn-primary mr-3" type="button" onClick={createEmptyPlan}>
-            新增乡土课程
+            {tr("新增乡土课程")}
           </button>
           <TrashButton className="mr-3" />
           <span className="mr-3">
-            乡土课程设计方案模版：
+            {tr("乡土课程设计方案模版：")}
             <button className="btn btn-link p-0 ml-1 mr-2" type="button" onClick={() => downloadTemplateFile("plan_design")}>
-              下载
+              {tr("下载")}
             </button>
             <button className="btn btn-link p-0" type="button" onClick={() => previewTemplateFile("plan_design")}>
-              预览
+              {tr("预览")}
             </button>
           </span>
           <span>
-            乡土课程实施记录模版：
+            {tr("乡土课程实施记录模版：")}
             <button
               className="btn btn-link p-0 ml-1 mr-2"
               type="button"
               onClick={() => downloadTemplateFile("lesson_execution")}
             >
-              下载
+              {tr("下载")}
             </button>
             <button className="btn btn-link p-0" type="button" onClick={() => previewTemplateFile("lesson_execution")}>
-              预览
+              {tr("预览")}
             </button>
           </span>
         </div>
@@ -492,7 +493,7 @@ const PlansList = (props) => {
       {message && <div className="alert alert-info py-2">{message}</div>}
 
       {plans.length === 0 ? (
-        <div className="pl-empty">暂无数据</div>
+        <div className="pl-empty">{tr("暂无数据")}</div>
       ) : (
         <div className="pl-plan-grid">
           {plans.map((item) => (
@@ -515,7 +516,7 @@ const PlansList = (props) => {
       {showListControls && !effectiveMineOnly && (
         <>
           <div className="mt-2 d-flex align-items-center">
-            <label className="mr-2 mb-0">每页条数</label>
+            <label className="mr-2 mb-0">{tr("每页条数")}</label>
             <select
               className="form-control form-control-sm"
               style={{ width: "100px" }}
