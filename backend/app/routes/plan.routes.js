@@ -20,10 +20,9 @@ module.exports = function (app) {
   app.get("/api/plans/trash", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.findTrash);
   app.put("/api/plans/:id/restore", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.restore);
   app.delete("/api/plans/:id/permanent", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.purge);
-  // attachUserIfPresent: stays reachable without login (excellent-case plans
-  // are public), but resolves req.userId so findOne can allow the owner/
-  // admin/expert through for a non-excellent plan -- see findOne's visibility
-  // check.
+  // attachUserIfPresent: stays reachable without login (submitted, non-
+  // suspended plans are public), but resolves req.userId so findOne can let
+  // the owner/admin through for a draft -- see findOne's visibility check.
   app.get("/api/plans/:id", [authJwt.attachUserIfPresent], plans.findOne);
   // Scoped to req.userId (the caller's own plans) -- teacher-only, same
   // gate as POST /api/plans, since "my plans" isn't a concept that applies

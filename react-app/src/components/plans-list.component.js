@@ -140,7 +140,7 @@ const PlansList = (props) => {
         grade: searchGrade || undefined,
         mine: effectiveMineOnly ? true : undefined,
         status: statusFilter || undefined,
-        isExcellentCase: excellentOnly ? true : undefined,
+        published: excellentOnly ? true : undefined,
         templateVersionId: templateVersionIdFilter || undefined,
         reviewedByMe: reviewedByMe ? true : undefined,
       });

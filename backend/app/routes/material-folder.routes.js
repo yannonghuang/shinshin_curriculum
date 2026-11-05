@@ -8,7 +8,7 @@ module.exports = function (app) {
   });
 
   app.post("/api/material-topics/:topicId/folders", [authJwt.verifyToken, authJwt.isAdmin], folders.create);
-  app.get("/api/material-topics/:topicId/folders", [authJwt.verifyToken], folders.findByTopic);
+  app.get("/api/material-topics/:topicId/folders", folders.findByTopic);
   app.put("/api/material-folders/:id", [authJwt.verifyToken, authJwt.isAdmin], folders.update);
   app.delete("/api/material-folders/:id", [authJwt.verifyToken, authJwt.isAdmin], folders.delete);
 };

@@ -102,16 +102,18 @@ const isTeacherRequester = async (userId, t) => {
 };
 
 // Shared by findOne/renderDoc/renderExecutionDoc -- the single-plan
-// equivalent of findAll's restrictToExcellent/restrictToSubmitted, so a
+// equivalent of findAll's restrictToSubmitted/hideSuspended, so a
 // direct link to a plan a caller couldn't see in the list can't be used to
 // route around that same restriction. Caller already handles the
 // isExcellentCase case before reaching this (that's public to everyone
 // regardless of status, matching the list). Owner and admin always pass;
 // expert/teacher pass only once the plan is no longer a draft -- a
-// still-in-progress draft is the owner's alone to show.
+// still-in-progress draft is the owner's alone to show. A logged-out
+// visitor (the public 课程案例库) sees submitted/reviewed plans that aren't
+// suspended, same as findAll's anonymous list.
 const canViewNonExcellentPlan = async (plan, userId) => {
   if (userId && plan.teacherId === userId) return true;
-  if (!userId) return false;
+  if (!userId) return plan.status !== "draft" && !plan.suspended;
   const [admin, expert, teacher] = await Promise.all([isAdminRequester(userId), isExpertRequester(userId), isTeacherRequester(userId)]);
   if (admin) return true;
   return (expert || teacher) && plan.status !== "draft";
@@ -280,6 +282,7 @@ exports.findAll = async (req, res) => {
       schoolCode,
       reviewedByMe,
       seedTeacher,
+      published,
     } = req.query;
     const { limit, offset } = getPagination(page, size);
 
@@ -346,26 +349,20 @@ exports.findAll = async (req, res) => {
     // this same reason. hideSuspended below is unaffected: a teacher still
     // shouldn't see another teacher's suspended plan, same as an expert.
     const requesterIsTeacher = req.userId ? await isTeacherRequester(req.userId) : false;
-    const hideSuspended = !requesterIsAdmin && !viewingMine;
-
-    // Only 优秀案例 (excellent-case) plans are ever visible outside their own
-    // owner -- a plan isn't promoted to public just by existing. Admin/expert/
-    // teacher get full visibility (management/review/peer-browsing all need
-    // it); ?mine=true is the owner viewing their own, excellent or not. This
-    // applies regardless of any other filter (keyword/teacherId/etc.) so a
-    // non-owner teacher can't route around it by, say, querying a specific
-    // teacherId directly -- it's the role check above that grants the wider
-    // access, not the filter shape.
-    const restrictToExcellent = !viewingMine && !requesterIsAdmin && !requesterIsExpert && !requesterIsTeacher;
+    // ?published=true backs the 课程案例库 gallery: submitted/reviewed,
+    // non-suspended plans only, for every audience -- admin included, who'd
+    // otherwise also get drafts and suspended plans there.
+    const publishedOnly = published === "true" || published === true;
+    const hideSuspended = publishedOnly || (!requesterIsAdmin && !viewingMine);
 
     // Draft plans are still a work in progress -- only the owner (?mine=true)
-    // or admin should ever browse one outside excellent-case promotion.
-    // Expert/teacher's cross-school browsing (restrictToExcellent above) is
-    // restricted to non-draft (submitted or reviewed) plans only, enforced
-    // regardless of the `status` query param so a request for status=draft
-    // can't route around it -- same "role check grants access, not the
-    // filter shape" reasoning as restrictToExcellent.
-    const restrictToSubmitted = !viewingMine && !requesterIsAdmin && (requesterIsExpert || requesterIsTeacher);
+    // or admin should ever browse one. Everyone else -- expert, teacher, and
+    // a logged-out visitor on the public 课程案例库 -- browses non-draft
+    // (submitted or reviewed) plans only, enforced regardless of the
+    // `status` query param (or keyword/teacherId/etc.) so a request for
+    // status=draft can't route around it: it's the role check that grants
+    // the wider access, not the filter shape.
+    const restrictToSubmitted = publishedOnly || (!viewingMine && !requesterIsAdmin);
 
     // 种子教师 filter (?seedTeacher=true): only plans whose owning teacher is
     // flagged. Honored for expert/admin only -- for anyone else it's silently
@@ -408,9 +405,7 @@ exports.findAll = async (req, res) => {
             }
           : null,
         restrictToSubmitted ? { status: { [Op.ne]: "draft" } } : status ? { status: { [Op.eq]: `${status}` } } : null,
-        restrictToExcellent
-          ? { isExcellentCase: true }
-          : isExcellentCase !== undefined
+        isExcellentCase !== undefined
           ? { isExcellentCase: { [Op.eq]: isExcellentCase === "true" || isExcellentCase === "1" } }
           : null,
       ],
@@ -542,10 +537,9 @@ exports.findOne = async (req, res) => {
       return res.status(404).send({ message: `未找到乡土课程设计 id=${req.params.id}。` });
     }
 
-    // Same visibility rule as findAll: only 优秀案例 plans are public. A
-    // direct link to someone else's ordinary plan is a 403, not an open
-    // door -- being excellent is what promotes a plan to public, not just
-    // existing. Requires authJwt.attachUserIfPresent on the route so
+    // Same visibility rule as findAll: a direct link to a plan the caller
+    // couldn't see in the list (someone else's draft, or a suspended plan
+    // for a logged-out visitor) is a 403, not an open door. Requires authJwt.attachUserIfPresent on the route so
     // req.userId is resolved for a logged-in caller while still allowing an
     // anonymous request through (the public gallery has no login).
     if (!data.isExcellentCase && !(await canViewNonExcellentPlan(data, req.userId))) {
