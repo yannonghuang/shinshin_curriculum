@@ -543,6 +543,13 @@
   background: var(--pl-accent-soft);
 }
 
+/* A selectable folder row (e.g. teacher-share's 话题, which opens its own
+   share-card view) -- same highlight as a selected leaf. */
+.pl-explorer-folder.is-active {
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+}
+
 .pl-explorer-chevron {
   width: 12px;
   font-size: 11px;
