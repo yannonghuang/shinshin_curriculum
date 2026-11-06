@@ -354,6 +354,10 @@ module.exports = {
   "分享 ID 无效。": "Invalid share ID.",
   "只有分享的作者或管理员可以修改此分享。": "Only the share's author or an admin can edit it.",
 
+  // project management
+  "目标文件夹不存在。": "The target folder doesn't exist.",
+  "部分文件夹不存在。": "Some folders don't exist.",
+
   // teacher manual / templates
   "生成教师手册时发生错误。": "An error occurred while generating the teacher manual.",
   "教师手册已生成并发布到学习资源库「使用指南 / 教师手册」。": "Teacher manual generated and published to the Resource Library under \"User guides / Teacher manual\".",
