@@ -133,9 +133,11 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   // 种子教师: expert/admin may narrow to seed teachers' plans -- applied
   // server-side (?seedTeacher=true), since only an admin's response carries
   // each teacher's isSeed to filter on client-side. Admins additionally see
-  // the badge in the tree and set/clear the flag (canEditSeed).
+  // the badge (canViewSeed); only a super admin may set/revoke it
+  // (canEditSeed, matching the isSuper gate on PUT /api/auth/users/:id/seed).
   const showSeedToggle = showReviewFilters && (AuthService.isAdmin() || AuthService.isExpert());
-  const canEditSeed = showReviewFilters && AuthService.isAdmin();
+  const canViewSeed = showReviewFilters && AuthService.isAdmin();
+  const canEditSeed = showReviewFilters && AuthService.isSuper();
   const [filterSeed, setFilterSeed] = useState(() => initialParams.get("seed") === "1");
   // Teacher-name/school-name (partial match) and theme (exact match)
   // filters, applied client-side alongside the review-status toggles above --
@@ -576,7 +578,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
                                 onClick={() => selectTeacher(g.key, s.schoolKey, t.teacherId)}
                               >
                                 {t.teacherName}
-                                {canEditSeed && t.isSeed && <span className="pl-tag-seed ml-1">{tr("种子")}</span>}
+                                {canViewSeed && t.isSeed && <span className="pl-tag-seed ml-1">{tr("种子")}</span>}
                               </button>
                             ))}
                           </div>
@@ -609,17 +611,15 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
               {tr("{selectedTeacher.teacherName} 的", { "selectedTeacher.teacherName": selectedTeacher.teacherName })}{tr("乡土课程")} {tr("-- {selectedGroup.year}年 ", { "selectedGroup.year": selectedGroup.year })}
               {selectedGroup.season ? tr(selectedGroup.season) : tr("未设置学期")}
               {tr("（共 {selectedTeacher.plans.length} 项）", { "selectedTeacher.plans.length": selectedTeacher.plans.length })}
+              {canViewSeed && selectedTeacher.isSeed && (
+                <span className="pl-tag-seed ml-2">
+                  <i className="fas fa-seedling mr-1"></i>{tr("种子教师")}
+                </span>
+              )}
               {canEditSeed && (
-                <>
-                  {selectedTeacher.isSeed && (
-                    <span className="pl-tag-seed ml-2">
-                      <i className="fas fa-seedling mr-1"></i>{tr("种子教师")}
-                    </span>
-                  )}
-                  <button type="button" className="btn btn-link btn-sm p-0 ml-2" onClick={() => toggleSeed(selectedTeacher)}>
-                    {selectedTeacher.isSeed ? tr("取消种子教师") : tr("设为种子教师")}
-                  </button>
-                </>
+                <button type="button" className="btn btn-link btn-sm p-0 ml-2" onClick={() => toggleSeed(selectedTeacher)}>
+                  {selectedTeacher.isSeed ? tr("取消种子教师") : tr("设为种子教师")}
+                </button>
               )}
             </h6>
             <div className="pl-plan-grid mt-3">

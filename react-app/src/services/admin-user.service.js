@@ -41,8 +41,7 @@ class AdminUserDataService {
     return http.put(`/auth/users/${id}/unsuspend`, {}, { headers: authHeader() });
   }
 
-  // 种子教师 on/off -- unlike the rest of this service, admin as well as super
-  // (authJwt.isAdmin); teacher accounts only.
+  // 种子教师 on/off -- super only (authJwt.isSuper); teacher accounts only.
   setSeed(id, seed) {
     return http.put(`/auth/users/${id}/seed`, { seed }, { headers: authHeader() });
   }

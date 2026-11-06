@@ -495,9 +495,9 @@ exports.unsuspend = async (req, res) => {
   }
 };
 
-// 种子教师 on/off (PUT /api/auth/users/:id/seed {seed: bool}, authJwt.isAdmin-
-// gated -- admin and super alike, unlike the rest of user management). The
-// flag only means something on a teacher, so any other account is refused.
+// 种子教师 on/off (PUT /api/auth/users/:id/seed {seed: bool}, authJwt.isSuper-
+// gated -- plain admin sees the flag but can't change it). The flag only
+// means something on a teacher, so any other account is refused.
 exports.setSeed = async (req, res) => {
   const id = req.params.id;
   try {
