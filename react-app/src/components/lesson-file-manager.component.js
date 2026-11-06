@@ -164,6 +164,32 @@ const walkEntry = async (entry, parentFolderId, planId, lessonIndex, folderCache
   }
 };
 
+// Image thumbnail for a file space whose download route requires auth (an
+// <img src> can't send the x-access-token header): fetches the bytes
+// through artifactService.download and shows them from a blob: URL.
+const AuthedImageThumb = ({ artifact, artifactService, fallbackClassName, fallbackColor }) => {
+  const [src, setSrc] = useState(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let blobUrl = null;
+    let cancelled = false;
+    artifactService
+      .download(artifact.id)
+      .then((resp) => {
+        if (cancelled) return;
+        blobUrl = window.URL.createObjectURL(new Blob([resp.data], { type: artifact.attachmentMime || "image/*" }));
+        setSrc(blobUrl);
+      })
+      .catch(() => !cancelled && setFailed(true));
+    return () => {
+      cancelled = true;
+      if (blobUrl) window.URL.revokeObjectURL(blobUrl);
+    };
+  }, [artifact.id, artifact.attachmentMime, artifactService]);
+  if (failed || !src) return <i className={`${fallbackClassName} pl-fm-icon-glyph`} style={{ color: fallbackColor }}></i>;
+  return <img className="pl-fm-thumb" src={src} alt={artifact.attachmentName} />;
+};
+
 // canDownload gates selection/preview/download only -- upload, move, folder
 // creation, and delete stay canEdit-only (owner-only). Defaults to canEdit so
 // any other caller that doesn't pass it explicitly keeps the old behavior.
@@ -174,6 +200,10 @@ const walkEntry = async (entry, parentFolderId, planId, lessonIndex, folderCache
 // `lessonIndex`, and the material-*-service.js pair instead of the defaults
 // (see material-folder.service.js/material-artifact.service.js, which mirror
 // FolderDataService/ArtifactDataService's method shapes 1:1).
+//
+// downloadRequiresAuth: the space's download route is NOT public (项目管理,
+// see project.routes.js), so image thumbnails are fetched with the auth
+// header (AuthedImageThumb) and videos show the plain file glyph.
 const LessonFileManager = ({
   planId,
   lessonIndex,
@@ -183,6 +213,7 @@ const LessonFileManager = ({
   artifactService = ArtifactDataService,
   docCategoryLabel = "实施记录文件",
   downloadUrlBase = "/api/artifacts",
+  downloadRequiresAuth = false,
   // Called after an upload or delete changes this space's files -- the Plan
   // caller uses it to refresh 实施完成度, which counts 支撑材料 per 课时.
   onFilesChange,
@@ -629,6 +660,19 @@ const LessonFileManager = ({
   // videos (loaded straight from the public download URL) instead of a
   // generic file-type glyph -- everything else still gets the glyph.
   const renderIconGlyphOrThumb = (artifact) => {
+    if (downloadRequiresAuth) {
+      if (artifact.category === "图片") {
+        return (
+          <AuthedImageThumb
+            artifact={artifact}
+            artifactService={artifactService}
+            fallbackClassName={iconClassForArtifact(artifact)}
+            fallbackColor={iconColorForArtifact(artifact)}
+          />
+        );
+      }
+      return <i className={`${iconClassForArtifact(artifact)} pl-fm-icon-glyph`} style={{ color: iconColorForArtifact(artifact) }}></i>;
+    }
     if (artifact.category === "图片") {
       return <img className="pl-fm-thumb" src={artifactUrl(artifact.id)} alt={artifact.attachmentName} loading="lazy" />;
     }

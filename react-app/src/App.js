@@ -19,6 +19,7 @@ import PlanDetail from "./components/plan-detail.component";
 import PlansTrash from "./components/plans-trash.component";
 import MaterialsLibrary from "./components/materials-library.component";
 import TeacherShare from "./components/teacher-share.component";
+import ProjectManagement from "./components/project-management.component";
 import CopilotPanel from "./components/copilot-panel.component";
 import AdminUsersList from "./components/admin-users-list.component";
 import TemplateAdmin from "./components/template-admin.component";
@@ -155,6 +156,13 @@ class App extends Component {
                     </Link>
                   </li>
                 )}
+                {AuthService.isAdmin() && (
+                  <li className="nav-item">
+                    <Link to="/projects" className="nav-link">
+                      {tr("项目管理")}
+                    </Link>
+                  </li>
+                )}
                 {(AuthService.isExpert() || AuthService.isAdmin()) && (
                   <li className="nav-item dropdown">
                     <a
@@ -254,6 +262,7 @@ class App extends Component {
             <Route exact path="/gallery" render={(routeProps) => <PlansList {...routeProps} excellentOnly />} />
             <Route exact path="/materials" component={MaterialsLibrary} />
             <Route exact path="/shares" component={TeacherShare} />
+            <Route exact path="/projects" component={ProjectManagement} />
             <Route exact path="/admin/users" component={AdminUsersList} />
             <Route exact path="/admin/templates" component={TemplateAdmin} />
             <Route exact path="/ai-review/standard" component={AiReviewStandard} />

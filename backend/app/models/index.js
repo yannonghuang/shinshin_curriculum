@@ -71,6 +71,11 @@ db.aiPlanScore = require("./ai-plan-score.model.js")(sequelize, Sequelize);
   db.shareFolder = shareModels.ShareFolder;
   db.shareArtifact = shareModels.ShareArtifact;
 }
+{
+  const projectModels = require("./project.model.js")(sequelize, Sequelize);
+  db.projectFolder = projectModels.ProjectFolder;
+  db.projectArtifact = projectModels.ProjectArtifact;
+}
 
 // users <-> roles (many-to-many via user_roles)
 // Explicitly pre-defined (rather than through: "user_roles" as a bare string)
@@ -390,6 +395,13 @@ db.share.hasMany(db.shareArtifact, { foreignKey: "shareId", as: "Artifacts", onD
 db.shareArtifact.belongsTo(db.share, { foreignKey: "shareId", onDelete: "CASCADE" });
 db.shareFolder.hasMany(db.shareArtifact, { foreignKey: "folderId", as: "Artifacts", onDelete: "SET NULL" });
 db.shareArtifact.belongsTo(db.shareFolder, { foreignKey: "folderId", onDelete: "SET NULL" });
+
+// 项目管理: one app-wide folder tree and its files, same shape as share's
+// pair above minus the owner.
+db.projectFolder.hasMany(db.projectFolder, { foreignKey: "parentFolderId", as: "Children", onDelete: "CASCADE" });
+db.projectFolder.belongsTo(db.projectFolder, { foreignKey: "parentFolderId", as: "Parent" });
+db.projectFolder.hasMany(db.projectArtifact, { foreignKey: "folderId", as: "Artifacts", onDelete: "SET NULL" });
+db.projectArtifact.belongsTo(db.projectFolder, { foreignKey: "folderId", onDelete: "SET NULL" });
 
 // Roles are exactly admin/teacher/expert/super — this app has no
 // volunteer/moderator/donor domain (see plan's "left behind" list). A real
