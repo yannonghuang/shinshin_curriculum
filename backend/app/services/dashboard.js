@@ -27,7 +27,10 @@ const timeOf = (d) => (d ? new Date(d).getTime() : null);
 // submittedOnly: leave out drafts and suspended plans -- for an expert
 // viewer, who doesn't see those anywhere else either (see
 // plan.controller.js#findAll's restrictToSubmitted/canViewNonExcellentPlan).
-async function buildRows({ submittedOnly = false } = {}) {
+// seedOnly: only plans whose owning teacher is a 种子教师 (users.is_seed) --
+// applied here rather than client-side so an expert can narrow by the flag
+// without the rows exposing it per teacher (same rule as plan.controller.js).
+async function buildRows({ submittedOnly = false, seedOnly = false } = {}) {
   const plans = await Plan.findAll({
     attributes: { exclude: ["segmentVersionAt"] },
     where: submittedOnly ? { status: { [Op.ne]: "draft" }, suspended: false } : undefined,
@@ -36,6 +39,8 @@ async function buildRows({ submittedOnly = false } = {}) {
         model: db.user,
         as: "Teacher",
         attributes: ["id", "username", "chineseName"],
+        // A `where` makes this an inner join -- exactly the narrowing wanted.
+        where: seedOnly ? { isSeed: true } : undefined,
         include: [{ model: db.school, as: "School", attributes: ["code", "name"], required: false }],
       },
     ],

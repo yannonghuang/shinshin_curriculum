@@ -9,11 +9,15 @@ const submittedOnlyFor = async (userId) => {
   return !roles.some((r) => r.name === "admin" || r.name === "super");
 };
 
-// GET /api/dashboard -- every plan's dashboard row plus the Excel export's
-// selectable fields.
+// GET /api/dashboard[?seedTeacher=1] -- every plan's dashboard row plus the
+// Excel export's selectable fields; seedTeacher narrows to 种子教师' plans.
 exports.list = async (req, res) => {
   try {
-    const rows = await dashboard.buildRows({ submittedOnly: await submittedOnlyFor(req.userId) });
+    const { seedTeacher } = req.query;
+    const rows = await dashboard.buildRows({
+      submittedOnly: await submittedOnlyFor(req.userId),
+      seedOnly: seedTeacher === "1" || seedTeacher === "true",
+    });
     return res.send({ rows, exportFields: dashboard.exportFieldOptions() });
   } catch (err) {
     return res.status(500).send({ message: err.message || "加载数据看板时发生错误。" });
