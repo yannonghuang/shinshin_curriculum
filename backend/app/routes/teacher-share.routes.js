@@ -33,6 +33,8 @@ module.exports = function (app) {
   app.get("/api/shares/:id", [authJwt.verifyToken], shares.findOne);
   // 修改教师分享（仅作者或管理员）。body: title, summary, relatedPlanId, shareTopicId, authorId（仅管理员）。
   app.put("/api/shares/:id", [authJwt.verifyToken], shares.update);
+  // 标记或取消「优秀」分享（专家或管理员）。body: excellent（布尔）。
+  app.put("/api/shares/:id/excellent", [authJwt.verifyToken, authJwt.isExpertOrAdmin], shares.setExcellent);
   // 删除教师分享及其全部文件（仅作者或管理员）。需 confirmDelete=true。
   app.delete("/api/shares/:id", [authJwt.verifyToken], shares.delete);
 

@@ -222,5 +222,9 @@ const en = {
   "项目管理": "Projects",
   "管理员的文档云盘：用文件夹自由组织、存放和下载文件。": "Admins' document drive: organize, store and download files freely with folders.",
   "仅管理员可以访问项目管理。": "Only admins can access Projects.",
+  "只看优秀分享": "Excellent shares only",
+  "标为优秀": "Mark as excellent",
+  "取消优秀": "Unmark excellent",
+  "更新优秀标记失败。": "Failed to update the excellent mark.",
 };
 export default en;

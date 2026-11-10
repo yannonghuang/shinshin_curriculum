@@ -31,7 +31,16 @@ const resolveRelatedPlanId = async (value) => {
   return { value: id };
 };
 
-const withCanEdit = async (req, share) => ({ ...share.toJSON(), canEdit: await canEditShare(req, share) });
+// 优秀 is for experts/admins only: anyone else's responses leave isExcellent
+// out entirely, so a teacher can't tell which shares are flagged.
+const shareAttributes = async (req) =>
+  (await authJwt.hasExpertOrAdminRole(req)) ? undefined : { exclude: ["isExcellent"] };
+
+const withCanEdit = async (req, share) => {
+  const json = share.toJSON();
+  if (!(await authJwt.hasExpertOrAdminRole(req))) delete json.isExcellent;
+  return { ...json, canEdit: await canEditShare(req, share) };
+};
 
 const TEACHER_ROLE_INCLUDE = { model: db.role, where: { name: "teacher" }, attributes: [], through: { attributes: [] } };
 
@@ -69,12 +78,18 @@ exports.findTeachers = async (req, res) => {
 };
 
 // GET /api/shares?topicId=&authorId= -- every logged-in user. Newest first.
+// isExcellent is included for experts/admins only (shareAttributes).
 exports.findAll = async (req, res) => {
   try {
     const where = {};
     if (req.query.topicId) where.shareTopicId = Number(req.query.topicId);
     if (req.query.authorId) where.authorId = Number(req.query.authorId);
-    const shares = await Share.findAll({ where, include: SHARE_INCLUDE, order: [["id", "DESC"]] });
+    const shares = await Share.findAll({
+      where,
+      attributes: await shareAttributes(req),
+      include: SHARE_INCLUDE,
+      order: [["id", "DESC"]],
+    });
     return res.send(shares);
   } catch (err) {
     return res.status(500).send({ message: err.message || "查询教师分享时发生错误。" });
@@ -154,6 +169,20 @@ exports.update = async (req, res) => {
     return res.send({ message: "分享已更新。" });
   } catch (err) {
     return res.status(500).send({ message: err.message || "更新教师分享时发生错误。" });
+  }
+};
+
+// PUT /api/shares/:id/excellent { excellent: bool } -- expert or admin
+// (authJwt.isExpertOrAdmin on the route); not the author's to set.
+exports.setExcellent = async (req, res) => {
+  try {
+    const share = await Share.findByPk(req.params.id);
+    if (!share) return res.status(404).send({ message: "分享不存在。" });
+    const isExcellent = req.body.excellent === true || req.body.excellent === "true";
+    await share.update({ isExcellent });
+    return res.send({ isExcellent, message: isExcellent ? "已标为优秀分享。" : "已取消优秀标记。" });
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "更新优秀标记时发生错误。" });
   }
 };
 

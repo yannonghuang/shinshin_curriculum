@@ -19,6 +19,8 @@ export const ShareDataService = {
   create: (data) => http.post("/shares", data, { headers: authHeader() }),
   update: (id, data) => http.put(`/shares/${id}`, data, { headers: authHeader() }),
   delete: (id) => http.delete(`/shares/${id}?confirmDelete=true`, { headers: authHeader() }),
+  // 优秀 on/off -- expert or admin only.
+  setExcellent: (id, excellent) => http.put(`/shares/${id}/excellent`, { excellent }, { headers: authHeader() }),
 };
 
 // The folderService/artifactService pair lesson-file-manager.component.js
