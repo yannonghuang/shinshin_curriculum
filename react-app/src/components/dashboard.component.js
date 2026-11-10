@@ -111,6 +111,10 @@ const Dashboard = () => {
   const [filterSubmitted, setFilterSubmitted] = useState(() => initialParams.get("submitted") || "");
   const [filterAiReviewed, setFilterAiReviewed] = useState(() => initialParams.get("aiReviewed") === "1");
   const [filterExpertReviewed, setFilterExpertReviewed] = useState(() => initialParams.get("expertReviewed") === "1");
+  // 种子教师 -- applied server-side (GET /api/dashboard?seedTeacher=1), since
+  // the rows don't carry each teacher's isSeed (an expert may filter by it but
+  // isn't shown it per teacher; see plan.controller.js#findAll).
+  const [filterSeed, setFilterSeed] = useState(() => initialParams.get("seed") === "1");
   const [generalMin, setGeneralMin] = useState(() => initialParams.get("generalMin") || "");
   const [generalMax, setGeneralMax] = useState(() => initialParams.get("generalMax") || "");
   const [lessonMin, setLessonMin] = useState(() => initialParams.get("lessonMin") || "");
@@ -137,15 +141,21 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
-    if (!allowed) return;
-    DashboardDataService.getAll()
+    if (!allowed) return undefined;
+    let cancelled = false;
+    setLoaded(false);
+    DashboardDataService.getAll(filterSeed)
       .then((res) => {
+        if (cancelled) return;
         setRows(res.data.rows || []);
         setExportFields(res.data.exportFields || []);
       })
-      .catch((e) => setMessage(errorText(e)))
-      .then(() => setLoaded(true));
-  }, [allowed]);
+      .catch((e) => !cancelled && setMessage(errorText(e)))
+      .then(() => !cancelled && setLoaded(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed, filterSeed]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search || "");
@@ -157,6 +167,7 @@ const Dashboard = () => {
     setOrDelete("submitted", filterSubmitted);
     setOrDelete("aiReviewed", filterAiReviewed ? "1" : "");
     setOrDelete("expertReviewed", filterExpertReviewed ? "1" : "");
+    setOrDelete("seed", filterSeed ? "1" : "");
     setOrDelete("generalMin", generalMin);
     setOrDelete("generalMax", generalMax);
     setOrDelete("lessonMin", lessonMin);
@@ -183,6 +194,7 @@ const Dashboard = () => {
     filterSubmitted,
     filterAiReviewed,
     filterExpertReviewed,
+    filterSeed,
     generalMin,
     generalMax,
     lessonMin,
@@ -313,6 +325,7 @@ const Dashboard = () => {
     setFilterSubmitted("");
     setFilterAiReviewed(false);
     setFilterExpertReviewed(false);
+    setFilterSeed(false);
     setGeneralMin("");
     setGeneralMax("");
     setLessonMin("");
@@ -556,6 +569,14 @@ const Dashboard = () => {
           onClick={() => setFilterExpertReviewed((prev) => !prev)}
         >
           {tr("专家已点评")}
+        </button>
+        <button
+          type="button"
+          className={`pl-filter-toggle pl-filter-toggle-seed ${filterSeed ? "is-active" : ""}`}
+          onClick={() => setFilterSeed((prev) => !prev)}
+          title={tr("只看种子教师的课程")}
+        >
+          <i className="fas fa-seedling mr-1"></i>{tr("种子教师")}
         </button>
       </div>
 
