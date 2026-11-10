@@ -226,6 +226,17 @@ hasAdminRole = async (req) => {
   }
 };
 
+// Expert, admin or super -- e.g. who may see and set a 教师分享's 优秀 flag.
+hasExpertOrAdminRole = async (req) => {
+  if (!req.userId) return false;
+  try {
+    return await hasAnyRole(req, ["expert", "admin", "super"]);
+  } catch (e) {
+    console.log(e);
+    return false;
+  }
+};
+
 const authJwt = {
   verifyToken: verifyToken,
   attachUserIfPresent: attachUserIfPresent,
@@ -237,5 +248,6 @@ const authJwt = {
   isExpertOrAdmin: isExpertOrAdmin,
   isSelfOrSuper: isSelfOrSuper,
   hasAdminRole: hasAdminRole,
+  hasExpertOrAdminRole: hasExpertOrAdminRole,
 };
 module.exports = authJwt;

@@ -482,6 +482,26 @@
   border-color: #f6d8a8;
 }
 
+/* 教师分享 优秀 -- the badge experts/admins see on a flagged share (cards,
+   explorer tree, share view) and the matching filter toggle. */
+.pl-tag-excellent {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  background: #fdecef;
+  color: #b4234a;
+  border: 1px solid #f5c2cf;
+  white-space: nowrap;
+}
+
+.pl-filter-toggle-excellent.is-active {
+  background: #fdecef;
+  color: #b4234a;
+  border-color: #f5c2cf;
+}
 
 /* plan-detail.component.js's file-explorer layout: a collapsible/hide-able left
    nav tree (.pl-explorer-nav, entirely removed from the DOM when hidden -- see

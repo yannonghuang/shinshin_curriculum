@@ -22,6 +22,9 @@ module.exports = (sequelize, Sequelize) => {
       relatedPlanId: { type: Sequelize.BIGINT },
       title: { type: Sequelize.STRING(255), allowNull: false },
       summary: { type: Sequelize.TEXT }, // 简介
+      // 优秀 -- expert/admin-set; only ever sent to experts/admins
+      // (share.controller.js). See 20261110000000-share-is-excellent.js.
+      isExcellent: { type: Sequelize.BOOLEAN, allowNull: false, defaultValue: false },
     },
     { tableName: "shares", freezeTableName: true }
   );

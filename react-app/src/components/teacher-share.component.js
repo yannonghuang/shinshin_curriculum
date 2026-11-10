@@ -27,7 +27,8 @@ import { tr, LOCALE } from "../i18n";
 // Who does what (enforced server-side too): every logged-in user reads;
 // admins define 话题, which lock (no edit/delete) once a share exists under
 // them; teachers and admins share; a share's author or an admin edits or
-// deletes it.
+// deletes it. Experts and admins additionally see, set and filter by a
+// share's 优秀 flag (isExcellent -- left out of everyone else's responses).
 //
 // Search works like 全部乡土课程's (plans-hierarchy.component.js): every
 // share is fetched once and filtered client-side by 话题 / 教师姓名 / 学校,
@@ -64,6 +65,13 @@ const authorName = (share) => (share.Author ? share.Author.chineseName || share.
 const UNASSIGNED_SCHOOL_NAME = tr("未分配学校");
 const schoolNameOf = (share) => (share.Author && share.Author.School ? share.Author.School.name : UNASSIGNED_SCHOOL_NAME);
 
+const ExcellentTag = () => (
+  <span className="pl-tag-excellent ml-1">
+    <i className="fas fa-award mr-1"></i>
+    {tr("优秀")}
+  </span>
+);
+
 const formatSchoolOptionLabel = (option) => (
   <div>
     <div>{option.label}</div>
@@ -75,6 +83,8 @@ const TeacherShare = () => {
   const isLogin = !!AuthService.isLogin();
   const isAdmin = AuthService.isAdmin();
   const canShare = isAdmin || AuthService.isTeacher();
+  // 优秀: experts/admins see, set and filter by it (PUT /api/shares/:id/excellent).
+  const canFlagExcellent = isAdmin || AuthService.isExpert();
   // An admin uploads a share on a teacher's behalf (picking the author); a
   // teacher shares their own.
   const shareActionLabel = isAdmin ? tr("上传分享") : tr("我要分享");
@@ -89,6 +99,8 @@ const TeacherShare = () => {
   const [filterTopicId, setFilterTopicId] = useState(() => initialParams.get("topicFilter") || "");
   const [filterTeacherName, setFilterTeacherName] = useState(() => initialParams.get("teacherName") || "");
   const [filterSchoolName, setFilterSchoolName] = useState(() => initialParams.get("schoolName") || "");
+  const [filterExcellent, setFilterExcellent] = useState(() => canFlagExcellent && initialParams.get("excellent") === "1");
+  const [isFlagging, setIsFlagging] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [navCollapsed, setNavCollapsed] = useState(false);
@@ -151,7 +163,7 @@ const TeacherShare = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filtersActive = !!(filterTopicId || filterTeacherName.trim() || filterSchoolName);
+  const filtersActive = !!(filterTopicId || filterTeacherName.trim() || filterSchoolName || filterExcellent);
 
   const filteredShares = useMemo(() => {
     if (!allShares) return [];
@@ -161,9 +173,10 @@ const TeacherShare = () => {
       (s) =>
         (!filterTopicId || String(s.shareTopicId) === filterTopicId) &&
         (!teacherQuery || authorName(s).toLowerCase().includes(teacherQuery)) &&
-        (!schoolQuery || schoolNameOf(s).toLowerCase().includes(schoolQuery))
+        (!schoolQuery || schoolNameOf(s).toLowerCase().includes(schoolQuery)) &&
+        (!filterExcellent || s.isExcellent)
     );
-  }, [allShares, filterTopicId, filterTeacherName, filterSchoolName]);
+  }, [allShares, filterTopicId, filterTeacherName, filterSchoolName, filterExcellent]);
 
   const sharesByTopic = useMemo(() => {
     const byTopic = {};
@@ -216,6 +229,7 @@ const TeacherShare = () => {
     setOrDelete("topicFilter", filterTopicId);
     setOrDelete("teacherName", filterTeacherName);
     setOrDelete("schoolName", filterSchoolName);
+    setOrDelete("excellent", filterExcellent ? "1" : "");
     setOrDelete("topic", selected.view === "share" ? "" : selected.topicId ? String(selected.topicId) : "");
     setOrDelete("share", selected.view === "share" && selected.shareId ? String(selected.shareId) : "");
     const nextSearch = params.toString();
@@ -223,12 +237,31 @@ const TeacherShare = () => {
       history.replace({ pathname: current.pathname, search: nextSearch, state: current.state });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, filterTopicId, filterTeacherName, filterSchoolName, selected]);
+  }, [isLoading, filterTopicId, filterTeacherName, filterSchoolName, filterExcellent, selected]);
 
   const clearFilters = () => {
     setFilterTopicId("");
     setFilterTeacherName("");
     setFilterSchoolName("");
+    setFilterExcellent(false);
+  };
+
+  // 优秀 on/off for the open share -- patched into both the open share and
+  // the cached list, so the cards/tree/filter follow without a refetch.
+  const toggleExcellent = async () => {
+    if (!share || isFlagging) return;
+    const next = !share.isExcellent;
+    setIsFlagging(true);
+    setMessage("");
+    try {
+      await ShareDataService.setExcellent(share.id, next);
+      setShare((prev) => (prev && prev.id === share.id ? { ...prev, isExcellent: next } : prev));
+      setAllShares((prev) => (prev ? prev.map((s) => (s.id === share.id ? { ...s, isExcellent: next } : s)) : prev));
+    } catch (e) {
+      setMessage(e?.response?.data?.message || tr("更新优秀标记失败。"));
+    } finally {
+      setIsFlagging(false);
+    }
   };
 
   const retrieveShare = useCallback(async (shareId) => {
@@ -589,7 +622,10 @@ const TeacherShare = () => {
           <div className="pl-plan-grid">
             {shares.map((s) => (
               <div className="pl-plan-card" key={s.id}>
-                <h6 className="pl-plan-card-title">{s.title}</h6>
+                <h6 className="pl-plan-card-title">
+                  {s.title}
+                  {s.isExcellent && <ExcellentTag />}
+                </h6>
                 {s.summary && (
                   <p className="text-muted mb-0" style={{ fontSize: "0.9em", whiteSpace: "pre-wrap" }}>
                     {s.summary.length > 80 ? `${s.summary.slice(0, 80)}…` : s.summary}
@@ -640,7 +676,10 @@ const TeacherShare = () => {
                   {share.Topic ? share.Topic.title : "-"}
                 </button>
               </div>
-              <h5 className="mb-2">{share.title}</h5>
+              <h5 className="mb-2">
+                {share.title}
+                {share.isExcellent && <ExcellentTag />}
+              </h5>
               <div className="pl-plan-card-meta mb-2">
                 <span>
                   <i className="fas fa-user"></i> {authorLabel(share)}
@@ -656,14 +695,31 @@ const TeacherShare = () => {
                 )}
               </div>
               {share.summary && <p style={{ whiteSpace: "pre-wrap" }}>{share.summary}</p>}
-              {share.canEdit && (
-                <div className="d-flex justify-content-between">
-                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={startEditShare}>
-                    {tr("编辑")}
-                  </button>
-                  <button type="button" className="btn btn-sm btn-outline-danger" onClick={deleteShare}>
-                    {tr("删除本分享")}
-                  </button>
+              {(share.canEdit || canFlagExcellent) && (
+                <div className="d-flex justify-content-between align-items-center">
+                  <div>
+                    {share.canEdit && (
+                      <button type="button" className="btn btn-sm btn-outline-secondary mr-2" onClick={startEditShare}>
+                        {tr("编辑")}
+                      </button>
+                    )}
+                    {canFlagExcellent && (
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${share.isExcellent ? "btn-outline-secondary" : "btn-outline-danger"}`}
+                        disabled={isFlagging}
+                        onClick={toggleExcellent}
+                      >
+                        <i className="fas fa-award mr-1"></i>
+                        {share.isExcellent ? tr("取消优秀") : tr("标为优秀")}
+                      </button>
+                    )}
+                  </div>
+                  {share.canEdit && (
+                    <button type="button" className="btn btn-sm btn-outline-danger" onClick={deleteShare}>
+                      {tr("删除本分享")}
+                    </button>
+                  )}
                 </div>
               )}
             </>
@@ -779,6 +835,19 @@ const TeacherShare = () => {
           />
         </div>
       </div>
+      {canFlagExcellent && (
+        <div className="pl-filter-bar mb-3">
+          <button
+            type="button"
+            className={`pl-filter-toggle pl-filter-toggle-excellent ${filterExcellent ? "is-active" : ""}`}
+            onClick={() => setFilterExcellent((prev) => !prev)}
+            title={tr("只看优秀分享")}
+          >
+            <i className="fas fa-award mr-1"></i>
+            {tr("优秀")}
+          </button>
+        </div>
+      )}
       {filtersActive && (
         <div className="mb-3 text-muted" style={{ fontSize: "0.9em" }}>
           {tr("找到 {filteredShares.length} 条分享", { "filteredShares.length": filteredShares.length })}
@@ -901,6 +970,7 @@ const TeacherShare = () => {
                           title={`${s.title} -- ${authorLabel(s)}`}
                         >
                           {s.title}
+                          {s.isExcellent && <ExcellentTag />}
                           <span className="text-muted ml-1">· {s.Author ? s.Author.chineseName || s.Author.username : ""}</span>
                         </button>
                       ))}
