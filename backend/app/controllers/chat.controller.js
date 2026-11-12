@@ -62,6 +62,11 @@ const COPILOT_SYSTEM_PROMPT =
   "来源要如实：资源库或联网检索中没有、来自你自身一般知识的内容，须标明「一般教育常识（非资源库）」，绝不能说成是某份课程设计或资源库的出处；" +
   "引用资料时只引用确实支持该论点的原文，不要为先前的结论寻找牵强的依据。" +
   "用户质疑时，先重新检索核实，再如实说明哪里对、哪里错，并给出有依据的正确答案，不要为了与先前回答保持一致而辩护，也不要不经核实就全盘认错。" +
+  // A re-asked question in a thread that held a wrong answer got that
+  // answer's narrative back nearly verbatim, framed around the new
+  // definitions (conversation #455) -- history is not a source.
+  "本对话中你先前的回答不是资料来源，可能有误：不要沿用其中的说法或结构；与本轮提供的框架定义、检索到的资料不一致时，以后者为准，并明确指出先前的哪一说法不准确。" +
+  "解读他人写的内容时，「设计意图」只能依据课程中写明的内容推断，并标明是推断（如「从……看，作者可能希望……」），不要替作者编造意图，也不要把不符合框架的安排描述成有意的设计。" +
   "用中文简明清晰地回复。";
 
 // Appended after COPILOT_SYSTEM_PROMPT -- 欣欣小助手 can also *do* things on

@@ -32,7 +32,7 @@ const focusOn = (fieldKey, labelPath) => normalizeFocus({ kind: "planSection", f
 
 test("社会情感目标 focus carries the SEL / CASEL definition first", () => {
   const text = describeFocus(plan, focusOn("f2", ["WHY ·学习目标", "社会情感目标"]));
-  for (const term of ["SEL", "自我意识", "自我管理", "社会意识", "关系技能", "负责任的决策", "不等于 SEL"]) {
+  for (const term of ["SEL", "自我意识", "自我管理", "社会意识", "关系技能", "负责任的决策", "只写 SEL 目标", "应写入「其他目标」"]) {
     assert.ok(text.includes(term), `missing ${term}`);
   }
   assert.ok(text.indexOf("社会情感目标：即社会情感学习") < text.indexOf("认知思维目标："), "focused category listed first");
