@@ -1,3 +1,4 @@
+const { GOAL_CATEGORY_NAMES, GOAL_CATEGORIES: GOAL_CATEGORY_DEFS } = require("./curriculumGlossary");
 const llmClient = require("./llmClient");
 
 // 欣欣小助手's plan-drafting sub-agent, behind the draft_plan tool
@@ -134,8 +135,11 @@ function standardBrief(standard) {
 
 // Goal categories the outline tags its goals with -- the template's own WHY
 // fields (认知思维目标 / 实践技能目标 / ...); the goals writer files each goal
-// under the matching field.
-const GOAL_CATEGORIES = ["认知思维", "实践技能", "社会情感", "跨学科融合", "其它"];
+// under the matching field. Shared with 欣欣小助手's focus block
+// (curriculumGlossary.js), definitions included, so 社会情感 means SEL in
+// both and drafted goals don't drift to 情感态度与价值观.
+const GOAL_CATEGORIES = GOAL_CATEGORY_NAMES;
+const GOAL_DEFINITIONS = GOAL_CATEGORY_DEFS.map((c) => `- ${c.category}：${c.definition}`).join("\n");
 
 // The outline's goals, with lesson assignments made complete in code -- not
 // left to the model: every goal must be delivered by some lesson (an
@@ -262,7 +266,8 @@ async function draftPlan(args, deps) {
   const outline = await askJson(
     `${brief}\n\n可选乡土主题：${(template.themeOptions || []).join("、")}\n\n参考资料：\n${research || "（无）"}\n\n` +
       `请为这门课拟定大纲，按 PBL 流程（入项 → 探究 → 制作与迭代 → 出项）把 ${lessonCount} 个课时依次分配好。` +
-      `同时确定 6-10 条总体学习目标（类别为：${GOAL_CATEGORIES.join("、")}），每条一句话、具体可落实，并为每条目标指定落实它的课时（goalIds）：` +
+      `同时确定 6-10 条总体学习目标（类别为：${GOAL_CATEGORIES.join("、")}），每条一句话、具体可落实，并为每条目标指定落实它的课时（goalIds）。` +
+      `各类别的含义（来自学习资源库培训材料，必须遵守；社会情感目标要写真正的 SEL 目标，至少一条）：\n${GOAL_DEFINITIONS}\n` +
       "每条目标至少由一个课时落实，每个课时至少落实一条目标；只写这些课时确实能做到的目标——跨学科目标要对应课时里具体的学科活动（如某课时用称重计算配比），不要写课时里没有安排的内容。" +
       (criteria ? "目标的表述（包括需要标注的维度等）要满足评价标准中对目标设计的要求。" : "") +
       "严格只输出 JSON：" +
