@@ -185,15 +185,19 @@ const en = {
   "将版本 #{shown.id} 导出为 Word 文档": "Export version #{shown.id} as a Word document",
   "导出中…": "Exporting…",
   "导出 Word": " Export Word",
-  "基于此版本修订": "Revise from this version",
-  "修订标准": "Revise rubric",
+  "基于此版本人工修订": "Revise this version manually",
+  "人工修订": "Revise manually",
+  "由人工在此版本基础上修改，保存前会对照学习资源库核查，保存为新版本":
+    "Edit this version by hand; it is checked against the learning library before being saved as a new version",
   "当前生效的标准包含人工修订，重新生成将由 AI 从学习资源库重新制定，不会保留这些修订。确定继续吗？":
     "The active rubric includes manual revisions. Regenerating has AI rebuild it from the Resource Library and those revisions will not be kept. Continue?",
   "将基于学习资源库的当前内容重新生成评分标准，之后的 AI 点评将采用新标准。确定继续吗？":
     "The rubric will be regenerated from the current Resource Library, and future AI reviews will use the new rubric. Continue?",
   "生成中…": "Generating…",
-  "重新生成": "Regenerate",
-  "生成标准": "Generate rubric",
+  "AI 重新生成": "Regenerate with AI",
+  "由 AI 根据学习资源库从头制定一份新标准，不保留任何人工修订":
+    "AI drafts a new rubric from scratch from the learning library; manual revisions are not kept",
+  "AI 生成标准": "Generate rubric with AI",
   "正在分析、综合学习资源库中的材料以生成评分标准，通常需要一到两分钟…":
     " Analyzing and synthesizing the Resource Library materials to generate the rubric. This usually takes a minute or two…",
   "版本 #{v.id}": "Version #{v.id}",
