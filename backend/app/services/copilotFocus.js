@@ -11,7 +11,9 @@
 // columns, not template fields), a WHY/WHAT/HOW-equivalent section, one 课时
 // of 分课时设计, or one 课时's 实施记录. With a fieldKey the focus is one
 // field inside it; without, the whole part (or a subsection, per labelPath).
-const FOCUS_KINDS = ["planBasic", "planSection", "planLesson", "executionRecord"];
+const { goalCategoryOf, describeGoalFramework } = require("./curriculumGlossary");
+
+const FOCUS_KINDS =["planBasic", "planSection", "planLesson", "executionRecord"];
 const MAX_LABEL_PARTS = 6;
 const MAX_LABEL_CHARS = 80;
 const MAX_KEY_CHARS = 64;
@@ -136,6 +138,17 @@ const describeBasicContext = (plan, themeOptions) => {
   return lines.join("\n");
 };
 
+// The framework block for a focus on the plan's 学习目标 -- a goal field
+// (by its template label or the last label in the path), or a section /
+// subsection whose label path mentions 学习目标. Null elsewhere.
+const goalFrameworkFor = (focus, field) => {
+  if (focus.kind !== "planSection") return null;
+  const category = goalCategoryOf(field && field.label) || goalCategoryOf(focus.labelPath[focus.labelPath.length - 1]);
+  if (category) return describeGoalFramework(category);
+  if (focus.labelPath.some((p) => p.includes("学习目标"))) return describeGoalFramework(null);
+  return null;
+};
+
 // The block appended to the system prompt for the turn being answered.
 // `plan` must be loaded with PlanTemplateVersion/ExecutionTemplateVersion,
 // and for a planBasic focus also Teacher->School; `themeOptions` is the
@@ -149,6 +162,11 @@ const describeFocus = (plan, focus, { themeOptions } = {}) => {
   if (focus.kind === "planBasic") lines.push(describeBasicContext(plan, themeOptions));
 
   const { field, saved } = resolveField(plan, focus);
+  // A 学习目标 field or the section holding them: put the framework's own
+  // definitions next to the content (template hints are often empty), so a
+  // reading measures the goals against them instead of restating them.
+  const goalFramework = goalFrameworkFor(focus, field);
+  if (goalFramework) lines.push(goalFramework);
   const hint = field && field.hint ? String(field.hint).trim() : "";
   const draft = typeof focus.draftText === "string" ? focus.draftText : undefined;
   const savedText = saved != null ? String(saved) : "";
@@ -188,7 +206,7 @@ const describeRelationship = (plan, userId, roles) => {
   if (has("expert") || has("admin") || has("super")) {
     const who = has("expert") ? "专家" : "管理员";
     return (
-      `\n用户身份：${who}，正在查看他人的课程设计（只读）。回答以客观解读为主：说明内容与设计意图，用户明确要求时再给出评价或建议；` +
+      `\n用户身份：${who}，正在查看他人的课程设计（只读）。回答以客观解读为主：说明内容与设计意图，并对照学习资源库中的框架定义与评价标准，客观指出符合与偏离之处（这是定位，不是打分）；用户明确要求时再给出评价或建议；` +
       "不要提议或尝试修改该课程设计。"
     );
   }
