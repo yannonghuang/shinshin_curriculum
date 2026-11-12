@@ -620,13 +620,19 @@ const AiReviewStandard = () => {
               </button>
             )}
             {shown && (
-              <button className="btn btn-outline-primary btn-sm mr-2" disabled={generating} onClick={startEditing}>
-                {viewed ? tr("基于此版本修订") : tr("修订标准")}
+              <button
+                className="btn btn-outline-primary btn-sm mr-2"
+                disabled={generating}
+                title={tr("由人工在此版本基础上修改，保存前会对照学习资源库核查，保存为新版本")}
+                onClick={startEditing}
+              >
+                {viewed ? tr("基于此版本人工修订") : tr("人工修订")}
               </button>
             )}
             <button
               className="btn btn-outline-primary btn-sm"
               disabled={generating}
+              title={tr("由 AI 根据学习资源库从头制定一份新标准，不保留任何人工修订")}
               onClick={() => {
                 const warning =
                   active && active.source === "human"
@@ -635,7 +641,7 @@ const AiReviewStandard = () => {
                 if (!active || window.confirm(warning)) startGeneration();
               }}
             >
-              {generating ? tr("生成中…") : active ? tr("重新生成") : tr("生成标准")}
+              {generating ? tr("生成中…") : active ? tr("AI 重新生成") : tr("AI 生成标准")}
             </button>
           </div>
         )}
