@@ -197,8 +197,8 @@ const en = {
   "摘要与内容条目": "summary and content entries",
   "；点击条目可查看对应的": "; click an entry to see the ",
   "原文": "source text",
-  "（注明页码）。AI 点评、AI 点评标准与欣欣小助手按这些摘要与条目找到相关资料，并对每段原文做语义匹配，再引用其原文。":
-    " (with page numbers). AI review, the AI review rubric and Xinxin Assistant use these summaries and entries to find relevant materials, semantically match each passage, and quote the source.",
+  "（注明页码）。AI 点评、AI 点评标准与欣欣小助手对每段原文做语义匹配后引用原文；AI 点评标准还会完整引用所有标为「评价标准」的条目。":
+    " (with page numbers). AI review, the AI review rubric and Xinxin Assistant semantically match each passage and quote the source; the AI review rubric also quotes every entry tagged \"Evaluation standard\" in full.",
   "正在重建此主题的资料索引…": " Rebuilding this topic's materials index…",
   "此主题下暂无已索引的资料。": "No indexed materials in this topic yet.",
   "{s.charCount} 字": " {s.charCount} chars ",

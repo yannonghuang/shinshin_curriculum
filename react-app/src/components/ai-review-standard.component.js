@@ -72,8 +72,10 @@ const RetrievalSources = ({ retrieval }) => {
   if (!retrieval) return null;
   const where = (x) => `《${x.title}》${x.locator ? `（${x.locator}）` : ""}`;
   const semantic = retrieval.semantic || [];
+  // Only versions generated before retrieval dropped LLM routing have these.
+  const summarized = retrieval.summarized || [];
   const count =
-    retrieval.anchors.length + retrieval.verbatim.length + semantic.length + retrieval.summarized.length + retrieval.background.length;
+    retrieval.anchors.length + retrieval.verbatim.length + semantic.length + summarized.length + retrieval.background.length;
   return (
     <details className="mb-3">
       <summary className="small text-muted">
@@ -122,11 +124,11 @@ const RetrievalSources = ({ retrieval }) => {
             </ul>
           </div>
         )}
-        {retrieval.summarized.length > 0 && (
+        {summarized.length > 0 && (
           <div className="mb-2">
             <b>{tr("摘要引用")}</b>
             <ul className="mb-0">
-              {retrieval.summarized.map((v, i) => (
+              {summarized.map((v, i) => (
                 <li key={i}>
                   {tr("《")}{v.title}{tr("》")}<span className="text-muted"> · {v.topic}</span>
                 </li>

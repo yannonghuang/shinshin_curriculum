@@ -71,12 +71,12 @@ async function searchKnowledgeBase(query, { materialTopicId, limit = 5 } = {}) {
 }
 
 // The search_knowledge_base tool's executor for AI 点评 and 欣欣小助手:
-// knowledge-tree retrieval (knowledgeTree.js#buildContext -- the model's
-// query routed over topic/source summaries, relevant material returned
-// verbatim within `budget`, the rest as summaries), topped up with the
-// best FULLTEXT chunk hits the tree didn't already include -- routing works
-// on meaning and can miss an exact term (a place name, a lecturer, a
-// specific phrase) that plain keyword search catches.
+// knowledge-tree retrieval (knowledgeTree.js#buildContext -- the pages
+// closest in meaning to the model's query, verbatim within `budget`, plus
+// one-line background for the other topics), topped up with the best
+// FULLTEXT chunk hits it didn't already include -- embeddings match on
+// meaning and can miss an exact term (a place name, a lecturer, a specific
+// phrase) that plain keyword search catches.
 //
 // Returns { context, sources } -- `sources` ({ title, topic, locator }) is
 // what copilot-panel.component.js's 参考资料 footer lists.
@@ -89,13 +89,12 @@ async function searchKnowledgeTree(
   const { text, provenance, usedChunkIds } = await knowledgeTree.buildContext({
     subject: query,
     excludeCategories,
-    includeTopicMeta,
     redact,
     budget,
   });
 
   const sources = provenance
-    ? [...provenance.anchors, ...provenance.verbatim, ...(provenance.semantic || []), ...provenance.summarized].map((x) => ({
+    ? [...provenance.anchors, ...provenance.verbatim, ...provenance.semantic].map((x) => ({
         title: x.title,
         topic: x.topic,
         locator: x.locator || null,

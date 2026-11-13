@@ -30,8 +30,10 @@ module.exports = function (app) {
   app.put("/api/material-topics/:id/skill", [authJwt.verifyToken, authJwt.isAdmin], topics.updateSkill);
   app.get("/api/material-topics/:id/skill/generating", topics.getSkillGenerating);
   app.post("/api/material-topics/:id/skill/regenerate", [authJwt.verifyToken, authJwt.isAdmin], topics.forceRegenerateSkill);
-  app.get("/api/material-topics/:id/knowledge-tree", topics.getKnowledgeTree);
-  app.get("/api/material-topics/:id/knowledge-tree/chunks", topics.getKnowledgeChunks);
+  // 资料索引 is the exception to the public reads above: an admin diagnostic
+  // view (unredacted file names included), so admin-only like its rebuild.
+  app.get("/api/material-topics/:id/knowledge-tree", [authJwt.verifyToken, authJwt.isAdmin], topics.getKnowledgeTree);
+  app.get("/api/material-topics/:id/knowledge-tree/chunks", [authJwt.verifyToken, authJwt.isAdmin], topics.getKnowledgeChunks);
   app.post("/api/material-topics/:id/knowledge-tree/rebuild", [authJwt.verifyToken, authJwt.isAdmin], topics.rebuildKnowledgeTree);
 
   app.get("/api/material-topics/:topicId/links", links.findByTopic);
