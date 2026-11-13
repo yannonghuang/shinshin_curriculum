@@ -121,7 +121,9 @@ class App extends Component {
                     </Link>
                   </li>
                 )}
-                {(AuthService.isAdmin() || AuthService.isTeacher()) && (
+                {/* Logged-out visitors get it too, read-only (submitted,
+                    non-suspended plans), in place of 课程案例库. */}
+                {(AuthService.isAdmin() || AuthService.isTeacher() || !AuthService.isLogin()) && (
                   <li className="nav-item">
                     <Link to="/plans" className="nav-link">
                       {tr("全部乡土课程")}
@@ -198,11 +200,13 @@ class App extends Component {
                     </Link>
                   </li>
                 )}
-                <li className="nav-item">
-                  <Link to="/gallery" className="nav-link">
-                    {tr("课程案例库")}
-                  </Link>
-                </li>
+                {AuthService.isLogin() && (
+                  <li className="nav-item">
+                    <Link to="/gallery" className="nav-link">
+                      {tr("课程案例库")}
+                    </Link>
+                  </li>
+                )}
               </ul>
 
               <ul className="navbar-nav ml-auto">
