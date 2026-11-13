@@ -79,13 +79,23 @@ const Home = () => {
           </div>
         </div>
         <div className="col-md-4">
-          <div className="pl-card">
-            <h6>{tr("课程案例库")}</h6>
-            <p className="text-muted">{tr("无需登录即可浏览的优秀乡土课程案例展示墙。")}</p>
-            <Link className="btn btn-outline-primary btn-sm" to="/gallery">
-              {tr("查看优秀案例")}
-            </Link>
-          </div>
+          {AuthService.isLogin() ? (
+            <div className="pl-card">
+              <h6>{tr("课程案例库")}</h6>
+              <p className="text-muted">{tr("管理员评选的优秀乡土课程案例展示墙。")}</p>
+              <Link className="btn btn-outline-primary btn-sm" to="/gallery">
+                {tr("查看优秀案例")}
+              </Link>
+            </div>
+          ) : (
+            <div className="pl-card">
+              <h6>{tr("全部乡土课程")}</h6>
+              <p className="text-muted">{tr("无需登录即可浏览教师已提交的乡土课程设计（只读）。")}</p>
+              <Link className="btn btn-outline-primary btn-sm" to="/plans">
+                {tr("浏览乡土课程")}
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </div>

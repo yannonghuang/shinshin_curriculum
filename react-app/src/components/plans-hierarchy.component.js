@@ -155,6 +155,10 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   // snippet } for the cards' rank/excerpt and the nav's rank badges.
   const showSemanticSearch = !excellentOnly && !statusFilter && (AuthService.isAdmin() || AuthService.isExpert());
   const [semantic, setSemantic] = useState(null);
+  // Bumped by 清除筛选 to remount PlanSemanticSearch, which keeps its own
+  // query box state; after a reset it starts empty instead of re-running
+  // the query the page was first opened with (initialParams' sq).
+  const [semanticResetCount, setSemanticResetCount] = useState(0);
   const hits = useMemo(() => {
     if (!semantic) return null;
     return new Map(semantic.result.results.map((r, i) => [Number(r.planId), { rank: i + 1, label: r.label, snippet: r.snippet }]));
@@ -489,6 +493,29 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     }
   };
 
+  const filtersActive =
+    filterSubmitted ||
+    filterAiReviewed ||
+    filterExpertReviewed ||
+    filterSeed ||
+    !!filterTeacherName ||
+    !!filterSchoolName ||
+    !!filterTheme ||
+    !!semantic;
+  const clearFilters = () => {
+    setFilterSubmitted(false);
+    setFilterAiReviewed(false);
+    setFilterExpertReviewed(false);
+    setFilterSeed(false);
+    setFilterTeacherName("");
+    setFilterSchoolName("");
+    setFilterTheme("");
+    if (semantic) {
+      setSemantic(null);
+      setSemanticResetCount((n) => n + 1);
+    }
+  };
+
   const selectedGroup = selected ? groups.find((g) => g.key === selected.groupKey) : null;
   const selectedSchool = selectedGroup ? selectedGroup.schoolList.find((s) => s.schoolKey === selected.schoolKey) : null;
   const selectedTeacher = selectedSchool ? selectedSchool.teacherList.find((t) => String(t.teacherId) === selected.teacherId) : null;
@@ -501,7 +528,13 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
 
   return (
     <>
-      {showSemanticSearch && <PlanSemanticSearch initialQuery={initialParams.get("sq") || ""} onResult={setSemantic} />}
+      {showSemanticSearch && (
+        <PlanSemanticSearch
+          key={semanticResetCount}
+          initialQuery={semanticResetCount === 0 ? initialParams.get("sq") || "" : ""}
+          onResult={setSemantic}
+        />
+      )}
       {showReviewFilters && (
         <div className="mb-3">
           <div className="form-row">
@@ -574,6 +607,11 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
               title={tr("只看种子教师的课程")}
             >
               <i className="fas fa-seedling mr-1"></i>{tr("种子教师")}
+            </button>
+          )}
+          {filtersActive && (
+            <button type="button" className="btn btn-link btn-sm py-0" onClick={clearFilters}>
+              {tr("清除筛选")}
             </button>
           )}
         </div>

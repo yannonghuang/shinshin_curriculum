@@ -394,9 +394,9 @@ exports.findAll = async (req, res) => {
     // this same reason. hideSuspended below is unaffected: a teacher still
     // shouldn't see another teacher's suspended plan, same as an expert.
     const requesterIsTeacher = req.userId ? await isTeacherRequester(req.userId) : false;
-    // ?published=true backs the 课程案例库 gallery: submitted/reviewed,
-    // non-suspended plans only, for every audience -- admin included, who'd
-    // otherwise also get drafts and suspended plans there.
+    // ?published=true backs the 课程案例库 gallery: 优秀案例 that are
+    // submitted/reviewed and not suspended, for every audience -- admin
+    // included, who'd otherwise also get drafts and suspended plans there.
     const publishedOnly = published === "true" || published === true;
     const hideSuspended = publishedOnly || (!requesterIsAdmin && !viewingMine);
 
@@ -450,7 +450,10 @@ exports.findAll = async (req, res) => {
             }
           : null,
         restrictToSubmitted ? { status: { [Op.ne]: "draft" } } : status ? { status: { [Op.eq]: `${status}` } } : null,
-        isExcellentCase !== undefined
+        // 课程案例库 shows 优秀案例 only, whatever ?isExcellentCase says.
+        publishedOnly
+          ? { isExcellentCase: true }
+          : isExcellentCase !== undefined
           ? { isExcellentCase: { [Op.eq]: isExcellentCase === "true" || isExcellentCase === "1" } }
           : null,
       ],

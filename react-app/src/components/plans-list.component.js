@@ -94,18 +94,22 @@ const PlansList = (props) => {
   // (admin, expert, teacher, or a logged-out visitor), not just staff. Only
   // a teacher's own list (effectiveMineOnly, via ?mine=true) is unaffected,
   // since that's a small, non-hierarchical set by nature.
+  // A logged-out visitor's bare /plans (the nav's 全部乡土课程 for them) gets
+  // the same explorer, read-only: the server lists only submitted,
+  // non-suspended plans to them, and every card action is owner/admin-gated.
   const isManagerOrExpertView =
     !templateVersionIdFilter &&
     !reviewedByMe &&
-    (excellentOnly || ((AuthService.isAdmin() || AuthService.isExpert() || AuthService.isTeacher()) && !effectiveMineOnly));
+    (excellentOnly ||
+      ((AuthService.isAdmin() || AuthService.isExpert() || AuthService.isTeacher() || !AuthService.isLogin()) && !effectiveMineOnly));
   // stylishPublic (green pl-hero header, KPI cards, search/filter bar,
   // pagination) is the flat view's own chrome -- never shown alongside the
   // hierarchy view above, which has its own plain heading and conveys scale
   // via its own tree instead of totalItems/page counters that this
   // component's own paginated fetch (skipped entirely when
   // isManagerOrExpertView, see retrieveAll) would leave stuck at 0. Since
-  // excellentOnly now always implies isManagerOrExpertView, this is only
-  // ever true for a logged-out visitor on bare /plans.
+  // a logged-out visitor's bare /plans now gets the explorer too, this is
+  // only true for a logged-out visitor on a flat-view URL (e.g. ?mine=true).
   const stylishPublic = !isManagerOrExpertView && !AuthService.isLogin();
 
   // A teacher's 我的乡土课程 and an expert's 我的点评 -- each role's landing

@@ -174,7 +174,9 @@ const en = {
   "前往待点评案例": "Go to Awaiting Review",
   "浏览讲座材料、培训视频等，可按乡土主题与年级筛选。": "Browse lecture materials, training videos and more, filtered by theme and grade.",
   "浏览学习资源库": "Browse the Resource Library",
-  "无需登录即可浏览的优秀乡土课程案例展示墙。": "A showcase of exemplary courses, open to everyone without logging in.",
+  "管理员评选的优秀乡土课程案例展示墙。": "A showcase of exemplary courses selected by administrators.",
+  "无需登录即可浏览教师已提交的乡土课程设计（只读）。": "Browse teachers' submitted course designs without logging in (read-only).",
+  "浏览乡土课程": "Browse courses",
   "查看优秀案例": "See exemplary courses",
 
   // knowledge-index
