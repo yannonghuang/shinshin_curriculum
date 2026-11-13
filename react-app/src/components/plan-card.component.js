@@ -23,7 +23,11 @@ const STATUS_LABELS = { draft: tr("草稿"), submitted: tr("已提交"), reviewe
 // context of its own (template-admin.component.js's 相关课程计划 modal, and
 // plans-list.component.js's own flat grid when it's showing that same
 // cross-teacher ?templateVersionId list rather than ?mine=true).
-const PlanCard = ({ item, canEdit, canDelete, onDelete, onToggleExcellent, onToggleSuspend, showTeacher }) => (
+//
+// searchHit: { rank, label, snippet } while 全部乡土课程's 语义搜索 filter is
+// on (plans-hierarchy.component.js) -- the plan's rank and the field that
+// matched.
+const PlanCard = ({ item, canEdit, canDelete, onDelete, onToggleExcellent, onToggleSuspend, showTeacher, searchHit }) => (
   <div className="pl-plan-card">
     {item.isExcellentCase && <span className="pl-plan-card-excellent">{tr("优秀案例")}</span>}
     {item.suspended && <span className="pl-plan-card-suspended">{tr("已停用")}</span>}
@@ -51,6 +55,14 @@ const PlanCard = ({ item, canEdit, canDelete, onDelete, onToggleExcellent, onTog
       {item.needsMigration && <span className="pl-plan-card-migrate-flag pl-flash-migrate">{tr("待迁移")}</span>}
       {item.needsManualMigrationReview && <span className="pl-plan-card-manual-flag pl-flash-manual">{tr("待手动整理")}</span>}
     </div>
+
+    {searchHit && (
+      <div className="pl-plan-card-hit">
+        <span className="pl-semantic-rank mr-1">{searchHit.rank}</span>
+        <span className="pl-semantic-field">{searchHit.label}</span>
+        {searchHit.snippet}
+      </div>
+    )}
 
     <div className="pl-plan-card-meta">
       <span>
