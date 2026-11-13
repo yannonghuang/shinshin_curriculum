@@ -29,12 +29,13 @@ module.exports = (sequelize, Sequelize) => {
       summary: {
         type: Sequelize.TEXT,
       },
-      // "What's in here" inventory, written for routing rather than gist --
+      // "What's in here" inventory, written for locating rather than gist --
       // [{ kind, label, chunkFrom, chunkTo }], kind one of rubric | case |
       // method | concept | data | other, chunkFrom/To being chunk_index
       // values of this source's knowledge_chunks. This is what lets e.g. a
-      // weighted evaluation table on page 39 of a lecture deck be found and
-      // quoted verbatim even when the deck's gist summary never mentions it.
+      // weighted evaluation table on page 39 of a lecture deck be quoted
+      // verbatim as an anchor (knowledgeTree.js#buildContext's anchorKinds)
+      // even when the deck's gist summary never mentions it.
       contents: {
         type: Sequelize.JSON,
       },

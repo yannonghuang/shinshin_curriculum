@@ -10,15 +10,14 @@
 // source (summarizeSource, called from knowledgeIngest.js#ingestSource);
 // the topic card above it already regenerates on its own incremental check.
 //
-// Retrieval (buildContext) is top-down: one routing call shows the model the
-// topic + source summaries and contents inventories and asks which are
-// relevant to the subject; assembly then fills a character budget in
-// priority order -- anchor items (e.g. every rubric in the library)
-// verbatim, then routed items and high-relevance sources verbatim, then
-// medium-relevance sources as summaries, then untouched topics as one-line
-// background. Anything that doesn't fit verbatim degrades to its summary
-// rather than being cut off, and what was used how is returned as
-// provenance for the caller to record.
+// Retrieval (buildContext) makes no LLM call. It fills a character budget in
+// priority order: anchor items (e.g. every rubric in the library, found via
+// the source nodes' contents inventories) verbatim, then chunks matched by
+// embedding similarity (embeddings.js), then untouched topics as one-line
+// background from their cards. What was used how is returned as provenance
+// for the caller to record. (An earlier version had an LLM route over the
+// source summaries first; at this library's size the embeddings alone are
+// precise enough, so the extra call per search was dropped.)
 const db = require("../models");
 const { Op } = db.Sequelize;
 const MaterialTopic = db.materialTopic;
@@ -122,7 +121,8 @@ async function summarizeWindow({ title, topicLabel, chunks }) {
 
 // (Re)builds one source's summary node from its current chunks. Best-effort
 // like the rest of ingestion: logs and returns on failure, since a missing
-// summary only means retrieval falls back to the source's title.
+// summary only means the source has no anchors (its chunks are still
+// searchable) and 资料索引 shows it without a summary.
 async function summarizeSource({ sourceType, sourceId, materialTopicId }) {
   try {
     const chunks = await KnowledgeChunk.findAll({ where: { sourceType, sourceId }, order: [["chunkIndex", "ASC"]] });
@@ -188,17 +188,6 @@ async function deleteSourceSummary({ sourceType, sourceId }) {
 
 // ---------------------------------------------------------------- retrieve
 
-const ROUTE_SYSTEM_PROMPT =
-  "你是学习资源库的检索助手。给定一个任务和资源库目录（主题 → 资料来源 → 资料中的具体内容条目），" +
-  "请选出完成该任务需要参考的资料：\n" +
-  "- sources：相关的资料来源，relevance 取 high（需要细读原文）或 medium（了解概要即可）；与任务无关的不要选；\n" +
-  "- items：需要原文引用的具体内容条目编号（如 S3.2）。\n" +
-  '严格以 JSON 格式回复，不要包含其他文字或代码块标记：{"sources": [{"id": "S3", "relevance": "high"}], "items": ["S3.2"]}';
-
-const TOPIC_ROUTE_SYSTEM_PROMPT =
-  "你是学习资源库的检索助手。给定一个任务和资源库的主题列表，请选出与任务相关、需要进一步查看的主题。" +
-  '严格以 JSON 格式回复，不要包含其他文字或代码块标记：{"topics": ["T3"]}';
-
 async function loadCatalog(excludeCategories) {
   const topics = await MaterialTopic.findAll({
     where: excludeCategories.length ? { category: { [Op.notIn]: excludeCategories } } : {},
@@ -209,16 +198,11 @@ async function loadCatalog(excludeCategories) {
   if (topicIds.length === 0) return { topics: [], sources: [] };
 
   // Every real source that has chunks, whether or not it has a summary yet
-  // (e.g. not backfilled) -- an unsummarized source can still be read
-  // verbatim, it just routes on its title alone.
-  const chunkStats = await KnowledgeChunk.findAll({
-    attributes: [
-      "sourceType",
-      "sourceId",
-      "materialTopicId",
-      [db.Sequelize.fn("COUNT", db.Sequelize.col("id")), "chunkCount"],
-      [db.Sequelize.fn("SUM", db.Sequelize.fn("CHAR_LENGTH", db.Sequelize.col("content"))), "charCount"],
-    ],
+  // (e.g. not backfilled) -- an unsummarized source is still searchable, it
+  // just has no contents inventory (so no anchors) and is titled from its
+  // file/link.
+  const rows = await KnowledgeChunk.findAll({
+    attributes: ["sourceType", "sourceId", "materialTopicId"],
     where: { materialTopicId: { [Op.in]: topicIds }, sourceType: { [Op.ne]: "material_topic_meta" } },
     group: ["sourceType", "sourceId", "materialTopicId"],
     raw: true,
@@ -228,7 +212,7 @@ async function loadCatalog(excludeCategories) {
 
   const topicById = new Map(topics.map((t) => [Number(t.id), t]));
   const sources = [];
-  for (const row of chunkStats) {
+  for (const row of rows) {
     const key = `${row.sourceType}:${row.sourceId}`;
     const s = summaryByKey.get(key);
     sources.push({
@@ -237,10 +221,7 @@ async function loadCatalog(excludeCategories) {
       sourceId: Number(row.sourceId),
       topic: topicById.get(Number(row.materialTopicId)),
       title: s ? s.title : await sourceTitle(row.sourceType, row.sourceId),
-      summary: s ? s.summary : "",
       contents: s && Array.isArray(s.contents) ? s.contents : [],
-      chunkCount: Number(row.chunkCount),
-      charCount: Number(row.charCount),
     });
   }
   // Deterministic order (topic, then source) so the same library always
@@ -252,7 +233,6 @@ async function loadCatalog(excludeCategories) {
       a.sourceType.localeCompare(b.sourceType) ||
       a.sourceId - b.sourceId
   );
-  sources.forEach((s, i) => (s.ref = `S${i + 1}`));
   return { topics, sources };
 }
 
@@ -281,7 +261,7 @@ function redactNames(text, names) {
   let out = str(text);
   const honorific = "(?:专家|老师|教授|博士|校长)?";
   for (const n of names) out = out.replace(new RegExp(n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + honorific, "g"), "");
-  out = out.replace(/(^|[-_\s（(·、])[\u4e00-\u9fa5]{1,3}(?:专家|老师|教授|博士|校长)(?=$|[-_\s）)·、.\d])/g, "$1");
+  out = out.replace(/(^|[-_\s（(·、])[一-龥]{1,3}(?:专家|老师|教授|博士|校长)(?=$|[-_\s）)·、.\d])/g, "$1");
   return out
     .replace(/[-_·、\s]+(?=\.[a-zA-Z0-9]+$)/, "") // dangling separator before the extension
     .replace(/([-_·、])\1+/g, "$1")
@@ -290,98 +270,46 @@ function redactNames(text, names) {
     .trim();
 }
 
-function topicHeader(t, { includeTopicMeta = false } = {}) {
-  const lines = [`## [T${t.id}] ${topicLabel(t)}`];
-  if (includeTopicMeta) {
-    if (t.lecturer) lines.push(`主讲人：${t.lecturer}`);
-    if (t.comment) lines.push(`备注：${t.comment}`);
+// Chunks sorted by chunkIndex, split into runs of consecutive indexes.
+function contiguousRuns(chunks) {
+  const runs = [];
+  for (const c of [...chunks].sort((a, b) => a.chunkIndex - b.chunkIndex)) {
+    const last = runs[runs.length - 1];
+    if (last && c.chunkIndex === last[last.length - 1].chunkIndex + 1) last.push(c);
+    else runs.push([c]);
   }
-  if (t.Skill && t.Skill.summary) lines.push(`主题概要：${t.Skill.summary}`);
-  return lines.join("\n");
-}
-
-function sourceCatalogLines(s) {
-  const lines = [`- [${s.ref}] 《${s.title}》（${s.charCount} 字）${s.summary ? `：${s.summary}` : ""}`];
-  s.contents.forEach((it, i) => lines.push(`    · [${s.ref}.${i + 1}]（${KIND_LABELS[it.kind] || it.kind}）${it.label}`));
-  return lines.join("\n");
-}
-
-function buildCatalogText(topics, sources, headerOpts) {
-  return topics
-    .map((t) => {
-      const own = sources.filter((s) => Number(s.topic.id) === Number(t.id));
-      return own.length ? `${topicHeader(t, headerOpts)}\n${own.map(sourceCatalogLines).join("\n")}` : null;
-    })
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-async function route(subject, topics, sources, headerOpts) {
-  let candidates = sources;
-  let candidateTopics = topics;
-  const fullCatalog = buildCatalogText(topics, sources, headerOpts);
-
-  if (fullCatalog.length > ROUTE_CATALOG_MAX_CHARS) {
-    // Too big to show at once: pick topics first from their headers and
-    // source titles, then route among the chosen topics' sources.
-    const topicCatalog = topics
-      .map((t) => {
-        const titles = sources.filter((s) => Number(s.topic.id) === Number(t.id)).map((s) => `《${s.title}》`);
-        return `${topicHeader(t, headerOpts)}\n资料：${titles.join("、") || "无"}`;
-      })
-      .join("\n\n");
-    const r = await llmClient.llmChat({
-      systemPrompt: TOPIC_ROUTE_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: `任务：${subject}\n\n主题列表：\n${topicCatalog}` }],
-      maxTokens: 512,
-      temperature: 0,
-      thinking: false, // a pick from a list -- see llmClient.js#llmChat
-    });
-    const picked = new Set((parseJsonReply(r.text).topics || []).map((id) => String(id).replace(/^T/, "")));
-    candidateTopics = topics.filter((t) => picked.has(String(t.id)));
-    candidates = sources.filter((s) => picked.has(String(s.topic.id)));
-  }
-
-  const catalog = buildCatalogText(candidateTopics, candidates, headerOpts);
-  if (!catalog) return { high: new Set(), medium: new Set(), items: new Set(), model: null };
-  const result = await llmClient.llmChat({
-    systemPrompt: ROUTE_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: `任务：${subject}\n\n资源库目录：\n${catalog}` }],
-    maxTokens: 1024,
-    temperature: 0,
-    thinking: false, // a pick from a list -- see llmClient.js#llmChat
-  });
-  const parsed = parseJsonReply(result.text);
-  const high = new Set();
-  const medium = new Set();
-  for (const s of Array.isArray(parsed.sources) ? parsed.sources : []) {
-    const ref = str(s && s.id);
-    if (!ref) continue;
-    (s.relevance === "high" ? high : medium).add(ref);
-  }
-  return { high, medium, items: new Set((parsed.items || []).map(str)), model: result.model };
+  return runs;
 }
 
 // Builds a subject-relevant material context within `budget` characters.
-//   subject        -- what the material is for (drives routing)
+// No LLM call: relevance is embedding similarity (embeddings.js) over every
+// chunk -- at this library's size (a couple hundred chunks) that is precise
+// enough on its own, and an LLM picking sources from summaries first only
+// added a round trip per search.
+//   subject        -- what the material is for (drives the semantic match)
 //   anchorKinds    -- contents-item kinds always included verbatim,
-//                     library-wide, regardless of routing (e.g. ["rubric"])
+//                     library-wide (e.g. ["rubric"]); the source summaries'
+//                     contents inventories are what tag them
 //   excludeCategories -- topic categories left out entirely
-//   includeTopicMeta  -- show topics' 主讲人/备注 (chat needs these to answer
-//                     "谁讲过…"; standards/reviews must not name people)
 //   redact         -- strip person names from source titles (see redactNames)
-//   semantic       -- add chunk-level embedding matches (embeddings.js),
-//                     up to semanticLimit passages
+//   semanticLimit  -- max chunks matched by meaning (thresholded -- only
+//                     real matches; see embeddings.js#semanticSearch)
+//   fill           -- instead of the thresholded top matches, take every
+//                     chunk, most similar first, until the budget is spent
+//                     (AI 点评标准, which wants as much of the library as
+//                     fits, not just the closest few pages)
+// Order of priority: anchors, then matched chunks, then one line of
+// background per topic nothing else came from. Everything counts against
+// the budget.
 // Returns { text, provenance, usedChunkIds }.
 async function buildContext({
   subject,
   anchorKinds = [],
   excludeCategories = [MANUAL_CATEGORY],
   budget = 60000,
-  includeTopicMeta = false,
   redact = false,
-  semantic = true,
   semanticLimit = 6,
+  fill = false,
 }) {
   const { topics, sources } = await loadCatalog(excludeCategories);
   if (sources.length === 0) return { text: "", provenance: null, usedChunkIds: [] };
@@ -389,19 +317,7 @@ async function buildContext({
     const names = await loadPersonNames();
     sources.forEach((s) => (s.title = redactNames(s.title, names)));
   }
-  const headerOpts = { includeTopicMeta };
 
-  let routed;
-  try {
-    routed = await route(subject, topics, sources, headerOpts);
-  } catch (e) {
-    // Routing failed -- degrade to "everything at summary level" rather than
-    // failing the caller; anchors are still included verbatim below.
-    console.error("资料检索路由失败，改为全部使用摘要:", e.message);
-    routed = { high: new Set(), medium: new Set(sources.map((s) => s.ref)), items: new Set(), model: null };
-  }
-
-  const byRef = new Map(sources.map((s) => [s.ref, s]));
   const chunkCache = new Map();
   const chunksOf = async (s) => {
     if (!chunkCache.has(s.key)) {
@@ -415,8 +331,8 @@ async function buildContext({
 
   let remaining = budget;
   const usedChunkIds = new Set();
-  const sections = { anchors: [], items: [], semantic: [], verbatim: [], summaries: [], background: [] };
-  const provenance = { subject, anchors: [], verbatim: [], semantic: [], summarized: [], background: [], routedBy: routed.model };
+  const sections = { anchors: [], semantic: [], filled: [], background: [] };
+  const provenance = { subject, anchors: [], verbatim: [], semantic: [], background: [] };
   const touchedTopics = new Set();
 
   // Verbatim text for a chunk range of one source, skipping chunks already
@@ -449,25 +365,23 @@ async function buildContext({
     }
   }
 
-  // 2. Chunk-level semantic hits (embeddings.js): the pages closest in
-  // meaning to the subject, wherever they are -- including details no
-  // summary or inventory label mentions, which routing alone can't see.
-  // Contiguous hits from the same source are merged into one passage.
-  // Placed before routed items: a hit is one precise ~600-char chunk,
-  // while a routed inventory item can span several, so under a tight
-  // budget the precise matches must not be crowded out by the broad ones.
-  if (semantic) {
-    let hits = [];
-    try {
-      hits = await embeddings.semanticSearch(subject, {
-        topicIds: topics.map((t) => Number(t.id)),
-        excludeSourceTypes: ["material_topic_meta"],
-        limit: semanticLimit,
-      });
-    } catch (e) {
-      console.error("语义检索失败，跳过:", e.message);
-    }
-    const bySourceKey = new Map(sources.map((x) => [x.key, x]));
+  const bySourceKey = new Map(sources.map((x) => [x.key, x]));
+  const topicIds = topics.map((t) => Number(t.id));
+  let hits = [];
+  try {
+    hits = await embeddings.semanticSearch(subject, {
+      topicIds,
+      excludeSourceTypes: ["material_topic_meta"],
+      ...(fill ? { rankAll: true } : { limit: semanticLimit }),
+    });
+  } catch (e) {
+    console.error("语义检索失败，跳过:", e.message);
+  }
+
+  if (!fill) {
+    // 2. Chunk-level semantic hits: the pages closest in meaning to the
+    // subject. Contiguous hits from the same source are merged into one
+    // passage.
     const groups = new Map();
     for (const h of hits) {
       const src = bySourceKey.get(`${h.sourceType}:${h.sourceId}`);
@@ -476,72 +390,58 @@ async function buildContext({
       groups.get(src.key).hits.push(h);
     }
     for (const { src, hits: hs } of groups.values()) {
-      hs.sort((a, b) => a.chunkIndex - b.chunkIndex);
-      const runs = [];
-      for (const h of hs) {
-        const last = runs[runs.length - 1];
-        if (last && h.chunkIndex === last.to + 1) {
-          last.to = h.chunkIndex;
-          last.score = Math.max(last.score, h.score);
-        } else runs.push({ from: h.chunkIndex, to: h.chunkIndex, score: h.score });
-      }
-      for (const run of runs) {
-        const got = await takeChunks(src, run.from, run.to);
+      for (const run of contiguousRuns(hs)) {
+        const got = await takeChunks(src, run[0].chunkIndex, run[run.length - 1].chunkIndex);
         if (!got || !got.text) continue;
         sections.semantic.push(`${place(src, got.chunks)}：\n${got.text}`);
         provenance.semantic.push({
           title: src.title,
           topic: topicLabel(src.topic),
           locator: locatorOf(got.chunks),
-          score: Math.round(run.score * 1000) / 1000,
+          score: Math.round(Math.max(...run.map((h) => h.score)) * 1000) / 1000,
         });
         touchedTopics.add(Number(src.topic.id));
       }
     }
-  }
-
-  // 3. Routed items verbatim.
-  for (const ref of routed.items) {
-    const m = ref.match(/^(S\d+)\.(\d+)$/);
-    const s = m && byRef.get(m[1]);
-    const it = s && s.contents[Number(m[2]) - 1];
-    if (!it) continue;
-    const got = await takeChunks(s, it.chunkFrom, it.chunkTo);
-    if (!got || !got.text) continue;
-    sections.items.push(`${place(s, got.chunks)} ${it.label}：\n${got.text}`);
-    provenance.verbatim.push({ title: s.title, topic: topicLabel(s.topic), label: it.label, locator: locatorOf(got.chunks) });
-    touchedTopics.add(Number(s.topic.id));
-  }
-
-  // 4. High-relevance sources in full, or their summary if they don't fit.
-  const summarize = (s) => {
-    const line = `《${s.title}》（${topicLabel(s.topic)}）：${s.summary || "（暂无摘要）"}${
-      s.contents.length ? `\n  包含：${s.contents.map((it) => it.label).join("；")}` : ""
-    }`;
-    sections.summaries.push(line);
-    remaining -= line.length;
-    provenance.summarized.push({ title: s.title, topic: topicLabel(s.topic) });
-    touchedTopics.add(Number(s.topic.id));
-  };
-  for (const s of sources.filter((x) => routed.high.has(x.ref))) {
-    const got = await takeChunks(s, 0, Number.MAX_SAFE_INTEGER);
-    if (got && got.text) {
-      sections.verbatim.push(`${place(s, got.chunks)}：\n${got.text}`);
-      provenance.verbatim.push({ title: s.title, topic: topicLabel(s.topic), label: null, locator: locatorOf(got.chunks) });
+  } else {
+    // 2'. Fill: every chunk not yet quoted, most similar first (chunks with
+    // no vector, or all of them if the query couldn't be embedded, after
+    // the scored ones in library order), as long as it fits -- then
+    // emitted source by source, most relevant source first, each in
+    // reading order.
+    const score = new Map(hits.map((h) => [Number(h.id), h.score]));
+    const candidates = [];
+    for (const s of sources) {
+      for (const c of await chunksOf(s)) {
+        if (!usedChunkIds.has(String(c.id))) candidates.push({ s, c, score: score.has(Number(c.id)) ? score.get(Number(c.id)) : -1 });
+      }
+    }
+    candidates.sort((a, b) => b.score - a.score); // stable: ties keep library order
+    const taken = new Map(); // source key -> { s, chunks, best }
+    for (const { s, c, score: sc } of candidates) {
+      if (c.content.length > remaining) continue;
+      remaining -= c.content.length;
+      usedChunkIds.add(String(c.id));
+      if (!taken.has(s.key)) taken.set(s.key, { s, chunks: [], best: sc });
+      taken.get(s.key).chunks.push(c);
+    }
+    for (const { s, chunks } of [...taken.values()].sort((a, b) => b.best - a.best)) {
+      for (const run of contiguousRuns(chunks)) {
+        sections.filled.push(`${place(s, run)}：\n${run.map((c) => c.content).join("\n")}`);
+        provenance.verbatim.push({ title: s.title, topic: topicLabel(s.topic), label: null, locator: locatorOf(run) });
+      }
       touchedTopics.add(Number(s.topic.id));
-    } else if (got === null) {
-      summarize(s);
     }
   }
 
-  // 5. Medium-relevance sources as summaries.
-  for (const s of sources.filter((x) => routed.medium.has(x.ref) && !routed.high.has(x.ref))) summarize(s);
-
-  // 6. Untouched topics: one line of background each.
+  // 3. Untouched topics: one line of background each, while it fits.
   const backgroundTopicIds = [];
   for (const t of topics) {
     if (touchedTopics.has(Number(t.id)) || !t.Skill || !t.Skill.summary) continue;
-    sections.background.push(`${topicLabel(t)}：${t.Skill.summary}`);
+    const line = `${topicLabel(t)}：${t.Skill.summary}`;
+    if (line.length > remaining) continue;
+    remaining -= line.length;
+    sections.background.push(line);
     provenance.background.push(topicLabel(t));
     backgroundTopicIds.push(Number(t.id));
   }
@@ -549,9 +449,7 @@ async function buildContext({
   const blocks = [];
   if (sections.anchors.length) blocks.push(`【资料中已有的评价/评分标准（原文）】\n\n${sections.anchors.join("\n\n")}`);
   if (sections.semantic.length) blocks.push(`【语义相关片段原文】\n\n${sections.semantic.join("\n\n")}`);
-  if (sections.items.length) blocks.push(`【相关内容原文】\n\n${sections.items.join("\n\n")}`);
-  if (sections.verbatim.length) blocks.push(`【相关资料原文】\n\n${sections.verbatim.join("\n\n")}`);
-  if (sections.summaries.length) blocks.push(`【其他相关资料摘要】\n\n${sections.summaries.join("\n\n")}`);
+  if (sections.filled.length) blocks.push(`【相关资料原文】\n\n${sections.filled.join("\n\n")}`);
   if (sections.background.length) blocks.push(`【其他主题概要】\n${sections.background.join("\n")}`);
 
   provenance.topicIds = [...touchedTopics, ...backgroundTopicIds];

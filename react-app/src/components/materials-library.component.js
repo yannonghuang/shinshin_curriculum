@@ -855,7 +855,9 @@ const MaterialsLibrary = () => {
             {tr("保存")}
           </button>
         )}
-        <KnowledgeIndex topicId={selected.topicId} isAdmin={isAdmin} />
+        {/* Admin-only: a diagnostic view (rubric tags, embedding coverage,
+            rebuild) -- nothing a teacher needs to browse the material. */}
+        {isAdmin && <KnowledgeIndex topicId={selected.topicId} isAdmin={isAdmin} />}
       </div>
     );
   };

@@ -6,9 +6,9 @@
 //
 // Input comes from the knowledge tree (knowledgeTree.js#buildContext): every
 // evaluation standard already present anywhere in the library (rubric
-// items of the sources' contents inventories) verbatim as anchors, plus the
-// material the router judges relevant to building a scoring standard --
-// verbatim where it fits the budget, as summaries where it doesn't. What
+// items of the sources' contents inventories) verbatim as anchors, then the
+// rest of the library verbatim, most relevant to building a scoring standard
+// first (embedding similarity), until the budget is spent (`fill`). What
 // was used is stored on the standard (`retrieval`) and shown on its page.
 //
 // Experts/admins can then override the AI's standard (checkRevision/
@@ -24,7 +24,7 @@ const knowledgeTree = require("./knowledgeTree");
 
 const MATERIAL_BUDGET = 60000;
 
-// What the router is asked to find material for. 使用指南 (the system's own
+// What the material is retrieved for (embedding similarity ranks by it). 使用指南 (the system's own
 // usage docs) is excluded by buildContext's default -- it documents how to
 // use the app, not what makes a good 乡土课程.
 // Plan scope only: the standard judges the 计划 (课程设计方案 incl.
@@ -34,7 +34,7 @@ const REVISION_CHECK_SUBJECT = "审核对乡土课程点评评分标准的人工
 
 const SYSTEM_PROMPT =
   "你是乡土课程教学评价专家。下面是从「学习资源库」中检索出的材料：首先是资料中已有的评价/评分标准原文（如有），" +
-  "然后是其他相关资料的原文或摘要。请分析、综合这些材料所体现的乡土课程理念、设计要求与优秀实践，制定一套统一的「乡土课程 AI 点评评分标准」，" +
+  "然后是其他相关资料的原文（及其余主题的概要）。请分析、综合这些材料所体现的乡土课程理念、设计要求与优秀实践，制定一套统一的「乡土课程 AI 点评评分标准」，" +
   "用于对所有教师提交的乡土课程设计方案（含分课时设计）进行一致的点评与打分；标准只针对课程设计本身，不涉及课时实施记录。\n" +
   "要求：\n" +
   "1. 资料中已有针对课程设计的评估标准时，必须以它为骨架：沿用其评分维度与权重，把其等级描述细化为下面要求的四级，" +
@@ -174,6 +174,7 @@ async function checkAgainstMaterials(baseContent, content) {
     anchorKinds: ["rubric"],
     budget: MATERIAL_BUDGET,
     redact: true,
+    fill: true,
   });
   const userContent =
     `学习资源库材料：\n\n${text || "（学习资源库暂无材料内容）"}\n\n` +
@@ -267,6 +268,7 @@ async function generateStandardInner(userId) {
     anchorKinds: ["rubric"],
     budget: MATERIAL_BUDGET,
     redact: true,
+    fill: true,
   });
   if (!text) {
     throw new Error("学习资源库中暂无可用于生成评分标准的材料内容。");

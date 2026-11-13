@@ -1,10 +1,7 @@
-// Chunk-level semantic matching for the knowledge tree. The tree's LLM
-// routing (knowledgeTree.js) matches by meaning but only at the granularity
-// of source summaries and contents inventories -- a detail buried on one
-// page that no summary or inventory label mentions is invisible to it, and
-// FULLTEXT only finds it when the wording happens to match. Embedding every
-// chunk closes that gap: a query is compared against every page's text by
-// meaning.
+// Chunk-level semantic matching -- the knowledge tree's retrieval
+// (knowledgeTree.js#buildContext) by meaning. FULLTEXT only finds a passage
+// when the wording happens to match; embedding every chunk compares a query
+// against every page's text by meaning.
 //
 // DashScope's OpenAI-compatible /embeddings endpoint (same key/base URL as
 // llmClient.js). Vectors live in knowledge_chunks.embedding; similarity is
@@ -190,8 +187,10 @@ function normalize(v) {
 // above MIN_SCORE and within RELATIVE_MARGIN of the best hit -- the absolute
 // floor drops everything for a query the library has nothing on; the
 // relative one drops the long tail of "same library, different subject"
-// chunks that sit just under a real match.
-async function semanticSearch(query, { topicIds = null, excludeSourceTypes = [], limit = 6 } = {}) {
+// chunks that sit just under a real match. `rankAll` skips both cutoffs and
+// the limit: every embedded chunk in scope, best first (for filling a
+// budget by relevance rather than picking matches).
+async function semanticSearch(query, { topicIds = null, excludeSourceTypes = [], limit = 6, rankAll = false } = {}) {
   const rows = await loadVectors();
   if (rows.length === 0 || !str(query)) return [];
   const [raw] = await embedTexts([query], { instruct: QUERY_INSTRUCT });
@@ -209,9 +208,10 @@ async function semanticSearch(query, { topicIds = null, excludeSourceTypes = [],
       for (let i = 0; i < qv.length; i += 1) dot += vec[i] * qv[i];
       if (dot > best) best = dot;
     }
-    if (best >= MIN_SCORE) scored.push({ ...r, score: best });
+    if (rankAll || best >= MIN_SCORE) scored.push({ ...r, score: best });
   }
   scored.sort((a, b) => b.score - a.score);
+  if (rankAll) return scored.map(({ vecs, ...rest }) => rest);
   const top = scored.length ? scored[0].score : 0;
   return scored
     .filter((h) => h.score >= top - RELATIVE_MARGIN)
