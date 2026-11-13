@@ -10,6 +10,11 @@ class PlanDataService {
     return http.get(`/plans/${id}`, { headers: authHeader() });
   }
 
+  // 全部乡土课程's 语义搜索 (experts/admins) -- see plan-semantic-search.component.js.
+  semanticSearch(q) {
+    return http.get("/plans/semantic-search", { params: { q }, headers: authHeader() });
+  }
+
   getOptions() {
     return http.get("/plans/options");
   }

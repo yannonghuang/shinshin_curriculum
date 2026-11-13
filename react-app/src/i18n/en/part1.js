@@ -222,5 +222,19 @@ const en = {
   " · 满分 {content.totalScore}": " · Max score {content.totalScore}",
   "修订说明：{shown.changeNote}": "Revision note: {shown.changeNote}",
   "保存时已知悉的核查提醒（{cautionCount(shown.cautions)} 条）": "Check notes acknowledged at save time ({cautionCount(shown.cautions)})",
+  "语义搜索": "Semantic search",
+  "用一句话描述要找的课程，例如：请找出5个设置社会情感目标较好的项目": "Describe the courses you are looking for, e.g. find 5 projects with well-set social-emotional goals",
+  "试试：": "Try:",
+  "语义搜索失败。": "Semantic search failed.",
+  "按{basis}比对各课程该栏的内容，并压低与「{contrast}」相近的内容。排序反映目标是否属于该类别，不评价写得是否具体、可观察。":
+    "Compared each course's field with {basis}, ranking down content close to “{contrast}”. The ranking reflects whether the goals belong to the category, not whether they are specific and observable.",
+  "以{basis}为参照比对各课程内容{scope}。排序反映内容是否切题，不评价写得好坏。":
+    "Compared course content against {basis}{scope}. The ranking reflects relevance, not writing quality.",
+  "按问题的意思查找课程内容，不限于字面相同{scope}。": "Found course content by meaning, not just exact wording{scope}.",
+  "（范围：{fields}）": " (fields: {fields})",
+  "（索引更新中 {progress}，部分课程可能暂未纳入）": " (index updating {progress}; some courses may not be included yet)",
+  "搜索索引尚未建立，请稍后再试。": "The search index is not built yet. Please try again later.",
+  "没有找到相关的课程内容。": "No matching course content found.",
+  "相对得分，仅用于本次排序": "Relative score, only meaningful within this ranking",
 };
 export default en;

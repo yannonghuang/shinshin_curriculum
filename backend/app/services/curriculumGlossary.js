@@ -9,8 +9,19 @@
 // says 社会情感 *is* SEL (CASEL's five competencies, framed as 关系能力) and
 // the rubric requires "有SEL目标表述". Keep these in step with the library.
 
+// 社会情感 in the library's words, without this project's placement rule --
+// also what 全部乡土课程's 语义搜索 compares a plan's 社会情感目标 against
+// (planSearch.js), with SEL_CONTRAST as what it must not reward.
+const SEL_CORE =
+  "即社会情感学习（SEL，Social-Emotional Learning），采用 CASEL 五大核心能力：自我意识、自我管理、社会意识、关系技能、负责任的决策。" +
+  "资源库培训中讲师将其归纳为「关系能力」：自我与自我的关系（自我意识、自我管理），自我与他人的关系（社会意识、关系技能、负责任的决策）。" +
+  "培训明确指出 SEL 比传统的「情感态度与价值观」更具体、实在、全面；目标要先行写明，再在 PBL 各环节渗透。";
+const SEL_CONTRAST = "文化认同、家乡自豪感、传承责任、热爱家乡、非遗传承、文化自信";
+
 // The template's WHY 学习目标 fields, in template order, with what each one
 // means. `category` is also the tag planDrafter's outline files goals under.
+// `searchContrast` (optional): what a search for good goals of this
+// category must rank down (planSearch.js).
 const GOAL_CATEGORIES = [
   {
     category: "认知思维",
@@ -22,10 +33,10 @@ const GOAL_CATEGORIES = [
   },
   {
     category: "社会情感",
+    searchText: SEL_CORE,
+    searchContrast: SEL_CONTRAST,
     definition:
-      "即社会情感学习（SEL，Social-Emotional Learning），采用 CASEL 五大核心能力：自我意识、自我管理、社会意识、关系技能、负责任的决策。" +
-      "资源库培训中讲师将其归纳为「关系能力」：自我与自我的关系（自我意识、自我管理），自我与他人的关系（社会意识、关系技能、负责任的决策）。" +
-      "培训明确指出 SEL 比传统的「情感态度与价值观」更具体、实在、全面；目标要先行写明，再在 PBL 各环节渗透。" +
+      SEL_CORE +
       "评价标准中，目标设计达到合格需「有SEL目标表述」，示范级要求任务链「每环节有SEL渗透和培养」。" +
       // Project decision (2026-11-12): the template's 社会情感目标 field is
       // SEL only; 情感/文化 goals go to 其他目标.
@@ -61,6 +72,15 @@ const goalCategoryOf = (label) => {
   return GOAL_CATEGORY_NAMES.includes(clean) ? clean : null;
 };
 
+// What a search for well-set goals of one category compares against: the
+// category's own meaning (`positive`) and, if any, what it must not reward
+// (`contrast`). Null for a non-goal category.
+const goalSearchProfile = (category) => {
+  const c = GOAL_CATEGORIES.find((g) => g.category === category);
+  if (!c) return null;
+  return { positive: c.searchText || c.definition, contrast: c.searchContrast || null };
+};
+
 // Block for the system prompt when the user is on a 学习目标 field/section:
 // the focused category's definition first, then the rest for comparison.
 const describeGoalFramework = (focusedCategory) => {
@@ -77,4 +97,4 @@ const describeGoalFramework = (focusedCategory) => {
   );
 };
 
-module.exports = { GOAL_CATEGORIES, GOAL_CATEGORY_NAMES, FRAMEWORK_TERMS, goalCategoryOf, describeGoalFramework };
+module.exports = { GOAL_CATEGORIES, GOAL_CATEGORY_NAMES, FRAMEWORK_TERMS, goalCategoryOf, goalSearchProfile, describeGoalFramework };

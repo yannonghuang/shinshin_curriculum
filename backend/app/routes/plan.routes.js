@@ -15,6 +15,9 @@ module.exports = function (app) {
   // ?mine=true can be scoped server-side to the actual caller (see findAll).
   app.get("/api/plans", [authJwt.attachUserIfPresent], plans.findAll);
   app.get("/api/plans/options", plans.getOptions);
+  // 全部乡土课程's 语义搜索 -- before GET /api/plans/:id, which would
+  // otherwise take "semantic-search" as an id.
+  app.get("/api/plans/semantic-search", [authJwt.verifyToken, authJwt.isExpertOrAdmin], plans.semanticSearch);
   // 回收站 -- registered before GET /api/plans/:id for the same reason as
   // migrate-my-plans below. Owner or admin only (checked in the handlers).
   app.get("/api/plans/trash", [authJwt.verifyToken, authJwt.isTeacherOrAdmin], plans.findTrash);

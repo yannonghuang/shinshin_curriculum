@@ -10,6 +10,7 @@ const { diffPlanFormDataSegments, diffExecutionFormDataSegments } = require("../
 const { migratePlanFormData } = require("../services/templateMigration");
 const { computeCompletion } = require("../services/planCompletion");
 const planTrash = require("../services/planTrash");
+const planSearch = require("../services/planSearch");
 const db = require("../models");
 const Plan = db.plan;
 const User = db.user;
@@ -261,6 +262,50 @@ exports.create = async (req, res) => {
     return res.status(500).send({
       message: err.message || "创建乡土课程设计时发生错误。",
     });
+  }
+};
+
+// GET /api/plans/semantic-search?q=... (experts and admins) -- 全部乡土课程's
+// 语义搜索, ranked locally by services/planSearch.js over the plans the
+// caller could browse in that list: admins every plan, experts submitted
+// non-suspended ones (same rule as findAll).
+exports.semanticSearch = async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (!q) return res.status(422).send({ message: "请输入要搜索的问题。" });
+    const admin = await isAdminRequester(req.userId);
+    const visible = await Plan.findAll({
+      where: admin ? {} : { status: { [Op.ne]: "draft" }, suspended: false },
+      attributes: ["id", "title", "theme", "grade", "year", "season", "status", "suspended"],
+      include: [
+        {
+          model: User,
+          as: "Teacher",
+          attributes: ["id", "username", "chineseName"],
+          include: [{ model: db.school, as: "School", attributes: ["code", "name"], required: false }],
+        },
+      ],
+    });
+    const byId = new Map(visible.map((p) => [Number(p.id), p]));
+    const result = await planSearch.searchPlans(q, { planIds: new Set(byId.keys()) });
+    result.results = result.results.map((r) => {
+      const p = byId.get(r.planId);
+      return {
+        ...r,
+        title: p.title,
+        theme: p.theme,
+        grade: p.grade,
+        year: p.year,
+        season: p.season,
+        status: p.status,
+        teacherName: p.Teacher ? p.Teacher.chineseName || p.Teacher.username : "",
+        schoolName: p.Teacher && p.Teacher.School ? p.Teacher.School.name : "",
+      };
+    });
+    result.planCount = byId.size;
+    return res.send(result);
+  } catch (err) {
+    return res.status(500).send({ message: err.message || "语义搜索失败。" });
   }
 };
 
@@ -766,6 +811,8 @@ exports.update = async (req, res) => {
     }
 
     await t.commit();
+    // 语义搜索's index picks up the new text shortly (debounced).
+    planSearch.requestSync();
     return res.send({ message: "乡土课程设计更新成功。" });
   } catch (err) {
     await t.rollback();

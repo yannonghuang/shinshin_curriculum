@@ -57,6 +57,7 @@ db.copilotMemory = require("./copilot-memory.model.js")(sequelize, Sequelize);
 db.copilotUserSetting = require("./copilot-user-setting.model.js")(sequelize, Sequelize);
 db.aiReviewStandard = require("./ai-review-standard.model.js")(sequelize, Sequelize);
 db.aiPlanScore = require("./ai-plan-score.model.js")(sequelize, Sequelize);
+db.planSearchVector = require("./plan-search-vector.model.js")(sequelize, Sequelize);
 {
   const bookModels = require("./book-recommendation.model.js")(sequelize, Sequelize);
   db.bookProfile = bookModels.BookProfile;
