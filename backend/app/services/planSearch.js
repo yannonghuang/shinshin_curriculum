@@ -11,7 +11,10 @@
 // What the plans are compared against depends on the question:
 //   - 「哪些项目…」 (finding): the question itself, matched against every
 //     ~200-char window of a field, so one sentence buried in a long
-//     教学活动流程 still counts.
+//     教学活动流程 still counts. Embedded as plain text, with no retrieval
+//     `instruct`: on prod (2026-11-13) the instruct pulled 「哪些项目让学生
+//     采访了村里的老人」 toward generic "PBL plan" windows (an 入项 overview
+//     and a 总结 ranked 1st/2nd); without it all top 5 described interviews.
 //   - 「…较好/优秀的…」 about a 学习目标 category (definition): the
 //     category's definition from the library's framework terms
 //     (curriculumGlossary.js), minus similarity to what it must not reward
@@ -46,7 +49,6 @@ const MAX_WINDOWED_CHARS = 4000;
 const MIN_FIELD_CHARS = 4;
 // Changing windowing or what gets embedded bumps this, re-embedding all.
 const SCHEME = `${EMBEDDING_MODEL}:plan-w${WINDOW_SIZE}-v1`;
-const FINDING_INSTRUCT = "根据问题，检索课程设计中与问题描述相符的内容";
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 30;
 const LIBRARY_YARDSTICK_CHARS = 1200;
@@ -407,7 +409,7 @@ async function searchPlans(query, { planIds, limit, rows: given } = {}) {
     }
   }
   if (mode === "finding") {
-    [pos] = (await embedTexts([q], { instruct: FINDING_INSTRUCT })).map(normalize);
+    [pos] = (await embedTexts([q])).map(normalize);
   }
 
   // Each plan's best field.
@@ -416,9 +418,8 @@ async function searchPlans(query, { planIds, limit, rows: given } = {}) {
     let score;
     let windowIndex = null;
     if (mode === "finding" && row.windows.length) {
-      // A long field by its best window only: its whole-text vector drifts
-      // toward "a PBL plan in general", and on prod a generic 入项活动
-      // overview outranked fields that describe the interview.
+      // A long field by its best window only -- its whole-text vector is
+      // a blur of everything in it.
       score = -1;
       row.windows.forEach((w, i) => {
         const s = dot(w, pos);
