@@ -5,6 +5,7 @@ import PlanDataService from "../services/plan.service";
 import AdminUserDataService from "../services/admin-user.service";
 import AuthService from "../services/auth.service";
 import PlanCard from "./plan-card.component";
+import PlanSemanticSearch from "./plan-semantic-search.component";
 import { PLAN_THEMES, PLAN_DELETE_CONFIRM } from "../constants/plan-options";
 import { announceTrashChanged } from "./trash-button.component";
 import { useExplorerPane, ExplorerPaneBar } from "./explorer-pane";
@@ -450,8 +451,12 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   const selectedSchool = selectedGroup ? selectedGroup.schoolList.find((s) => s.schoolKey === selected.schoolKey) : null;
   const selectedTeacher = selectedSchool ? selectedSchool.teacherList.find((t) => String(t.teacherId) === selected.teacherId) : null;
 
+  // 语义搜索: experts/admins on the plain 全部乡土课程 list only.
+  const showSemanticSearch = !excellentOnly && !statusFilter && (AuthService.isAdmin() || AuthService.isExpert());
+
   return (
     <>
+      {showSemanticSearch && <PlanSemanticSearch />}
       {showReviewFilters && (
         <div className="mb-3">
           <div className="form-row">

@@ -139,6 +139,19 @@ setTimeout(() => {
     .catch((err) => console.error("Teacher manual sync failed:", err.message));
 }, 30 * 1000);
 
+// 全部乡土课程's 语义搜索 index (planSearch.js): the first pass after a
+// restart checks every plan (embedding only fields whose text changed),
+// later passes only plans updated since. Saves also request a pass; this
+// interval catches every other writer (欣欣小助手, migrations, uploads).
+const PLAN_SEARCH_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+const runPlanSearchSync = () => {
+  require("./app/services/planSearch")
+    .syncIndex({ log: console.log })
+    .catch((err) => console.error("Plan search index sync failed:", err.message));
+};
+setTimeout(runPlanSearchSync, 90 * 1000);
+setInterval(runPlanSearchSync, PLAN_SEARCH_SYNC_INTERVAL_MS);
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}.`);
