@@ -235,6 +235,7 @@ const en = {
   "（索引更新中 {progress}，部分课程可能暂未纳入）": " (index updating {progress}; some courses may not be included yet)",
   "搜索索引尚未建立，请稍后再试。": "The search index is not built yet. Please try again later.",
   "没有找到相关的课程内容。": "No matching course content found.",
-  "相对得分，仅用于本次排序": "Relative score, only meaningful within this ranking",
+  "清除语义搜索": "Clear semantic search",
+  "按相关度取前 {n} 项，课程卡片上标有名次与匹配内容。": "Showing the top {n} by relevance; each course card shows its rank and the matching content.",
 };
 export default en;

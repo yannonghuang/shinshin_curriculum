@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHistory, useLocation } from "react-router-dom";
 import Select from "react-select";
 import PlanDataService from "../services/plan.service";
@@ -149,6 +149,16 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   const [filterTeacherName, setFilterTeacherName] = useState(() => initialParams.get("teacherName") || "");
   const [filterSchoolName, setFilterSchoolName] = useState(() => initialParams.get("schoolName") || "");
   const [filterTheme, setFilterTheme] = useState(() => initialParams.get("theme") || "");
+  // 语义搜索 (experts/admins on the plain 全部乡土课程 list): one more filter --
+  // its hits narrow the same tree and cards, ANDed with the filters above.
+  // { query, result } while active; `hits` maps planId -> { rank, label,
+  // snippet } for the cards' rank/excerpt and the nav's rank badges.
+  const showSemanticSearch = !excellentOnly && !statusFilter && (AuthService.isAdmin() || AuthService.isExpert());
+  const [semantic, setSemantic] = useState(null);
+  const hits = useMemo(() => {
+    if (!semantic) return null;
+    return new Map(semantic.result.results.map((r, i) => [Number(r.planId), { rank: i + 1, label: r.label, snippet: r.snippet }]));
+  }, [semantic]);
   // 乡土主题 dropdown options -- see plans-list.component.js's identical
   // themeOptions state for why (the active plan_design template's own
   // "附件"-derived list, falling back to the static PLAN_THEMES).
@@ -244,7 +254,8 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
         (!filterExpertReviewed || p.expertReviewed) &&
         (!teacherNameQuery || teacherName.includes(teacherNameQuery)) &&
         (!schoolNameQuery || schoolName.includes(schoolNameQuery)) &&
-        (!filterTheme || p.theme === filterTheme)
+        (!filterTheme || p.theme === filterTheme) &&
+        (!hits || hits.has(Number(p.id)))
       );
     });
   }, [
@@ -256,6 +267,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     filterTeacherName,
     filterSchoolName,
     filterTheme,
+    hits,
   ]);
 
   const groups = useMemo(() => buildHierarchy(filteredPlans), [filteredPlans]);
@@ -304,6 +316,34 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     // update, which this effect itself causes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups]);
+
+  // A new 语义搜索 result opens the teacher holding its best-ranked visible
+  // plan (declared after the effect above, so it wins over that one's
+  // first-teacher default on the same render).
+  // Except the re-run of a query restored from the URL alongside a teacher
+  // (返回 from a plan): that teacher stays selected.
+  const appliedSemantic = useRef(null);
+  const keepRestoredTeacher = useRef(!!(initialParams.get("sq") && initialParams.get("selTeacher")));
+  useEffect(() => {
+    if (!semantic || appliedSemantic.current === semantic) return;
+    appliedSemantic.current = semantic;
+    if (keepRestoredTeacher.current) {
+      keepRestoredTeacher.current = false;
+      return;
+    }
+    const top = filteredPlans.reduce((best, p) => {
+      const h = hits.get(Number(p.id));
+      return h && (!best || h.rank < hits.get(Number(best.id)).rank) ? p : best;
+    }, null);
+    if (!top) return;
+    const school = top.Teacher && top.Teacher.School;
+    setSelected({
+      groupKey: `${top.year}|${top.season || ""}`,
+      schoolKey: school ? String(school.code) : UNASSIGNED_SCHOOL_KEY,
+      teacherId: String(top.teacherId),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, semantic]);
 
   // A `selected` restored straight from the URL (see initialParams above)
   // arrives with no matching expandedGroups/expandedSchools entry -- without
@@ -367,6 +407,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     setOrDelete("teacherName", filterTeacherName);
     setOrDelete("schoolName", filterSchoolName);
     setOrDelete("theme", filterTheme);
+    setOrDelete("sq", semantic ? semantic.query : "");
     setOrDelete("selGroup", selected ? selected.groupKey : "");
     setOrDelete("selSchool", selected ? selected.schoolKey : "");
     setOrDelete("selTeacher", selected ? selected.teacherId : "");
@@ -390,6 +431,7 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
     filterTeacherName,
     filterSchoolName,
     filterTheme,
+    semantic,
     selected,
   ]);
 
@@ -451,12 +493,15 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
   const selectedSchool = selectedGroup ? selectedGroup.schoolList.find((s) => s.schoolKey === selected.schoolKey) : null;
   const selectedTeacher = selectedSchool ? selectedSchool.teacherList.find((t) => String(t.teacherId) === selected.teacherId) : null;
 
-  // 语义搜索: experts/admins on the plain 全部乡土课程 list only.
-  const showSemanticSearch = !excellentOnly && !statusFilter && (AuthService.isAdmin() || AuthService.isExpert());
+  // While 语义搜索 is on: a teacher's plans in rank order, and the ranks of
+  // their hits next to their name in the tree.
+  const teacherPlans = (teacher) =>
+    hits ? [...teacher.plans].sort((a, b) => hits.get(Number(a.id)).rank - hits.get(Number(b.id)).rank) : teacher.plans;
+  const teacherRanks = (teacher) => (hits ? teacher.plans.map((p) => hits.get(Number(p.id)).rank).sort((a, b) => a - b) : []);
 
   return (
     <>
-      {showSemanticSearch && <PlanSemanticSearch />}
+      {showSemanticSearch && <PlanSemanticSearch initialQuery={initialParams.get("sq") || ""} onResult={setSemantic} />}
       {showReviewFilters && (
         <div className="mb-3">
           <div className="form-row">
@@ -584,6 +629,11 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
                               >
                                 {t.teacherName}
                                 {canViewSeed && t.isSeed && <span className="pl-tag-seed ml-1">{tr("种子")}</span>}
+                                {teacherRanks(t).map((rank) => (
+                                  <span key={rank} className="pl-semantic-rank ml-1">
+                                    {rank}
+                                  </span>
+                                ))}
                               </button>
                             ))}
                           </div>
@@ -628,10 +678,11 @@ const PlansHierarchy = ({ statusFilter, excellentOnly, onFilteredCountChange }) 
               )}
             </h6>
             <div className="pl-plan-grid mt-3">
-              {selectedTeacher.plans.map((item) => (
+              {teacherPlans(selectedTeacher).map((item) => (
                 <PlanCard
                   key={item.id}
                   item={item}
+                  searchHit={hits ? hits.get(Number(item.id)) : null}
                   canEdit={canEditItem(item)}
                   canDelete={canDeleteItem(item)}
                   onDelete={onDelete}
