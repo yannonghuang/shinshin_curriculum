@@ -229,5 +229,6 @@ const en = {
   "总结": "Summary",
   "总结.zip": "Summary.zip",
   "课程整体的总结材料（总结报告、成果展示、照片、视频等），可新建文件夹、拖拽上传。": "Wrap-up materials for the whole course (summary report, showcase, photos, videos, etc.). Create folders and drag files in to upload.",
+  "上传文件夹": "Upload folder",
 };
 export default en;

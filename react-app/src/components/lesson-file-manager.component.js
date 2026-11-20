@@ -31,9 +31,12 @@ import { tr, LOCALE } from "../i18n";
 //    only upload path that can mix loose files and whole folders in one go --
 //    no browser's click-to-browse file dialog can do that (a dialog is locked
 //    into either multi-*file* mode or single-*folder* mode before it even
-//    opens, never both), so "上传" intentionally doesn't try to offer a
-//    folder option at all; it's plain multi-file only, see below.
-//  - "上传" -- a plain multi-file <input>, no folder mode.
+//    opens, never both), hence the two separate buttons below.
+//  - "上传" -- a plain multi-file <input>.
+//  - "上传文件夹" -- a webkitdirectory <input>: picks one folder, whose files
+//    arrive flat with a webkitRelativePath ("Top/sub/a.txt") that
+//    resolveRelativePath turns back into real (merged-if-existing) folders.
+//    Empty subfolders aren't reported by the browser, so they're not created.
 // Same-name handling (backend enforces nothing here -- it's a pure UX
 // courtesy, matching a real OS's copy-conflict dialog): a folder with the same
 // name as an existing sibling is merged into it (its contents uploaded into
@@ -164,6 +167,20 @@ const walkEntry = async (entry, parentFolderId, planId, lessonIndex, folderCache
   }
 };
 
+// For a "上传文件夹" pick: resolves every directory segment of a file's
+// webkitRelativePath (all but the last, which is the filename) under
+// parentFolderId, creating/merging folders through resolveFolder so the
+// shared folderCache keeps siblings from being created twice.
+const resolveRelativePath = async (relativePath, parentFolderId, planId, lessonIndex, folderCache, folderService) => {
+  const dirs = (relativePath || "").split("/").filter(Boolean).slice(0, -1);
+  let folderId = parentFolderId;
+  for (const name of dirs) {
+    // eslint-disable-next-line no-await-in-loop
+    folderId = await resolveFolder(name, folderId, planId, lessonIndex, folderCache, folderService);
+  }
+  return folderId;
+};
+
 // Image thumbnail for a file space whose download route requires auth (an
 // <img src> can't send the x-access-token header): fetches the bytes
 // through artifactService.download and shows them from a blob: URL.
@@ -239,6 +256,16 @@ const LessonFileManager = ({
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveDialogFolderId, setMoveDialogFolderId] = useState(null); // picker's own current folder
   const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
+  // webkitdirectory/directory are non-standard attributes React won't
+  // reliably pass through as props, so they're set on the DOM node directly.
+  const setFolderInput = useCallback((node) => {
+    folderInputRef.current = node;
+    if (node) {
+      node.setAttribute("webkitdirectory", "");
+      node.setAttribute("directory", "");
+    }
+  }, []);
 
   // download is a public (no-auth) GET route (artifact.routes.js /
   // material-artifact.routes.js alike), so this can be used directly as an
@@ -440,6 +467,35 @@ const LessonFileManager = ({
     const files = Array.from(e.target.files || []);
     e.target.value = ""; // allow re-picking the same file(s) again later
     await uploadResolvedFiles(files.map((file) => ({ file, folderId: currentFolderId })));
+  };
+
+  const handleFolderInputChange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0 || isUploading) return;
+    setMessage("");
+    try {
+      const folderCache = [...folders];
+      const toUpload = [];
+      // Sequential: a file's folders may be created by the file before it.
+      for (const file of files) {
+        // eslint-disable-next-line no-await-in-loop
+        const folderId = await resolveRelativePath(
+          file.webkitRelativePath || file.name,
+          currentFolderId,
+          planId,
+          lessonIndex,
+          folderCache,
+          folderService
+        );
+        toUpload.push({ file, folderId });
+      }
+      await uploadResolvedFiles(toUpload);
+    } catch (err) {
+      console.log(err);
+      setMessage(err?.response?.data?.message || tr("上传失败。"));
+      await refreshAll();
+    }
   };
 
   const startCreateFolder = () => {
@@ -850,6 +906,15 @@ const LessonFileManager = ({
                   <i className="fas fa-upload mr-1"></i>{tr("上传")}
                 </button>
                 <input ref={fileInputRef} type="file" multiple className="d-none" onChange={handleFileInputChange} />
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary mr-2"
+                  disabled={isUploading}
+                  onClick={() => folderInputRef.current && folderInputRef.current.click()}
+                >
+                  <i className="fas fa-folder-open mr-1"></i>{tr("上传文件夹")}
+                </button>
+                <input ref={setFolderInput} type="file" multiple className="d-none" onChange={handleFolderInputChange} />
               </>
             )}
             {canEdit && !isCreatingFolder && (
