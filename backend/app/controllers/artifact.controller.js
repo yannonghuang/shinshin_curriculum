@@ -34,14 +34,20 @@ const getPlanDirectory = (planId) => {
   return dir;
 };
 
+// NULL = plan-level (upload-mode 课程设计文件); 0 = the plan's 总结 file space
+// (SUMMARY_LESSON_INDEX); 1..N = that 课时's 支撑材料.
+const SUMMARY_LESSON_INDEX = 0;
+const SUMMARY_FOLDER_NAME = "summary";
+
 const normalizeLessonIndex = (lessonIndex) => {
   if (lessonIndex === undefined || lessonIndex === null || lessonIndex === "") return null;
   const n = Number(lessonIndex);
-  return Number.isInteger(n) && n > 0 ? n : null;
+  return Number.isInteger(n) && n >= 0 ? n : null;
 };
 
 const lessonFolderName = (lessonIndex) => {
   const n = normalizeLessonIndex(lessonIndex);
+  if (n === SUMMARY_LESSON_INDEX) return SUMMARY_FOLDER_NAME;
   return n ? `lesson-${n}` : null;
 };
 
@@ -196,6 +202,7 @@ const resolveCategoryFromPathParts = (parts) => {
 const resolveLessonIndexFromPathParts = (parts, categoryIndex) => {
   if (categoryIndex < 0 || categoryIndex >= parts.length - 2) return null;
   const candidate = parts[categoryIndex + 1];
+  if (candidate === SUMMARY_FOLDER_NAME) return SUMMARY_LESSON_INDEX;
   const m = LESSON_FOLDER_REGEX.exec(candidate);
   return m ? Number(m[1]) : null;
 };

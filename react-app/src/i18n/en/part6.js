@@ -226,5 +226,8 @@ const en = {
   "标为优秀": "Mark as excellent",
   "取消优秀": "Unmark excellent",
   "更新优秀标记失败。": "Failed to update the excellent mark.",
+  "总结": "Summary",
+  "总结.zip": "Summary.zip",
+  "课程整体的总结材料（总结报告、成果展示、照片、视频等），可新建文件夹、拖拽上传。": "Wrap-up materials for the whole course (summary report, showcase, photos, videos, etc.). Create folders and drag files in to upload.",
 };
 export default en;
