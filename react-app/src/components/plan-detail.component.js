@@ -635,6 +635,40 @@ const PLAN_SECTIONS = [
 // What the phone layout's bar over the content says is open (see
 // explorer-pane.js) -- the tree entry's own wording, with its 课时 where the
 // entry alone ("实施记录") wouldn't say which.
+// lessonIndex 0 = the plan's 总结 file space (backend artifact.controller.js#
+// SUMMARY_LESSON_INDEX); 1..N are the 课时' 支撑材料, NULL the legacy
+// upload-mode 课程设计文件. Not counted in 实施完成度 (planCompletion.js only
+// looks at 1..N), so no onFilesChange refresh.
+const SUMMARY_LESSON_INDEX = 0;
+
+const SummaryPane = ({ planId, canEdit, canDownload }) => (
+  <div className="pl-card">
+    <h6>{tr("总结")}</h6>
+    <p className="text-muted small mb-2">{tr("课程整体的总结材料（总结报告、成果展示、照片、视频等），可新建文件夹、拖拽上传。")}</p>
+    <LessonFileManager
+      planId={planId}
+      lessonIndex={SUMMARY_LESSON_INDEX}
+      canEdit={canEdit}
+      canDownload={canDownload}
+      zipFileName={tr("总结.zip")}
+    />
+  </div>
+);
+
+// Small components (not inline JSX) because PlanDetail sits at the
+// react-hooks path-count limit -- see ContentSwitch below.
+const SummaryLeaf = ({ active, onSelect }) => (
+  <button
+    type="button"
+    className={`pl-explorer-leaf pl-explorer-top-leaf ${active ? "is-active" : ""}`}
+    onClick={() => onSelect("summary")}
+  >
+    <i className="fas fa-cloud pl-folder-icon mr-1"></i> {tr("总结")}
+  </button>
+);
+
+const ContentSwitch = ({ type, summary, render }) => (type === "summary" ? summary : render());
+
 const paneLabelOf = (selected, anchorSections) => {
   const n = selected.key;
   switch (selected.type) {
@@ -654,6 +688,8 @@ const paneLabelOf = (selected, anchorSections) => {
       return tr("课时 {n} · 支撑材料", { n });
     case "executionReviews":
       return tr("实施整体点评");
+    case "summary":
+      return tr("总结");
     case "admin":
       return tr("管理");
     default:
@@ -771,6 +807,7 @@ const PlanDetail = (props) => {
     const view = new URLSearchParams((props.location && props.location.search) || "").get("view");
     if (view === "reviews") return { type: "plan", key: "reviews" };
     if (view === "executionReviews") return { type: "executionReviews" };
+    if (view === "summary") return { type: "summary" };
     return { type: "plan", key: "basic" };
   });
   // Lifted up from the two 整体点评 ReviewList widgets (design/implementation)
@@ -2078,6 +2115,11 @@ const PlanDetail = (props) => {
               )}
             </div>
 
+            {/* 总结: a plan-level cloud file space (LessonFileManager at
+                SUMMARY_LESSON_INDEX), for wrap-up materials that belong to
+                the whole course rather than one 课时. */}
+            <SummaryLeaf active={selected.type === "summary"} onSelect={select} />
+
             {isAdmin && (
               <button
                 type="button"
@@ -2092,7 +2134,13 @@ const PlanDetail = (props) => {
 
         <div className="pl-explorer-content">
           <ExplorerPaneBar label={paneLabelOf(selected, planAnchorSections)} onBack={pane.openNav} />
-          {renderContent()}
+          {/* 总结 is routed here rather than inside renderContent -- one more
+              branch there trips the react-hooks path-count false positive. */}
+          <ContentSwitch
+            type={selected.type}
+            summary={<SummaryPane planId={planId} canEdit={canEditPlan} canDownload={canDownloadPlan} />}
+            render={renderContent}
+          />
         </div>
       </div>
     </div>

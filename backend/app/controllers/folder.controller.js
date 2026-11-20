@@ -8,9 +8,12 @@ const Op = db.Sequelize.Op;
 
 const mustConfirm = (value) => value === true || value === "true" || value === "1";
 
+// 0 = the plan's 总结 file space; 1..N = that 课时's 支撑材料 (see
+// artifact.controller.js#SUMMARY_LESSON_INDEX).
 const normalizeLessonIndex = (lessonIndex) => {
+  if (lessonIndex === undefined || lessonIndex === null || lessonIndex === "") return null;
   const n = Number(lessonIndex);
-  return Number.isInteger(n) && n > 0 ? n : null;
+  return Number.isInteger(n) && n >= 0 ? n : null;
 };
 
 // Undefined -> "leave as-is" (caller decides the default); null/""/"root" -> root
@@ -57,8 +60,8 @@ exports.create = async (req, res) => {
     }
 
     const lessonIndex = normalizeLessonIndex(req.body.lessonIndex);
-    if (!lessonIndex) {
-      return res.status(422).send({ message: "lessonIndex 无效 -- 文件夹只能创建在某一课时的文件空间中。" });
+    if (lessonIndex === null) {
+      return res.status(422).send({ message: "lessonIndex 无效 -- 文件夹只能创建在某一课时或总结的文件空间中。" });
     }
 
     const name = (req.body.name || "").trim();
@@ -105,7 +108,7 @@ exports.findByPlan = async (req, res) => {
 
     const where = { planId };
     const lessonIndex = normalizeLessonIndex(req.query.lessonIndex);
-    if (!lessonIndex) {
+    if (lessonIndex === null) {
       return res.status(422).send({ message: "lessonIndex 无效。" });
     }
     where.lessonIndex = lessonIndex;

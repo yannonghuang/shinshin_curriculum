@@ -214,6 +214,8 @@ const LessonFileManager = ({
   docCategoryLabel = "实施记录文件",
   downloadUrlBase = "/api/artifacts",
   downloadRequiresAuth = false,
+  // Name for a folder-containing selection's zip; defaults by lessonIndex.
+  zipFileName,
   // Called after an upload or delete changes this space's files -- the Plan
   // caller uses it to refresh 实施完成度, which counts 支撑材料 per 课时.
   onFilesChange,
@@ -570,7 +572,10 @@ const LessonFileManager = ({
       const url = window.URL.createObjectURL(new Blob([resp.data], { type: "application/zip" }));
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", lessonIndex ? tr("课时{lessonIndex}-支撑材料.zip", { lessonIndex }) : tr("材料.zip"));
+      link.setAttribute(
+        "download",
+        zipFileName || (lessonIndex ? tr("课时{lessonIndex}-支撑材料.zip", { lessonIndex }) : tr("材料.zip"))
+      );
       document.body.appendChild(link);
       link.click();
       link.remove();

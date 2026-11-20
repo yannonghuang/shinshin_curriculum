@@ -53,7 +53,7 @@ module.exports = {
   "删除附件 id={0} 时发生错误。": "An error occurred while deleting file id={0}.",
   "未找到文件夹 id={0}。": "Folder id={0} not found.",
   "只能操作本人创建的乡土课程设计中的文件夹。": "You can only manage folders in your own course designs.",
-  "lessonIndex 无效 -- 文件夹只能创建在某一课时的文件空间中。": "Invalid lessonIndex: folders can only be created in a lesson's file space.",
+  "lessonIndex 无效 -- 文件夹只能创建在某一课时或总结的文件空间中。": "Invalid lessonIndex: folders can only be created in a lesson or summary file space.",
   "文件夹名称不能为空。": "Folder name is required.",
   "只能为本人创建的乡土课程设计新建文件夹。": "You can only create folders in your own course designs.",
   "parentFolderId 无效。": "Invalid parentFolderId.",

@@ -456,6 +456,11 @@ async function run() {
     await page.waitForTimeout(300);
     await shoot(page.locator(".pl-card").first(), "lesson-file-manager");
 
+    console.log("==> plan-detail: 总结 (课程整体文件空间)");
+    await page.locator(".pl-explorer-leaf", { hasText: "总结" }).first().click();
+    await page.waitForTimeout(500);
+    await shoot(page.locator(".pl-card").first(), "plan-summary");
+
     if (MANUAL_MIGRATION_PLAN_TITLE) {
       console.log("==> plan-detail: 手动迁移内容 板块 (真实的历史迁移遗留内容)");
       await openPlanByTitle(page, MANUAL_MIGRATION_PLAN_TITLE);
