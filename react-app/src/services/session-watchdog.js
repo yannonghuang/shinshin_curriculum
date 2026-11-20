@@ -31,8 +31,18 @@ const CHECK_INTERVAL_MS = 30 * 1000;
 // enough that an active user never gets near the auto-save window, rarely
 // enough that typing doesn't send a request per keystroke. Timer-driven
 // polls deliberately don't count (see auth-header.js#backgroundAuthHeader).
+//
+// Browsing counts too, not just typing/clicking: someone reading a long plan
+// moves the mouse, drags the scrollbar (no wheel event), or scrolls with
+// touch momentum, without ever pressing a key -- and was getting logged out
+// mid-read. pointermove/scroll (captured, so scrolls of inner panes like the
+// explorer content count as well), IME "input" (Chinese typing), focus and
+// back/forward navigation are all activity now. Several of these fire very
+// often, so onActivity is throttled to one look per ACTIVITY_THROTTLE_MS
+// before it even reads localStorage.
 const RENEW_AFTER_SECONDS = 5 * 60;
-const ACTIVITY_EVENTS = ["keydown", "pointerdown", "wheel", "touchstart"];
+const ACTIVITY_THROTTLE_MS = 15 * 1000;
+const ACTIVITY_EVENTS = ["keydown", "input", "pointerdown", "pointermove", "wheel", "scroll", "touchstart", "focus", "popstate"];
 
 // How long before expiry to auto-save unsaved edits (see
 // utils/sessionExpiryGuard.js) -- has to be comfortably wider than the check
@@ -82,8 +92,12 @@ const startSessionWatchdog = () => {
   };
 
   let renewing = false;
+  let lastActivityCheck = 0;
   const onActivity = () => {
     if (renewing || autoSaving) return;
+    const nowMs = Date.now();
+    if (nowMs - lastActivityCheck < ACTIVITY_THROTTLE_MS) return;
+    lastActivityCheck = nowMs;
     const user = AuthService.getCurrentUser();
     if (!user || !AuthService.isValid() || !user.thisLogin) return;
     if (Math.floor(Date.now() / 1000) - user.thisLogin < RENEW_AFTER_SECONDS) return;
@@ -101,7 +115,10 @@ const startSessionWatchdog = () => {
   // alone can lag well past the real expiry -- check immediately when the
   // tab comes back into view, and when another tab changes the session.
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") check();
+    if (document.visibilityState === "visible") {
+      check();
+      onActivity();
+    }
   });
   window.addEventListener("storage", (e) => {
     if (e.key === "user" || e.key === null) check();
