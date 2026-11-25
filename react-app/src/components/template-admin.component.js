@@ -7,6 +7,7 @@ import PlanCard from "./plan-card.component";
 import { PLAN_DELETE_CONFIRM } from "../constants/plan-options";
 import "../curriculum.css";
 import { tr, LOCALE } from "../i18n";
+import { watchPreviewWindow } from "../services/session-watchdog";
 
 const TEMPLATE_KEYS = [
   { key: "plan_design", label: tr("课程设计方案模板（WHY/WHAT/HOW）") },
@@ -285,7 +286,7 @@ const TemplateAdmin = () => {
   const handlePreview = async (templateKey, version) => {
     setMessage("");
     const label = version.sourceFileName || `${templateKey}-v${version.version}.docx`;
-    const win = window.open("", "_blank");
+    const win = watchPreviewWindow(window.open("", "_blank"));
     if (win) win.document.write(`<title>${tr("预览：")}${label}</title><body>${tr("预览加载中...")}</body>`);
     try {
       const resp = await TemplateDataService.download(templateKey, version.id);

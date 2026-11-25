@@ -51,6 +51,68 @@ const ACTIVITY_EVENTS = ["keydown", "input", "pointerdown", "pointermove", "whee
 // can slip by between two checks.
 const AUTO_SAVE_LEAD_SECONDS = 120;
 
+// Both of the above are tuned for the production 30-minute window, but are
+// capped at a sixth of whatever validity the server actually issued -- with
+// a short JWT_VALIDITY (e.g. 120s, to test the timeout without waiting half
+// an hour) a fixed 5-minute renew threshold would never be reached before
+// expiry, so even a busy user would be logged out. For 1800s both stay as is.
+const renewAfterSeconds = (user) => Math.min(RENEW_AFTER_SECONDS, (user.validity || Infinity) / 6);
+const autoSaveLeadSeconds = (user) => Math.min(AUTO_SAVE_LEAD_SECONDS, (user.validity || Infinity) / 6);
+
+// A ping that never comes back (network dropped mid-request, laptop slept)
+// used to leave `renewing` stuck at true forever, silently disabling renewal
+// for the rest of that tab's life -- the user then got logged out 30 minutes
+// later however busy they were. A ping is tiny; give up on it after this.
+const PING_TIMEOUT_MS = 20 * 1000;
+
+// File previews (lesson file manager, design/execution doc, templates) open
+// in a separate tab: window.open("") then document.write / a blob: URL. A
+// teacher reading a PDF or docx there for a while is browsing, but none of
+// that tab's events reach this one -- so on returning to the app they were
+// logged out. Windows registered here are watched from this tab: their own
+// input events count (listeners re-attached whenever the window's document
+// changes, since document.open and navigating to the blob replace it), and
+// for a PDF/video/audio, whose built-in viewer swallows input, the preview
+// being the focused window counts. Same-origin only (blank + blob: are);
+// anything else just throws and is skipped.
+const PREVIEW_POLL_MS = 5 * 1000;
+const FOCUS_COUNTS_TYPES = /^(application\/pdf|video\/|audio\/)/;
+const previewWindows = new Set();
+let notifyActivity = () => {};
+let previewPoll = null;
+
+const pollPreviewWindows = () => {
+  previewWindows.forEach((win) => {
+    try {
+      if (win.closed) {
+        previewWindows.delete(win);
+        return;
+      }
+      const doc = win.document;
+      const root = doc && doc.documentElement;
+      if (root && !root.__sessionWatchdog) {
+        root.__sessionWatchdog = true;
+        ACTIVITY_EVENTS.forEach((type) => doc.addEventListener(type, () => notifyActivity(), { capture: true, passive: true }));
+      }
+      if (FOCUS_COUNTS_TYPES.test(doc.contentType || "") && doc.hasFocus()) notifyActivity();
+    } catch (e) {
+      previewWindows.delete(win); // cross-origin or gone
+    }
+  });
+  if (!previewWindows.size && previewPoll) {
+    clearInterval(previewPoll);
+    previewPoll = null;
+  }
+};
+
+export const watchPreviewWindow = (win) => {
+  if (!win) return win;
+  previewWindows.add(win);
+  pollPreviewWindows();
+  if (!previewPoll) previewPoll = setInterval(pollPreviewWindows, PREVIEW_POLL_MS);
+  return win;
+};
+
 const secondsUntilExpiry = (user) => {
   if (!user.thisLogin || !user.validity) return Infinity;
   return user.thisLogin + user.validity - Math.floor(Date.now() / 1000);
@@ -74,7 +136,7 @@ const startSessionWatchdog = () => {
       hadUser = true;
       if (!AuthService.isValid()) {
         clearSessionAndRedirectToLogin();
-      } else if (secondsUntilExpiry(user) <= AUTO_SAVE_LEAD_SECONDS && hasUnsavedWork()) {
+      } else if (secondsUntilExpiry(user) <= autoSaveLeadSeconds(user) && hasUnsavedWork()) {
         // Save while the token still works, then end the session anyway --
         // the save itself renews the token (it's a request like any other),
         // but an idle user's session should still time out on schedule
@@ -100,15 +162,16 @@ const startSessionWatchdog = () => {
     lastActivityCheck = nowMs;
     const user = AuthService.getCurrentUser();
     if (!user || !AuthService.isValid() || !user.thisLogin) return;
-    if (Math.floor(Date.now() / 1000) - user.thisLogin < RENEW_AFTER_SECONDS) return;
+    if (Math.floor(Date.now() / 1000) - user.thisLogin < renewAfterSeconds(user)) return;
     renewing = true;
-    AuthService.ping()
+    AuthService.ping({ timeout: PING_TIMEOUT_MS })
       .catch(() => {}) // a 401 is already handled by the renewal interceptor
       .finally(() => {
         renewing = false;
       });
   };
   ACTIVITY_EVENTS.forEach((type) => window.addEventListener(type, onActivity, { capture: true, passive: true }));
+  notifyActivity = onActivity;
 
   setInterval(check, CHECK_INTERVAL_MS);
   // Background tabs get their timers heavily throttled, so the interval
