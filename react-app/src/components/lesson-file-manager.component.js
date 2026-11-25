@@ -4,6 +4,7 @@ import mammoth from "mammoth/mammoth.browser";
 import ArtifactDataService from "../services/artifact.service";
 import FolderDataService from "../services/folder.service";
 import { tr, LOCALE } from "../i18n";
+import { watchPreviewWindow } from "../services/session-watchdog";
 
 // A "mini cloud file system" for one 课时's 实施记录 file space (Google-Drive-
 // style: whole panel is the drop target, real user-created folders, list/icon
@@ -570,7 +571,7 @@ const LessonFileManager = ({
     const mime = artifact.attachmentMime || "application/octet-stream";
     const isDocx = ext === "docx" || mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-    const win = window.open("", "_blank");
+    const win = watchPreviewWindow(window.open("", "_blank"));
     if (win) win.document.write("<title>" + tr("预览：") + artifact.attachmentName + "</title><body>" + tr("预览加载中...") + "</body>");
     try {
       const resp = await artifactService.download(artifact.id);

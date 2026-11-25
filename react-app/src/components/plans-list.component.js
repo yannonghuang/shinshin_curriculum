@@ -10,6 +10,7 @@ import TrashButton, { announceTrashChanged } from "./trash-button.component";
 import { PLAN_THEMES, PLAN_GRADES, PLAN_DELETE_CONFIRM, currentSeason } from "../constants/plan-options";
 import "../curriculum.css";
 import { tr } from "../i18n";
+import { watchPreviewWindow } from "../services/session-watchdog";
 
 // See showListControls.
 const SMALL_LIST_THRESHOLD = 5;
@@ -246,7 +247,7 @@ const PlansList = (props) => {
   // Same pattern as plan-detail.component.js's DesignDocPanel#handlePreview.
   const previewTemplateFile = async (templateKey) => {
     const label = templateKey === "plan_design" ? tr("乡土课程设计方案模版") : tr("乡土课程实施记录模版");
-    const win = window.open("", "_blank");
+    const win = watchPreviewWindow(window.open("", "_blank"));
     if (win) win.document.write(`<title>${tr("预览：")}${label}</title><body>${tr("预览加载中...")}</body>`);
     try {
       const blankResp = await TemplateDataService.downloadBlank(templateKey);

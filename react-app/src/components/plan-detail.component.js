@@ -16,6 +16,7 @@ import { registerCopilotSaveHandler } from "../utils/copilotSaveGuard";
 import "../curriculum.css";
 import { useExplorerPane, ExplorerPaneBar, isPaneSwitch } from "./explorer-pane";
 import { tr } from "../i18n";
+import { watchPreviewWindow } from "../services/session-watchdog";
 
 // True if an answers object (shaped like planFormData/one executionFormData
 // record) has at least one non-empty field, across however many sections the
@@ -333,7 +334,7 @@ const DesignDocPanel = ({ planId, plan, canEdit, onUploadComplete }) => {
   const handlePreview = async () => {
     setMessage("");
     setWorking("preview");
-    const win = window.open("", "_blank");
+    const win = watchPreviewWindow(window.open("", "_blank"));
     if (win) win.document.write(`<title>${tr("预览：")}${fileName()}</title><body>${tr("预览加载中...")}</body>`);
     try {
       const data = await fetchDesignDocBuffer();
@@ -500,7 +501,7 @@ const LessonExecutionDocPanel = ({ planId, lessonIndex, plan, canEdit, onUploadC
   const handlePreview = async () => {
     setMessage("");
     setWorking("preview");
-    const win = window.open("", "_blank");
+    const win = watchPreviewWindow(window.open("", "_blank"));
     if (win) win.document.write(`<title>${tr("预览：")}${fileName()}</title><body>${tr("预览加载中...")}</body>`);
     try {
       const data = await fetchExecutionDocBuffer();
